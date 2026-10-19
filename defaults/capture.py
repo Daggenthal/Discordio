@@ -164,6 +164,15 @@ PLUGIN_FILES = {
 }
 
 
+def unresolved_libs(path):
+    """Every shared library `path` needs that can't be found, not just the first."""
+    try:
+        r = subprocess.run(["ldd", path], capture_output=True, text=True, timeout=10)
+        return sorted({l.split("=>")[0].strip() for l in r.stdout.splitlines() if "not found" in l})
+    except Exception:
+        return []
+
+
 def explain_missing(names):
     """For each missing element: the plugin file, and the error loading it."""
     dirs = [d for d in (os.environ.get("GST_PLUGIN_SYSTEM_PATH_1_0", "") + ":" +
@@ -189,6 +198,9 @@ def explain_missing(names):
             out[name] = f"{fname} loaded directly (the plugin cache was stale)"
         except Exception as e:
             out[name] = f"{fname} won't load: {getattr(e, 'message', e)}"
+            gone = unresolved_libs(path)
+            if gone:
+                out[name] += f" (all missing libraries: {', '.join(gone)})"
     return out
 
 
