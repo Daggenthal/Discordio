@@ -27,7 +27,8 @@ restart_decky() {
 
 cmd_install() {
     local zip="${1:-}"
-    [[ -f "$zip" ]] || { echo "usage: $0 install path/to/Discordio.zip"; exit 1; }
+    [[ -f "$zip" ]] || { echo "Zip not found: '$zip'"; echo "usage: $0 install path/to/Discordio.zip"; ls -la "$HOME/Downloads" | grep -i discordio || true; exit 1; }
+    say "Using $zip"
 
     # Deckcord and Discordio use the same local ports and window globals, so
     # only one of them can run at a time.
@@ -55,6 +56,14 @@ cmd_install() {
     sudo rm -rf "$PLUGINS/$NAME"
     sudo mkdir -p "$PLUGINS"
     sudo cp -r "$src" "$PLUGINS/$NAME"
+
+    # Verify before restarting, so a failed copy can't look like a success.
+    if [[ ! -f "$PLUGINS/$NAME/plugin.json" || ! -f "$PLUGINS/$NAME/dist/index.js" ]]; then
+        echo "Install FAILED: files did not end up in $PLUGINS/$NAME"
+        sudo ls -la "$PLUGINS/$NAME" 2>&1 || true
+        exit 1
+    fi
+    say "Installed $(grep -m1 '"version"' "$PLUGINS/$NAME/package.json" | tr -d ' ,')"
     restart_decky
 }
 
