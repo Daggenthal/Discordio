@@ -99,6 +99,11 @@ class Plugin:
             d.mkdir(parents=True, exist_ok=True)
         cls.settings = Settings(SETTINGS_DIR)
         cls.messages = Messages(cls.settings)
+        # One-time reset to 720p: the resolution slider was stuck at 480p,
+        # its lowest position; starting mid-range shows whether it moves.
+        _s = cls.settings.load()
+        if not _s.get("resolution_reset_v1"):
+            cls.settings.update(stream_resolution="720", resolution_reset_v1=True)
         cls.screenshots = Screenshots(system.session_user(decky)[2])
         cls.bridge = Bridge(log)
         cls.bridge.on("hello", cls._on_hello)

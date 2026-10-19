@@ -47,7 +47,33 @@ export function ChoiceSlider<T>({
     [choices.map((c) => c.short).join("|")]
   );
   const current = choices[index];
+
+  // Raw input reaching this slider: Steam sends controller presses to the
+  // focused element as vgp_* DOM events. Logged to tell "presses never
+  // arrive" apart from "presses arrive but the slider ignores them".
+  const wrap = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = wrap.current;
+    if (!el) return;
+    const btn = (e: any) => logSlider(label, `input: button ${e?.detail?.button ?? "?"}`);
+    const dir = (e: any) => logSlider(label, `input: direction ${e?.detail?.button ?? e?.detail?.direction ?? "?"}`);
+    const focus = () => logSlider(label, "selected");
+    const blur = () => logSlider(label, "unselected");
+    el.addEventListener("vgp_onbuttondown", btn);
+    el.addEventListener("vgp_ondirection", dir);
+    el.addEventListener("focusin", focus);
+    el.addEventListener("focusout", blur);
+    return () => {
+      el.removeEventListener("vgp_onbuttondown", btn);
+      el.removeEventListener("vgp_ondirection", dir);
+      el.removeEventListener("focusin", focus);
+      el.removeEventListener("focusout", blur);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   return (
+    <div ref={wrap} style={{ width: "100%" }}>
     <SliderField
       label={`${label}: ${current?.label ?? current?.short ?? ""}`}
       description={description}
@@ -68,5 +94,6 @@ export function ChoiceSlider<T>({
         if (c && c.value !== value) onChange(c.value);
       }}
     />
+    </div>
   );
 }

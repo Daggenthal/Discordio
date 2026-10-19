@@ -136,7 +136,7 @@ export function DiagnosticsPanel() {
               <div style={small}>
                 <b>Slider log</b> (newest last)
                 {getSliderLog()
-                  .slice(-10)
+                  .slice(-16)
                   .map((e, i) => (
                     <div key={i} style={{ opacity: 0.85 }}>
                       {new Date(e.t).toLocaleTimeString()} {e.slider}: {e.what}
