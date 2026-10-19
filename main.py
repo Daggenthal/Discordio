@@ -34,7 +34,7 @@ from tab_utils.tab import (
     boot_discord,
     setOSK,
 )
-from tab_utils.cdp import Tab, get_tab
+from tab_utils.cdp import Tab, get_tab, get_tabs
 from discord_client.event_handler import EventHandler
 
 logger.setLevel(INFO)
@@ -48,7 +48,7 @@ LEGACY_PRESETS = {
     "720p30": ("720", 30), "720p60": ("720", 60), "1080p30": ("1080", 30),
     "1080p60": ("1080", 60), "1440p60": ("1440", 60), "source": ("source", 60),
 }
-DEFAULTS = {"stream_resolution": "720", "stream_fps": 30, "overlay_enabled": True, "overlay_position": "top-left"}
+DEFAULTS = {"stream_resolution": "720", "stream_fps": 30, "overlay_enabled": True, "overlay_position": "top-left", "overlay_engine": "auto"}
 OVERLAY_POSITIONS = {"top-left", "top-right", "bottom-left", "bottom-right"}
 RELEASES_API = "https://api.github.com/repos/Daggenthal/Discordio/releases?per_page=20"
 
@@ -304,52 +304,148 @@ class Plugin:
                 continue
         return {"DISPLAY": ":0"}
 
+    @staticmethod
+    def _mangoapp_running():
+        """Steam's performance overlay runs as mangoapp while it's shown."""
+        for pid in os.listdir("/proc"):
+            if pid.isdigit():
+                try:
+                    with open(f"/proc/{pid}/comm") as f:
+                        if f.read().strip() == "mangoapp":
+                            return True
+                except Exception:
+                    pass
+        return False
+
+    @classmethod
+    def _active_engine(cls, settings=None):
+        """
+        gamescope composites only ONE external overlay, and Steam's performance
+        overlay (MangoHud's mangoapp) uses it. "auto" therefore draws inside
+        Steam's own overlay layer while the performance overlay is up, and
+        uses the gamescope overlay otherwise.
+        """
+        s = settings or load_settings()
+        if not s.get("overlay_enabled", True):
+            return None
+        engine = s.get("overlay_engine", "auto")
+        if engine == "auto":
+            return "steam" if cls._mangoapp_running() else "gamescope"
+        return engine if engine in ("gamescope", "steam") else "gamescope"
+
     @classmethod
     async def _run_overlay(cls):
-        """Keep the overlay process running while it's enabled. Never raises."""
-        failures = 0
+        """Start/stop the right overlay engine as settings and mangoapp change. Never raises."""
+        failures, retry_at = 0, 0.0
+        create_task(cls._run_steam_layer())
         while True:
             try:
-                if not load_settings().get("overlay_enabled", True):
+                active = cls._active_engine()
+                proc = cls.overlay_proc
+                running = proc is not None and proc.returncode is None
+                if active == "gamescope":
+                    if not running and time.monotonic() >= retry_at:
+                        await cls._start_gamescope_overlay()
+                elif running:
+                    # Free gamescope's overlay slot (e.g. for the performance overlay).
+                    await cls._stop_overlay()
+                if active is None:
                     cls.overlay_status = "off"
-                    await sleep(2)
-                    continue
-                python = "/usr/bin/python" if os.path.exists("/usr/bin/python") else (which("python3") or "python3")
-                env = {
-                    **user_env(),
-                    **cls._steam_display(),
-                    "PATH": "/usr/bin:/bin",
-                    "DISCORDIO_CACHE": str(RUNTIME_DIR / "avatars"),
-                    "PYTHONUNBUFFERED": "1",
-                }
-                cls.overlay_status = f"running on {env['DISPLAY']}"
-                logger.info(f"Starting overlay on DISPLAY={env['DISPLAY']}")
-                started = time.monotonic()
-                cls.overlay_proc = await create_subprocess_exec(
-                    python, str(Path(DECKY_PLUGIN_DIR) / "overlay.py"),
-                    env=env, stdout=PIPE, stderr=STDOUT,
-                )
-                last = ""
-                async for line in cls.overlay_proc.stdout:
-                    last = line.decode("utf-8", "replace").rstrip()
-                    if last:
-                        logger.info(last if last.startswith("[overlay]") else "[overlay] " + last)
-                code = await cls.overlay_proc.wait()
-                cls.overlay_proc = None
-                if code in (0, -15):
-                    await sleep(1)
-                    continue
-                failures = failures + 1 if time.monotonic() - started < 30 else 1
-                cls.overlay_status = f"stopped (exit {code}): {last[-160:]}"
-                logger.warning(f"Overlay exited with {code}")
-                # Back off so a missing library doesn't spin forever.
-                await sleep(min(60, 3 * failures))
+                elif active == "steam":
+                    cls.overlay_status = cls.steam_layer_status
+                proc = cls.overlay_proc
+                if proc is not None and proc.returncode is not None:
+                    code = proc.returncode
+                    cls.overlay_proc = None
+                    if code not in (0, -15) and active == "gamescope":
+                        failures += 1
+                        retry_at = time.monotonic() + min(60, 3 * failures)
+                        cls.overlay_status = f"stopped (exit {code}): {cls.overlay_last_line[-160:]}"
+                        logger.warning(f"Overlay exited with {code}")
+                elif proc is not None:
+                    failures = 0
+                await sleep(1)
             except CancelledError:
                 raise
             except Exception as e:
                 cls.overlay_status = f"error: {e}"
                 logger.error("Overlay manager:\n" + format_exc())
-                await sleep(10)
+                await sleep(5)
+
+    overlay_last_line = ""
+
+    @classmethod
+    async def _start_gamescope_overlay(cls):
+        python = "/usr/bin/python" if os.path.exists("/usr/bin/python") else (which("python3") or "python3")
+        env = {
+            **user_env(),
+            **cls._steam_display(),
+            "PATH": "/usr/bin:/bin",
+            "DISCORDIO_CACHE": str(RUNTIME_DIR / "avatars"),
+            "PYTHONUNBUFFERED": "1",
+        }
+        cls.overlay_status = f"running on {env['DISPLAY']}"
+        logger.info(f"Starting gamescope overlay on DISPLAY={env['DISPLAY']}")
+        cls.overlay_proc = await create_subprocess_exec(
+            python, str(Path(DECKY_PLUGIN_DIR) / "overlay.py"),
+            env=env, stdout=PIPE, stderr=STDOUT,
+        )
+
+        async def pump(proc):
+            async for line in proc.stdout:
+                text = line.decode("utf-8", "replace").rstrip()
+                if text:
+                    cls.overlay_last_line = text
+                    logger.info(text if text.startswith("[overlay]") else "[overlay] " + text)
+            await proc.wait()
+
+        create_task(pump(cls.overlay_proc))
+
+    # ---- "Steam layer" engine: drawn inside Steam's own overlay window ----
+
+    STEAM_LAYER_TABS = ("notificationtoasts",)
+    steam_layer_status = "waiting for Steam's overlay window"
+    steam_layer_tabs = set()
+
+    @classmethod
+    async def _run_steam_layer(cls):
+        script = None
+        stop = "window.__discordioOverlayStop ? window.__discordioOverlayStop() : 'not running'"
+        while True:
+            try:
+                if script is None:
+                    script = (Path(DECKY_PLUGIN_DIR) / "overlay_web.js").read_text()
+                want = cls._active_engine() == "steam"
+                tabs = [t for t in await get_tabs() if t.title.lower().startswith(cls.STEAM_LAYER_TABS)]
+                injected = set()
+                for tab in tabs:
+                    try:
+                        await tab.open_websocket()
+                        try:
+                            if want:
+                                _, err = await tab.evaluate_value(script)
+                                if err:
+                                    raise RuntimeError(err)
+                                injected.add(tab.title)
+                            elif tab.title in cls.steam_layer_tabs:
+                                await tab.evaluate_value(stop)
+                        finally:
+                            await tab.close_websocket()
+                    except Exception as e:
+                        logger.warning(f"Steam-layer overlay on {tab.title}: {e}")
+                if want:
+                    if injected != cls.steam_layer_tabs:
+                        logger.info(f"Steam-layer overlay in: {sorted(injected) or 'nothing'}")
+                    cls.steam_layer_status = (
+                        f"running in Steam's overlay ({len(injected)} window{'s' if len(injected) != 1 else ''})"
+                        if injected else "waiting for Steam's overlay window"
+                    )
+                cls.steam_layer_tabs = injected if want else set()
+            except CancelledError:
+                raise
+            except Exception as e:
+                cls.steam_layer_status = f"error: {e}"
+            await sleep(3)
 
     @classmethod
     async def _stop_overlay(cls):
@@ -369,8 +465,9 @@ class Plugin:
             "settings": {
                 "overlay_enabled": settings.get("overlay_enabled", True),
                 "overlay_position": settings.get("overlay_position", "top-left"),
+                "overlay_engine_active": cls._active_engine(settings),
             },
-        })
+        }, headers={"Access-Control-Allow-Origin": "*", "Cache-Control": "no-store"})
 
     @classmethod
     async def get_overlay_settings(cls):
@@ -378,12 +475,16 @@ class Plugin:
         return {
             "enabled": s.get("overlay_enabled", True),
             "position": s.get("overlay_position", "top-left"),
+            "engine": s.get("overlay_engine", "auto"),
+            "active": cls._active_engine(s),
             "status": cls.overlay_status,
         }
 
     @classmethod
-    async def set_overlay_settings(cls, enabled=None, position=None):
+    async def set_overlay_settings(cls, enabled=None, position=None, engine=None):
         s = load_settings()
+        if engine in ("auto", "gamescope", "steam"):
+            s["overlay_engine"] = engine
         if enabled is not None:
             s["overlay_enabled"] = bool(enabled)
         if position in OVERLAY_POSITIONS:
