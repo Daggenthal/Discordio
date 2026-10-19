@@ -7,6 +7,7 @@ import {
   sleep,
   Focusable,
   ButtonItem,
+  ToggleField,
 } from "@decky/ui";
 import { FaDiscord } from "react-icons/fa";
 
@@ -23,6 +24,7 @@ import { ServersPanel, FriendsPanel } from "./components/BrowsePanels";
 import { UpdatePanel } from "./components/UpdatePanel";
 import { OverlayPanel } from "./components/OverlayPanel";
 import { SafeSection } from "./components/SafeSection";
+import { useUiSettings, setUiSetting } from "./lib/settings";
 import { useState } from "react";
 import { UploadScreenshot } from "./components/UploadScreenshot";
 import { OpenDiscordButton } from "./components/buttons/OpenCloseDiscordButton";
@@ -75,23 +77,10 @@ const Status = ({ state }: { state: any }) => {
   return null;
 };
 
-// Open by default; remembers if you collapse it.
-const Collapsible = ({ title, children, defaultOpen = true }: { title: string; children: any; defaultOpen?: boolean }) => {
-  const key = `DISCORDIO_SECTION_${title.toUpperCase()}`;
-  const [open, setOpenState] = useState(() => {
-    try {
-      const v = localStorage.getItem(key);
-      return v === null ? defaultOpen : v === "1";
-    } catch (_) {
-      return defaultOpen;
-    }
-  });
-  const setOpen = (v: boolean) => {
-    setOpenState(v);
-    try {
-      localStorage.setItem(key, v ? "1" : "0");
-    } catch (_) {}
-  };
+// Starts expanded or collapsed according to the "auto-open" setting each time
+// the QAM is opened; the button toggles it for the current view.
+const Collapsible = ({ title, children, defaultOpen }: { title: string; children: any; defaultOpen: boolean }) => {
+  const [open, setOpen] = useState(defaultOpen);
   return (
     <PanelSection title={title}>
       <PanelSectionRow>
@@ -104,8 +93,33 @@ const Collapsible = ({ title, children, defaultOpen = true }: { title: string; c
   );
 };
 
+const SettingsPanel = () => {
+  const ui = useUiSettings();
+  return (
+    <PanelSection title="Settings">
+      <PanelSectionRow>
+        <ToggleField
+          label="Auto-open Servers"
+          description="Show the server list expanded when you open Discordio"
+          checked={ui.autoOpenServers}
+          onChange={(v) => setUiSetting("autoOpenServers", v)}
+        />
+      </PanelSectionRow>
+      <PanelSectionRow>
+        <ToggleField
+          label="Auto-open Friends"
+          description="Show the friends list expanded when you open Discordio"
+          checked={ui.autoOpenFriends}
+          onChange={(v) => setUiSetting("autoOpenFriends", v)}
+        />
+      </PanelSectionRow>
+    </PanelSection>
+  );
+};
+
 const Content = () => {
   const state = useDeckcordState();
+  const ui = useUiSettings();
   const ready = state?.loaded && state?.logged_in;
 
   return (
@@ -151,10 +165,10 @@ const Content = () => {
           <PanelSection title="Overlay">
             <SafeSection name="Overlay"><OverlayPanel /></SafeSection>
           </PanelSection>
-          <Collapsible title="Servers">
+          <Collapsible title="Servers" defaultOpen={ui.autoOpenServers}>
             <SafeSection name="Servers"><ServersPanel /></SafeSection>
           </Collapsible>
-          <Collapsible title="Friends">
+          <Collapsible title="Friends" defaultOpen={ui.autoOpenFriends}>
             <SafeSection name="Friends"><FriendsPanel /></SafeSection>
           </Collapsible>
           <PanelSection title="Screenshots">
@@ -164,6 +178,7 @@ const Content = () => {
           </PanelSection>
         </>
       )}
+      <SafeSection name="Settings"><SettingsPanel /></SafeSection>
       <PanelSection title="Updates">
         <SafeSection name="Updates"><UpdatePanel /></SafeSection>
       </PanelSection>
