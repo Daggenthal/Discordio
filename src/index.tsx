@@ -75,13 +75,28 @@ const Status = ({ state }: { state: any }) => {
   return null;
 };
 
-const Collapsible = ({ title, children, defaultOpen = false }: { title: string; children: any; defaultOpen?: boolean }) => {
-  const [open, setOpen] = useState(defaultOpen);
+// Open by default; remembers if you collapse it.
+const Collapsible = ({ title, children, defaultOpen = true }: { title: string; children: any; defaultOpen?: boolean }) => {
+  const key = `DISCORDIO_SECTION_${title.toUpperCase()}`;
+  const [open, setOpenState] = useState(() => {
+    try {
+      const v = localStorage.getItem(key);
+      return v === null ? defaultOpen : v === "1";
+    } catch (_) {
+      return defaultOpen;
+    }
+  });
+  const setOpen = (v: boolean) => {
+    setOpenState(v);
+    try {
+      localStorage.setItem(key, v ? "1" : "0");
+    } catch (_) {}
+  };
   return (
     <PanelSection title={title}>
       <PanelSectionRow>
         <ButtonItem layout="below" onClick={() => setOpen(!open)}>
-          {open ? `Hide ${title.toLowerCase()}` : `Show ${title.toLowerCase()}`}
+          {open ? `Collapse ${title.toLowerCase()}` : `Show ${title.toLowerCase()}`}
         </ButtonItem>
       </PanelSectionRow>
       {open && children}
