@@ -260,12 +260,22 @@
         return null;
     }
     const visible = (el) => !!(el && (el.offsetParent !== null || el.getClientRects().length));
+    // The Discord view is usually hidden, so a button can be in the page
+    // without being "visible": prefer visible matches, else take any.
     function findButton(pattern, root) {
-        const els = [...(root || document).querySelectorAll("button, [role=button]")];
-        return els.find((el) => {
+        const els = [...(root || document).querySelectorAll("button, [role=button]")].filter((el) => {
             const label = el.getAttribute("aria-label") || el.textContent || "";
-            return pattern.test(label.trim()) && !el.disabled && el.getAttribute("aria-disabled") !== "true" && visible(el);
-        }) || null;
+            return pattern.test(label.trim()) && !el.disabled && el.getAttribute("aria-disabled") !== "true";
+        });
+        return els.find(visible) || els[0] || null;
+    }
+    function similarButtons() {
+        const labels = new Set();
+        for (const el of document.querySelectorAll("button[aria-label], [role=button][aria-label]")) {
+            const l = el.getAttribute("aria-label");
+            if (/screen|stream|live|share|camera|activity/i.test(l)) labels.add(l);
+        }
+        return [...labels].slice(0, 12).join(", ") || "none";
     }
     const dialogs = () => [...document.querySelectorAll("[role=dialog], [class*=modal]")];
 
@@ -273,7 +283,7 @@
         const before = window.DISCORDIO.captureRequests || 0;
         const captured = () => (window.DISCORDIO.captureRequests || 0) !== before;
         const share = findButton(/^(share (your )?screen|go live)/i);
-        if (!share) { tried.push("ui: Share Screen button not found"); return null; }
+        if (!share) { tried.push(`ui: Share Screen button not found (similar buttons: ${similarButtons()})`); return null; }
         log(`Go Live: pressing "${share.getAttribute("aria-label") || share.textContent.trim()}"`);
         share.click();
         if (await waitFor(captured, 2500)) return { method: "ui" };
@@ -291,6 +301,28 @@
         if (await waitFor(captured, 8000)) return { method: "ui+dialog" };
         tried.push("ui: Discord didn't ask for the screen after Go Live");
         return null;
+    }
+
+    function setGoLiveSource(quality) {
+        const q = quality || {};
+        const height = q.resolution === "source" ? 1080 : Number(q.resolution) || 720;
+        const fps = Number(q.fps) || 30;
+        const settings = {
+            desktopSettings: { sourceId: "screen:0:0", sound: true },
+            qualityOptions: { preset: 3, resolution: height, frameRate: fps },
+            context: "stream",
+        };
+        const a = props("setGoLiveSource");
+        if (a && a.setGoLiveSource) {
+            try { a.setGoLiveSource(settings); return "setGoLiveSource"; } catch (e) { warn("setGoLiveSource", e); }
+        }
+        try {
+            const M = store("MediaEngineStore");
+            const engine = M && M.getMediaEngine && M.getMediaEngine();
+            if (engine && engine.setGoLiveSource) { engine.setGoLiveSource(settings, "stream"); return "engine"; }
+        } catch (e) { warn("engine.setGoLiveSource", e); }
+        dispatch({ type: "MEDIA_ENGINE_SET_GO_LIVE_SOURCE", settings });
+        return "dispatch";
     }
 
     async function goLive(stop, quality) {
@@ -311,8 +343,15 @@
                 if (fn) {
                     const ch = C().ChannelStore.getChannel(vc);
                     const before = window.DISCORDIO.captureRequests || 0;
+                    const captured = () => (window.DISCORDIO.captureRequests || 0) !== before;
                     await fn((ch && ch.guild_id) || null, vc, "Activity Panel");
-                    if (await waitFor(() => (window.DISCORDIO.captureRequests || 0) !== before, 5000)) return { method: "action" };
+                    if (await waitFor(captured, 2500)) return { method: "action" };
+                    // What the Share Screen button does besides starting the
+                    // stream: give Discord's media engine a source, which makes
+                    // it ask for the screen (answered with the game).
+                    const how = setGoLiveSource(quality);
+                    tried.push("source: " + how);
+                    if (await waitFor(captured, 5000)) return { method: "action+source" };
                     tried.push("action: started a stream without video");
                     // Don't leave a stream with no video up: viewers get error 2015.
                     await goLive(true).catch(() => { });
