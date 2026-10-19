@@ -245,7 +245,14 @@ class Helper:
 
     async def probe(self, node):
         other = "system" if MY_LIBS == "bundled" else "bundled"
-        combos = [(v, MY_LIBS) for v in VARIANTS] + [(v, other) for v in VARIANTS]
+        combos = [(v, MY_LIBS) for v in VARIANTS]
+        # Only try the other GStreamer if it can actually stream (has webrtcbin
+        # etc.), otherwise the helper would switch back and forth.
+        other_missing = await asyncio.to_thread(check_other_libs, other)
+        if other_missing == []:
+            combos += [(v, other) for v in VARIANTS]
+        else:
+            log.info(f"not trying {other} GStreamer for capture: missing {', '.join(other_missing or ['everything'])}")
         self.probe_log = []
         for i, (variant, libs) in enumerate(combos, 1):
             self.probe_status = f"Finding a capture method that works here ({i}/{len(combos)}: {variant}, {libs} GStreamer)..."
@@ -519,6 +526,17 @@ def stream_settings(s):
     return height, fps, bitrate
 
 
+def check_other_libs(libs):
+    """Missing elements with the other GStreamer set, or None if it can't load at all."""
+    try:
+        r = subprocess.run([sys.executable, os.path.abspath(__file__), "--check"],
+                           env=env_for(libs), capture_output=True, text=True, timeout=20)
+        return json.loads(r.stdout.strip().splitlines()[-1]) if r.returncode == 0 else None
+    except Exception as e:
+        log.warning(f"checking {libs} GStreamer failed: {e}")
+        return None
+
+
 def main():
     from aiohttp import web  # type: ignore
     die_with_parent()
@@ -535,6 +553,16 @@ def main():
     missing = missing_elements()
     log.info(f"capture helper {os.getpid()} on 127.0.0.1:{PORT}, {MY_LIBS} {Gst.version_string()}"
              + (f", missing: {', '.join(missing)}" if missing else ""))
+    if missing and not TEST_SOURCE:
+        # The bundled GStreamer may lack parts SteamOS's own has (or the other
+        # way around): check the other set and switch if it's complete.
+        other = "system" if MY_LIBS == "bundled" else "bundled"
+        other_missing = check_other_libs(other)
+        if other_missing == []:
+            log.info(f"{other} GStreamer has everything ({', '.join(missing)} missing here); switching")
+            save_settings(capture_libs=other, capture_variant="")
+            os._exit(EXIT_SWITCH_LIBS)
+        log.error(f"{other} GStreamer is also incomplete: {', '.join(other_missing or ['unusable'])}")
     node, nodes = find_node()
     if node:
         log.info(f"gamescope feed: node {node['id']} ({node['name']}), method {current_variant()}")
@@ -544,6 +572,10 @@ def main():
 
 
 if __name__ == "__main__":
+    if len(sys.argv) > 1 and sys.argv[1] == "--check":
+        Gst.init(None)
+        print(json.dumps(missing_elements()), flush=True)
+        os._exit(0)
     if len(sys.argv) > 1 and sys.argv[1] == "--grab":
         try:
             child_grab(sys.argv[2], sys.argv[3], sys.argv[4])

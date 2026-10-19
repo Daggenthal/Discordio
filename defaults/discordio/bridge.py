@@ -49,22 +49,29 @@ class Bridge:
         self._handlers.setdefault(name, []).append(fn)
 
     async def handle(self, request):
+        # Several sockets can be open (a reloading page, or an older script
+        # version); only the one that most recently said hello is used. Never
+        # close the active one just because another connected.
         ws = WebSocketResponse(max_msg_size=0, heartbeat=20)
         await ws.prepare(request)
-        if self.connected:
-            self.log.info("Bridge: a new Discord page replaced the old connection")
-            await self.ws.close()
-        self.ws = ws
-        self.connected_at = time.time()
         self.stats["connects"] += 1
-        diag.set("bridge", diag.PENDING, "connected, waiting for Discord to load")
+        if not self.connected:
+            diag.set("bridge", diag.PENDING, "connected, waiting for Discord to load")
         try:
             async for msg in ws:
                 if msg.type != WSMsgType.TEXT:
                     continue
                 self.last_message = time.time()
                 try:
-                    await self._dispatch(msg.json())
+                    data = msg.json()
+                    if data.get("t") == "hello":
+                        if self.ws is not None and self.ws is not ws and not self.ws.closed:
+                            self.log.info("Bridge: Discord page reloaded, switching to the new connection")
+                        self.ws = ws
+                        self.connected_at = time.time()
+                    elif ws is not self.ws:
+                        continue  # not the active page
+                    await self._dispatch(data)
                 except Exception as e:
                     self.log.warning(f"Bridge message error: {e}")
         finally:

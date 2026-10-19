@@ -5,6 +5,7 @@
 // This keeps a highlighted "cursor" element and moves it spatially, which
 // works on any Discord screen without depending on Discord internals.
 (() => {
+    if (window.top !== window) return;
     const SELECTOR = [
         "button", "a[href]", "input", "textarea", "select",
         "[role=button]", "[role=link]", "[role=treeitem]", "[role=tab]", "[role=option]",

@@ -12,6 +12,9 @@
 // something, that one feature fails with a readable error instead of the
 // whole bridge breaking.
 (() => {
+    // Only in the top-level page: Discord embeds frames, and a bridge in each
+    // of them kept knocking the real page's connection off.
+    if (window.top !== window) return;
     if (window.DISCORDIO) return;
     const CFG = window.DISCORDIO_CONFIG || {};
     const VERSION = CFG.version || "dev";
