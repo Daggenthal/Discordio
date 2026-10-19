@@ -138,22 +138,17 @@ export function StreamPreview() {
 
   useEffect(() => {
     let alive = true;
-    let objectUrl: string | null = null;
-    fetch(`http://127.0.0.1:65124/preview?t=${Date.now()}`, { cache: "no-store" })
-      .then(async (r) => {
-        if (!r.ok) throw new Error((await r.text()) || `HTTP ${r.status}`);
-        return r.blob();
-      })
-      .then((b) => {
+    call<[], { image?: string; error?: string }>("get_stream_preview")
+      .then((res) => {
         if (!alive) return;
-        objectUrl = URL.createObjectURL(b);
-        setUrl((old) => {
-          if (old) URL.revokeObjectURL(old);
-          return objectUrl;
-        });
-        setError(null);
+        if (res?.image) {
+          setUrl(res.image);
+          setError(null);
+        } else {
+          setError(res?.error || "no image");
+        }
       })
-      .catch((e) => alive && setError(e instanceof Error ? e.message : String(e)));
+      .catch((e) => alive && setError(String(e)));
     const t = setTimeout(() => alive && setTick((n) => n + 1), 4000);
     return () => {
       alive = false;
@@ -161,18 +156,11 @@ export function StreamPreview() {
     };
   }, [tick]);
 
-  useEffect(() => () => {
-    setUrl((old) => {
-      if (old) URL.revokeObjectURL(old);
-      return null;
-    });
-  }, []);
-
   return (
     <PanelSectionRow>
       <div style={{ width: "100%" }}>
         <div style={{ fontSize: "12px", opacity: 0.75, marginBottom: "4px" }}>Stream preview (what viewers will see)</div>
-        {url ? (
+        {url && !error ? (
           <img src={url} style={{ width: "100%", borderRadius: "6px", display: "block", background: "#000" }} />
         ) : (
           <div
@@ -180,7 +168,7 @@ export function StreamPreview() {
               width: "100%", aspectRatio: "16 / 9", borderRadius: "6px", background: "#0e0f11",
               display: "flex", alignItems: "center", justifyContent: "center",
               fontSize: "11px", padding: "8px", boxSizing: "border-box", textAlign: "center",
-              color: error ? "#ff6b6b" : "#9aa0a6",
+              color: error ? "#ff6b6b" : "#9aa0a6", wordBreak: "break-word",
             }}
           >
             {error ? `No preview: ${error}` : "Loading preview..."}

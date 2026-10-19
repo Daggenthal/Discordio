@@ -10,6 +10,7 @@ from aiohttp.web import (  # type: ignore
 from asyncio import sleep, create_task, create_subprocess_exec, CancelledError
 import aiohttp_cors  # type: ignore
 from json import dumps, loads
+from base64 import b64encode
 import re
 from aiohttp import ClientSession, ClientTimeout  # type: ignore
 from pathlib import Path
@@ -95,11 +96,16 @@ def user_env():
     }
 
 
+CAPTURE_LOG = []  # last lines from the capture helper, shown when it fails
+
+
 async def stream_watcher(stream, is_err=False):
     async for line in stream:
         line = line.decode("utf-8", "replace").rstrip()
         if not line:
             continue
+        CAPTURE_LOG.append(line)
+        del CAPTURE_LOG[:-20]
         # Errors from the capture helper used to go to debug level and were
         # invisible in normal logs. They matter when testing streaming.
         if is_err:
@@ -634,6 +640,41 @@ class Plugin:
         return await cls.evt_handler.api.get_screen_bounds()
 
     @classmethod
+    async def _ensure_capture_helper(cls):
+        """Restart the capture helper if it isn't running. Returns an error or None."""
+        proc = getattr(cls, "webrtc_server", None)
+        if proc is not None and proc.returncode is None:
+            return None
+        last = CAPTURE_LOG[-1] if CAPTURE_LOG else "no output"
+        logger.warning(f"Capture helper not running (last output: {last}), restarting")
+        CAPTURE_LOG.clear()
+        await cls._start_capture_helper()
+        await sleep(2)
+        proc = getattr(cls, "webrtc_server", None)
+        if proc is None or proc.returncode is not None:
+            return "Capture helper won't start: " + (" | ".join(CAPTURE_LOG[-3:]) or "unknown error")
+        return None
+
+    @classmethod
+    async def get_stream_preview(cls):
+        """
+        One JPEG frame of what Go Live captures, as a data URL. Goes through the
+        backend because the QAM page can't reliably fetch the helper directly.
+        """
+        error = await cls._ensure_capture_helper()
+        if error:
+            return {"error": error}
+        try:
+            async with ClientSession(timeout=ClientTimeout(total=8)) as session:
+                res = await session.get("http://127.0.0.1:65124/preview")
+                body = await res.read()
+                if res.status != 200:
+                    return {"error": body.decode("utf-8", "replace")[:300] or f"HTTP {res.status}"}
+        except Exception as e:
+            return {"error": f"Capture helper unreachable: {type(e).__name__}: {e}"}
+        return {"image": "data:image/jpeg;base64," + b64encode(body).decode()}
+
+    @classmethod
     async def get_stream_settings(cls):
         try:
             raw = loads(SETTINGS_FILE.read_text())
@@ -697,6 +738,10 @@ class Plugin:
 
     @classmethod
     async def _go_live(cls, stop):
+        if not stop:
+            error = await cls._ensure_capture_helper()
+            if error:
+                return {"ok": False, "error": error}
         try:
             res = await cls.evt_handler.api.go_live(stop=stop, quality=None if stop else await cls.get_stream_settings())
         except Exception as e:
