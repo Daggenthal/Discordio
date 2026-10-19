@@ -97,26 +97,26 @@ export function IncomingCallBanner() {
         </div>
       </PanelSectionRow>
       <PanelSectionRow>
-        <Focusable style={{ display: "flex", gap: 8 }} flow-children="row">
-          <div ref={answerRef} style={{ flex: 1 }}>
+        {/* Buttons directly inside Focusable (like the mute / deafen row) so
+            the controller can move to them; wrapper divs made them unreachable. */}
+        <div ref={answerRef}>
+          <Focusable style={{ display: "flex", gap: "8px" }}>
             <DialogButton
               disabled={busy}
               onClick={() => act("answer_call")}
-              style={{ background: "#23a55a", color: "#fff", minWidth: 0, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
+              style={{ flex: 1, background: "#23a55a", color: "#fff", minWidth: 0, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
             >
               <FaPhone /> Answer
             </DialogButton>
-          </div>
-          <div style={{ flex: 1 }}>
             <DialogButton
               disabled={busy}
               onClick={() => act("decline_call")}
-              style={{ background: "#da373c", color: "#fff", minWidth: 0, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
+              style={{ flex: 1, background: "#da373c", color: "#fff", minWidth: 0, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
             >
               <FaPhoneSlash /> Decline
             </DialogButton>
-          </div>
-        </Focusable>
+          </Focusable>
+        </div>
       </PanelSectionRow>
     </PanelSection>
   );
