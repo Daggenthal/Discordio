@@ -1,4 +1,4 @@
-import { ButtonItem, PanelSectionRow, Router } from "@decky/ui";
+import { ButtonItem, PanelSectionRow } from "@decky/ui";
 import { ChoiceSlider } from "./ChoiceSlider";
 import { call, toaster } from "@decky/api";
 import { useEffect, useState } from "react";
@@ -51,6 +51,7 @@ export function GoLivePanel({ inCall }: { inCall?: boolean } = {}) {
   const live = !!state?.me?.is_live;
 
   const save = async (resolution?: string, fps?: number) => {
+    setSettings((old) => ({ ...old, ...(resolution ? { resolution } : {}), ...(fps ? { fps } : {}) }));
     const s = await call<[string | null, number | null], StreamSettings>(
       "set_stream_settings",
       resolution ?? null,
@@ -68,10 +69,6 @@ export function GoLivePanel({ inCall }: { inCall?: boolean } = {}) {
         const msg = res.error || "Could not start the stream";
         setStatus({ text: msg, error: true });
         toaster.toast({ title: "Discordio", body: msg });
-      } else if (res?.method === "ui" && !live) {
-        setStatus({ text: "Opened Discord's own share button; finish there" });
-        // Discord's own button was used; it may want a confirmation, so show it.
-        Router.Navigate("/discord");
       } else {
         setStatus({ text: live ? "Stream stopped" : `Live (started via ${res?.method ?? "Discord"})` });
       }
