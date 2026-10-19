@@ -169,6 +169,7 @@ class Member:
 class Overlay:
     def __init__(self):
         self.state = None
+        self.state_time = time.monotonic()
         self.members = {}
         self.avatars = Avatars(self._avatar_ready)
         self.animating = False
@@ -230,6 +231,7 @@ class Overlay:
 
     def _apply(self, state):
         self.fetching = False
+        self.state_time = time.monotonic()
         old = json.dumps(self.state, sort_keys=True) if self.state else None
         self.state = state
         voice = (state or {}).get("voice")
@@ -260,7 +262,7 @@ class Overlay:
         now = time.monotonic()
         dt = min(0.05, now - self.last_frame)
         self.last_frame = now
-        moving = False
+        moving = bool((self.state or {}).get("messages"))  # fade in / out
         for m in self.members.values():
             moving = m.step(dt) or moving
         self.win.queue_draw()
@@ -280,9 +282,13 @@ class Overlay:
         state = self.state or {}
         voice = state.get("voice")
         settings = state.get("settings") or {}
-        if not voice or not settings.get("overlay_enabled", True):
+        if not settings.get("overlay_enabled", True) or settings.get("overlay_engine_active", "gamescope") != "gamescope":
             return
+        panel_h = self.draw_voice(cr, state, voice, settings) if voice else 0
+        self.draw_messages(cr, state.get("messages") or [], settings, panel_h)
 
+    def draw_voice(self, cr, state, voice, settings):
+        """The voice panel. Returns its height (to stack message cards below it)."""
         s = self.scale
         members = voice.get("members", [])
         w = WIDTH * s
@@ -319,6 +325,112 @@ class Overlay:
             alpha = m.alpha if m else IDLE_ALPHA
             self.member_row(cr, data, x + PAD * s, ry, w - 2 * PAD * s, off, alpha, s)
             ry += ROW_H * s
+        return h
+
+    # -- message popups
+
+    def wrap(self, cr, text, max_w, max_lines):
+        words, lines, cur = text.replace("\n", " ").split(" "), [], ""
+        for word in words:
+            trial = (cur + " " + word).strip()
+            if cr.text_extents(trial).x_advance <= max_w:
+                cur = trial
+                continue
+            if cur:
+                lines.append(cur)
+            cur = word
+            while cr.text_extents(cur).x_advance > max_w and len(cur) > 1:  # very long word
+                cut = len(cur)
+                while cut > 1 and cr.text_extents(cur[:cut]).x_advance > max_w:
+                    cut -= 1
+                lines.append(cur[:cut])
+                cur = cur[cut:]
+            if len(lines) >= max_lines:
+                break
+        if cur and len(lines) < max_lines:
+            lines.append(cur)
+        if len(lines) == max_lines and " ".join(lines) != text.strip():
+            last = lines[-1]
+            while last and cr.text_extents(last + "...").x_advance > max_w:
+                last = last[:-1]
+            lines[-1] = last + "..."
+        return lines
+
+    def draw_messages(self, cr, messages, settings, panel_h):
+        if not messages:
+            return
+        s = self.scale
+        w = 320 * s
+        pos = settings.get("message_position", "top-left")
+        ttl = float(settings.get("message_duration", 8))
+        share = panel_h and pos == settings.get("overlay_position", "top-left")
+        x = MARGIN * s if "left" in pos else self.screen_w - w - MARGIN * s
+        top = "top" in pos
+        cursor = MARGIN * s + (panel_h + 10 * s if share else 0)
+        for m in reversed(messages):  # newest nearest the edge
+            cr.select_font_face("Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
+            cr.set_font_size(13 * s)
+            text_x = x + (12 + 36 + 10) * s
+            text_w = w - (12 + 36 + 10 + 12) * s
+            lines = self.wrap(cr, m.get("text") or "", text_w, 3)
+            has_ctx = bool(m.get("context"))
+            h = (10 + 17 + (14 if has_ctx else 0) + 17 * max(1, len(lines)) + 16 + 10) * s
+            y = cursor if top else self.screen_h - cursor - h
+            cursor += h + 8 * s
+
+            age = float(m.get("age", 0)) + (time.monotonic() - self.state_time)
+            fade_in = min(1.0, age / 0.25)
+            fade_out = min(1.0, max(0.0, (ttl - age) / 0.4))
+            a = max(0.0, min(fade_in, fade_out))
+            slide = (1 - fade_in) * -8 * s
+            if a <= 0:
+                continue
+            yy = y + (slide if top else -slide)
+
+            self.rounded(cr, x, yy, w, h, 10 * s)
+            cr.set_source_rgba(0.07, 0.07, 0.08, 0.82 * a)
+            cr.fill()
+            cr.rectangle(x, yy + 6 * s, 3 * s, h - 12 * s)
+            cr.set_source_rgba(0.345, 0.396, 0.949, a)
+            cr.fill()
+
+            size = int(36 * s)
+            ax, ay = x + 12 * s, yy + 10 * s
+            cr.save()
+            cr.new_path()
+            cr.arc(ax + size / 2, ay + size / 2, size / 2, 0, 2 * math.pi)
+            cr.clip()
+            pb = self.avatars.get(m.get("avatar"), size)
+            if pb:
+                Gdk.cairo_set_source_pixbuf(cr, pb, ax, ay)
+                cr.paint_with_alpha(a)
+            else:
+                cr.set_source_rgba(0.345, 0.396, 0.949, a)
+                cr.paint()
+            cr.restore()
+
+            ty = yy + 10 * s + 13 * s
+            cr.select_font_face("Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
+            cr.set_font_size(13 * s)
+            cr.set_source_rgba(1, 1, 1, a)
+            self.text(cr, m.get("name", ""), text_x, ty, text_w)
+            if has_ctx:
+                ty += 14 * s
+                cr.select_font_face("Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
+                cr.set_font_size(11 * s)
+                cr.set_source_rgba(1, 1, 1, 0.6 * a)
+                self.text(cr, m["context"], text_x, ty, text_w)
+            cr.select_font_face("Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
+            cr.set_font_size(13 * s)
+            cr.set_source_rgba(1, 1, 1, 0.95 * a)
+            for line in lines or [""]:
+                ty += 17 * s
+                cr.move_to(text_x, ty)
+                cr.show_text(line)
+            ty += 15 * s
+            cr.set_font_size(10 * s)
+            cr.set_source_rgba(1, 1, 1, 0.5 * a)
+            self.text(cr, "Reply from Discordio in the Quick Access Menu", text_x, ty, text_w)
 
     def member_row(self, cr, m, x, y, w, off, alpha, s):
         size = int(AVATAR * s)

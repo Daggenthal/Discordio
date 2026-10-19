@@ -25,6 +25,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 
 import gi
@@ -36,7 +37,12 @@ PORT = int(os.environ.get("DISCORDIO_CAPTURE_PORT", "65124"))
 SETTINGS = os.environ.get("DISCORDIO_SETTINGS", "")
 MY_LIBS = os.environ.get("DISCORDIO_LIBS", "system")
 TEST_SOURCE = os.environ.get("DISCORDIO_TEST_SRC")
-VARIANTS = ["target+raw", "path+raw", "target", "path"]
+# How to read gamescope's PipeWire feed:
+#   target / path   address the node by object serial or by id
+#   +raw            ask for frames in normal memory
+#   +va             accept GPU (DMA-BUF) frames and convert them on the GPU's
+#                   video engine (VA-API): newer gamescope may only offer these
+VARIANTS = ["target+raw", "path+raw", "target+va", "path+va", "target", "path"]
 EXIT_SWITCH_LIBS = 75
 
 logging.basicConfig(stream=sys.stdout, level=logging.INFO, format="%(levelname)s %(message)s")
@@ -126,14 +132,23 @@ def build_source(variant, node):
             src += f" path={node['id']}"
     if variant.endswith("+raw"):
         src += " ! video/x-raw"  # frames in normal memory, not GPU buffers
+    elif variant.endswith("+va"):
+        if Gst.ElementFactory.find("vapostproc") is None:
+            raise RuntimeError("this GStreamer has no VA-API (vapostproc)")
+        src += " ! video/x-raw(memory:DMABuf) ! vapostproc ! video/x-raw"
     return src
+
+
+def source_settings():
+    """(variant, libs) of the capture method that works, from the saved settings."""
+    s = load_settings()
+    return s.get("capture_variant") or VARIANTS[0], s.get("capture_source_libs") or MY_LIBS
 
 
 def current_variant():
     if TEST_SOURCE:
         return "test"
-    s = load_settings()
-    return s.get("capture_variant") or VARIANTS[0]
+    return source_settings()[0]
 
 
 def audio_source():
@@ -318,13 +333,14 @@ class Helper:
     async def probe(self, node):
         other = "system" if MY_LIBS == "bundled" else "bundled"
         combos = [(v, MY_LIBS) for v in VARIANTS]
-        # Only try the other GStreamer if it can actually stream (has webrtcbin
-        # etc.), otherwise the helper would switch back and forth.
+        # The other GStreamer only needs to *capture* (pipewiresrc); if it can't
+        # stream itself, it feeds frames to this one (see Session.start).
         other_missing = await asyncio.to_thread(check_other_libs, other)
-        if other_missing == []:
+        if other_missing is not None and "pipewiresrc" not in other_missing:
             combos += [(v, other) for v in VARIANTS]
         else:
-            log.info(f"not trying {other} GStreamer for capture: missing {', '.join(other_missing or ['everything'])}")
+            log.info(f"not trying {other} GStreamer for capture: " +
+                     ("it doesn't load" if other_missing is None else "no pipewiresrc"))
         self.probe_log = []
         for i, (variant, libs) in enumerate(combos, 1):
             self.probe_status = f"Finding a capture method that works here ({i}/{len(combos)}: {variant}, {libs} GStreamer)..."
@@ -333,12 +349,10 @@ class Helper:
             self.probe_log.append(line)
             (log.info if jpeg else log.warning)(f"capture method {line}")
             if jpeg:
-                save_settings(capture_variant=variant, capture_libs=libs)
+                save_settings(capture_variant=variant, capture_source_libs=libs)
+                self.probe_status = ""
                 if libs != MY_LIBS:
-                    self.probe_status = f"Works with {libs} GStreamer; restarting the capture helper..."
-                    self.loop.call_later(0.5, lambda: os._exit(EXIT_SWITCH_LIBS))
-                else:
-                    self.probe_status = ""
+                    log.info(f"streaming will capture with {libs} GStreamer and encode with {MY_LIBS} GStreamer")
                 return
         self.probe_status = ""
         self.last_error = "no capture method delivered a frame: " + " | ".join(self.probe_log[-3:])
@@ -357,14 +371,14 @@ class Helper:
                 seen = ", ".join(f"{n['name']} [{n['class']}]" for n in nodes) or "none"
                 self.last_error = f"gamescope's video feed isn't in PipeWire (video nodes seen: {seen})"
                 return web.Response(status=503, text=self.last_error, headers=h)
-            s = load_settings()
-            variant, libs = s.get("capture_variant"), s.get("capture_libs") or MY_LIBS
+            saved = load_settings().get("capture_variant")
+            variant, libs = source_settings()
             jpeg, err = (None, None)
-            if variant and libs == MY_LIBS:
+            if saved:
                 jpeg, err = await grab(variant, libs, node)
             if jpeg is None:
-                if variant:
-                    log.warning(f"saved method {variant} failed ({err}); searching again")
+                if saved:
+                    log.warning(f"saved method {variant} ({libs}) failed ({err}); searching again")
                 self.probe_task = self.loop.create_task(self.probe(node))
                 self.probe_status = "Finding a capture method that works here..."
                 return web.Response(status=202, text=self.probe_status, headers=h)
@@ -389,7 +403,7 @@ class Helper:
             "node": node,
             "video_nodes": nodes,
             "method": s.get("capture_variant") or None,
-            "method_libs": s.get("capture_libs") or None,
+            "method_libs": s.get("capture_source_libs") or None,
             "probing": bool(self.probe_task and not self.probe_task.done()),
             "probe_status": self.probe_status,
             "probe_log": self.probe_log[-8:],
@@ -432,6 +446,7 @@ class Session:
         self.started = time.time()
         self.preset = ""
         self.error = None
+        self.feeder = None
 
     def info(self):
         return {
@@ -486,9 +501,29 @@ class Session:
         else:
             scale = f"videorate drop-only=true ! video/x-raw,framerate={fps}/1 !"
             self.preset = f"source@{fps}"
+        variant, src_libs = ("test", MY_LIBS) if TEST_SOURCE else source_settings()
+        if src_libs != MY_LIBS or os.environ.get("DISCORDIO_FORCE_FEEDER"):
+            # Capture with the other GStreamer (the one whose PipeWire plugin
+            # works with gamescope) in a child process, which hands raw frames
+            # to this one (which has WebRTC) through a pipe.
+            width = int(round((height or 1440) * 16 / 9 / 2) * 2)
+            fh = height or 1440
+            self.feeder = subprocess.Popen(
+                [sys.executable, os.path.abspath(__file__), "--feed", variant, json.dumps(node), str(width), str(fh), str(fps)],
+                env=env_for(src_libs), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            )
+            threading.Thread(target=self._feeder_log, daemon=True).start()
+            parse = "rawvideoparse" if Gst.ElementFactory.find("rawvideoparse") else "videoparse"
+            video = (f"fdsrc fd={self.feeder.stdout.fileno()} blocksize={width * fh * 3 // 2} ! "
+                     f"{parse} format=i420 width={width} height={fh} framerate={fps}/1 ! "
+                     f"identity name=frames silent=true ! ")
+            scale = ""
+            self.preset += f" (captured by {src_libs} GStreamer)"
+        else:
+            video = f"{build_source(variant, node)} ! identity name=frames silent=true ! videoconvert ! "
         desc = (
             f"webrtcbin name=send latency=0 bundle-policy=max-bundle "
-            f"{build_source(current_variant(), node)} ! identity name=frames silent=true ! videoconvert ! {scale} "
+            f"{video}{scale} "
             f"queue max-size-buffers=2 leaky=downstream ! "
             f"vp8enc deadline=1 cpu-used=8 threads={max(2, min(8, (os.cpu_count() or 4) // 2))} "
             f"end-usage=cbr target-bitrate={bitrate} keyframe-max-dist={fps * 2} error-resilient=partitions lag-in-frames=0 ! "
@@ -496,7 +531,7 @@ class Session:
             f"{audio_source()} ! audioconvert ! audioresample ! queue ! opusenc ! rtpopuspay ! "
             f"queue ! application/x-rtp,media=audio,encoding-name=OPUS,payload={apt} ! send."
         )
-        log.info(f"starting stream {self.preset} with method {current_variant()}")
+        log.info(f"starting stream {self.preset} with method {variant}")
         self.pipe = Gst.parse_launch(desc)
         self.webrtc = self.pipe.get_by_name("send")
         self.webrtc.connect("on-ice-candidate", lambda _, idx, cand: self.send({"ice": {"candidate": cand, "sdpMLineIndex": idx}}))
@@ -555,7 +590,19 @@ class Session:
         self.webrtc.emit("set-local-description", answer, Gst.Promise.new())
         self.send({"sdp": {"type": "answer", "sdp": answer.sdp.as_text()}})
 
+    def _feeder_log(self):
+        for raw in self.feeder.stderr:
+            line = raw.decode("utf-8", "replace").rstrip()
+            if line:
+                log.info(f"feeder: {line}")
+
     def close(self):
+        if self.feeder is not None:
+            try:
+                self.feeder.kill()
+            except Exception:
+                pass
+            self.feeder = None
         if self.pipe is not None:
             pipe, self.pipe = self.pipe, None
             # Teardown off the event loop; a stuck source can block it.
@@ -650,6 +697,27 @@ def main():
 
 
 if __name__ == "__main__":
+    if len(sys.argv) > 1 and sys.argv[1] == "--feed":
+        # Child: capture with this process's GStreamer, write raw I420 frames to stdout.
+        # Logging must not touch stdout here: it carries the video.
+        for h in logging.getLogger().handlers:
+            h.setStream(sys.stderr)
+        Gst.init(None)
+        try:
+            _v, _node, _w, _h, _fps = sys.argv[2], json.loads(sys.argv[3] or "null"), sys.argv[4], sys.argv[5], sys.argv[6]
+            src = TEST_SOURCE if _v == "test" else build_source(_v, _node)
+            pipe = Gst.parse_launch(
+                f"{src} ! videoconvert ! videoscale add-borders=true ! videorate drop-only=true ! "
+                f"video/x-raw,format=I420,width={_w},height={_h},pixel-aspect-ratio=1/1,framerate={_fps}/1 ! "
+                f"fdsink fd=1 sync=false")
+            pipe.set_state(Gst.State.PLAYING)
+            bus = pipe.get_bus()
+            msg = bus.timed_pop_filtered(Gst.CLOCK_TIME_NONE, Gst.MessageType.ERROR | Gst.MessageType.EOS)
+            if msg and msg.type == Gst.MessageType.ERROR:
+                print(f"capture error: {msg.parse_error()[0].message}", file=sys.stderr, flush=True)
+        except Exception as e:
+            print(f"{type(e).__name__}: {e}", file=sys.stderr, flush=True)
+        os._exit(1)
     if len(sys.argv) > 1 and sys.argv[1] == "--check":
         Gst.init(None)
         print(json.dumps(missing_elements()), flush=True)

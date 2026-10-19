@@ -29,8 +29,10 @@ from discordio import diag, system, updates  # noqa: E402
 from discordio.bridge import Bridge, BridgeError  # noqa: E402
 from discordio.capture_mgr import CaptureManager  # noqa: E402
 from discordio.overlay_mgr import OverlayManager  # noqa: E402
+from discordio.messages import Messages  # noqa: E402
+from discordio.screenshots import Screenshots  # noqa: E402
 from discordio.settings import (  # noqa: E402
-    FRAME_RATES, OVERLAY_ENGINES, OVERLAY_POSITIONS, RESOLUTIONS, Settings,
+    FRAME_RATES, MESSAGE_DURATIONS, OVERLAY_ENGINES, OVERLAY_POSITIONS, RESOLUTIONS, Settings,
 )
 from discordio.steam_view import DiscordView  # noqa: E402
 
@@ -92,11 +94,13 @@ class Plugin:
         for d in (SETTINGS_DIR, RUNTIME_DIR):
             d.mkdir(parents=True, exist_ok=True)
         cls.settings = Settings(SETTINGS_DIR)
+        cls.messages = Messages(cls.settings)
+        cls.screenshots = Screenshots(system.session_user(decky)[2])
         cls.bridge = Bridge(log)
         cls.bridge.on("hello", cls._on_hello)
         cls.bridge.on("state", cls._on_state)
         cls.bridge.on("disconnected", cls._on_disconnected)
-        cls.bridge.on("notification", cls._on_notification)
+        cls.bridge.on("message", cls._on_message)
         cls.bridge.on("keyboard", lambda _: cls.view.show_keyboard())
         cls.bridge.on("mic", cls._on_mic)
         cls.bridge.on("capture", cls._on_capture)
@@ -212,9 +216,14 @@ class Plugin:
         return frontend_state(cls.state, cls.ready, stage)
 
     @classmethod
-    async def _on_notification(cls, n):
+    async def _on_message(cls, m):
+        """A DM or mention: popup in the overlay, and the QAM's Messages list."""
+        cls.messages.add(m or {})
+        s = cls.settings.load()
+        # Steam toast only when the overlay won't show the popup.
+        toast = not (s.get("message_popups", True) and cls.overlay.active_engine(s))
         try:
-            await decky.emit("notification", n)
+            await decky.emit("message", {**(m or {}), "toast": toast, "unread": cls.messages.unread()})
         except Exception:
             pass
 
@@ -246,12 +255,15 @@ class Plugin:
         me_id = ((cls.state or {}).get("user") or {}).get("id")
         mine = next((m for m in (voice or {}).get("members", []) if m["id"] == me_id), None)
         return json_response({
+            "messages": cls.messages.active_popups(),
             "voice": voice,
             "me": {"live": bool(media.get("live")), "muted": bool(mine and mine["muted"]),
                    "deafened": bool(mine and mine["deafened"])},
             "settings": {"overlay_enabled": s.get("overlay_enabled", True),
                          "overlay_position": s.get("overlay_position", "top-left"),
-                         "overlay_engine_active": cls.overlay.active_engine(s)},
+                         "overlay_engine_active": cls.overlay.active_engine(s),
+                         "message_position": s.get("message_position", "top-left"),
+                         "message_duration": s.get("message_duration", 8)},
         }, headers={"Access-Control-Allow-Origin": "*", "Cache-Control": "no-store"})
 
     # ------------------------------------------------------------ helpers
@@ -309,6 +321,27 @@ class Plugin:
         return await cls._req("postScreenshot", params, timeout=60)
 
     @classmethod
+    async def list_screenshots(cls, offset=0, limit=12):
+        try:
+            return await asyncio.to_thread(cls.screenshots.list, int(offset or 0), int(limit or 12))
+        except Exception as e:
+            return {"items": [], "total": 0, "error": str(e)}
+
+    @classmethod
+    async def get_screenshot(cls, shot_id):
+        url = await asyncio.to_thread(cls.screenshots.data_url, shot_id)
+        return {"image": url} if url else {"error": "that screenshot isn't available any more"}
+
+    @classmethod
+    async def post_screenshot_file(cls, shot_id, channel_id=None, user_id=None):
+        """Send a screenshot picked from the list, to a channel or a friend's DM."""
+        data, name = await asyncio.to_thread(cls.screenshots.base64, shot_id)
+        if not data:
+            return {"error": "that screenshot isn't available any more"}
+        params = {"data": data, "filename": name, **({"userId": user_id} if user_id else {"channelId": channel_id})}
+        return await cls._req("postScreenshot", params, timeout=90)
+
+    @classmethod
     async def discord_query(cls, what, arg=None):
         method, params = {
             "guilds": ("guilds", {}),
@@ -358,6 +391,46 @@ class Plugin:
         level = {"connected": diag.OK, "failed": diag.ERROR, "disconnected": diag.WARN}.get(state, diag.PENDING)
         diag.set("mic", level, f"{state}{': ' + detail if detail else ''}")
         return True
+
+    # -- messages
+
+    @classmethod
+    async def get_conversations(cls):
+        return {"conversations": cls.messages.list(), "unread": cls.messages.unread()}
+
+    @classmethod
+    async def get_history(cls, channel_id):
+        cls.messages.mark_read(channel_id)
+        return await cls._req("history", {"channelId": channel_id, "limit": 20}, timeout=15)
+
+    @classmethod
+    async def send_message(cls, channel_id, content):
+        res = await cls._req("sendMessage", {"channelId": channel_id, "content": content}, timeout=15)
+        if isinstance(res, dict) and not res.get("error"):
+            cls.messages.mark_read(channel_id)
+        return res
+
+    @classmethod
+    async def get_message_settings(cls):
+        s = cls.settings.load()
+        return {"popups": s.get("message_popups", True), "position": s.get("message_position", "top-left"),
+                "duration": s.get("message_duration", 8)}
+
+    @classmethod
+    async def set_message_settings(cls, popups=None, position=None, duration=None):
+        changes = {}
+        if popups is not None:
+            changes["message_popups"] = bool(popups)
+        if position in OVERLAY_POSITIONS:
+            changes["message_position"] = position
+        try:
+            if duration is not None and int(duration) in MESSAGE_DURATIONS:
+                changes["message_duration"] = int(duration)
+        except (TypeError, ValueError):
+            pass
+        if changes:
+            cls.settings.update(**changes)
+        return await cls.get_message_settings()
 
     # -- streaming
 

@@ -40,6 +40,20 @@
       #discordio-overlay .dio-live { background: #ed4245; color: #fff; }
       #discordio-overlay .dio-deaf { border: 1.5px solid #ed4245; color: #ed4245; }
       #discordio-overlay .dio-mute { width: 14px; height: 14px; flex-shrink: 0; }
+      #discordio-messages { position: fixed; z-index: 2147483647; pointer-events: none; width: 320px;
+        display: flex; flex-direction: column; gap: 8px; font-family: "Motiva Sans", "Noto Sans", sans-serif; }
+      #discordio-messages .dio-msg { display: flex; gap: 10px; padding: 10px 12px; border-radius: 10px; color: #fff;
+        background: rgba(18,18,20,0.82); box-shadow: 0 4px 16px rgba(0,0,0,.4); border-left: 3px solid #5865f2;
+        animation: dio-in .25s ease-out; transition: opacity .4s, transform .4s; }
+      #discordio-messages .dio-msg.leaving { opacity: 0; transform: translateX(-12px); }
+      @keyframes dio-in { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
+      #discordio-messages .dio-msg img { width: 36px; height: 36px; border-radius: 50%; flex-shrink: 0; background: #5865f2; object-fit: cover; }
+      #discordio-messages .dio-msg-body { min-width: 0; flex: 1; }
+      #discordio-messages .dio-msg-name { font-weight: 700; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      #discordio-messages .dio-msg-ctx { font-size: 11px; opacity: .6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      #discordio-messages .dio-msg-text { font-size: 13px; line-height: 17px; margin-top: 2px; opacity: .95;
+        display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; word-break: break-word; }
+      #discordio-messages .dio-msg-hint { font-size: 10px; opacity: .5; margin-top: 4px; }
     `;
     document.head.appendChild(style);
 
@@ -47,6 +61,10 @@
     root.id = "discordio-overlay";
     root.hidden = true;
     document.body.appendChild(root);
+    const msgRoot = document.createElement("div");
+    msgRoot.id = "discordio-messages";
+    document.body.appendChild(msgRoot);
+    const cards = new Map();
 
     const MIC_OFF = '<svg class="dio-mute" viewBox="0 0 24 24" fill="none" stroke="#ed4245" stroke-width="2.4" stroke-linecap="round">' +
         '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3M4 4l16 16"/></svg>';
@@ -55,15 +73,52 @@
     const rows = new Map(); // id -> row element
     let lastHead = "";
 
-    const place = (pos) => {
-        const m = "24px";
-        root.style.top = pos.includes("top") ? m : "";
-        root.style.bottom = pos.includes("bottom") ? m : "";
-        root.style.left = pos.includes("left") ? m : "";
-        root.style.right = pos.includes("right") ? m : "";
+    const place = (el, pos, offset = 0) => {
+        const m = 24 + offset + "px";
+        el.style.top = pos.includes("top") ? m : "";
+        el.style.bottom = pos.includes("bottom") ? m : "";
+        el.style.left = pos.includes("left") ? "24px" : "";
+        el.style.right = pos.includes("right") ? "24px" : "";
+    };
+
+    // Message popups: DMs and mentions, newest at the edge of the screen.
+    const renderMessages = (state) => {
+        const settings = (state && state.settings) || {};
+        const list = (state && state.messages) || [];
+        const active = settings.overlay_engine_active === "steam";
+        const pos = settings.message_position || "top-left";
+        // Same corner as the voice panel: stack below / above it.
+        const share = !root.hidden && pos === (settings.overlay_position || "top-left");
+        place(msgRoot, pos, share ? root.offsetHeight + 10 : 0);
+        msgRoot.style.flexDirection = pos.includes("bottom") ? "column-reverse" : "column";
+        const seen = new Set();
+        for (const m of active ? list : []) {
+            seen.add(m.id);
+            if (cards.has(m.id)) continue;
+            const card = document.createElement("div");
+            card.className = "dio-msg";
+            card.innerHTML = `${m.avatar ? `<img src="${esc(m.avatar)}">` : "<img>"}<div class="dio-msg-body">` +
+                `<div class="dio-msg-name">${esc(m.name)}</div>` +
+                (m.context ? `<div class="dio-msg-ctx">${esc(m.context)}</div>` : "") +
+                `<div class="dio-msg-text">${esc(m.text)}</div>` +
+                `<div class="dio-msg-hint">Reply from Discordio in the Quick Access Menu</div></div>`;
+            msgRoot.prepend(card);
+            cards.set(m.id, card);
+        }
+        for (const [id, card] of cards) {
+            if (seen.has(id)) continue;
+            cards.delete(id);
+            card.classList.add("leaving");
+            setTimeout(() => card.remove(), 400);
+        }
     };
 
     const render = (state) => {
+        renderVoice(state);
+        renderMessages(state);
+    };
+
+    const renderVoice = (state) => {
         const settings = (state && state.settings) || {};
         const voice = state && state.voice;
         if (!voice || settings.overlay_enabled === false || settings.overlay_engine_active !== "steam") {
@@ -71,7 +126,7 @@
             return;
         }
         root.hidden = false;
-        place(settings.overlay_position || "top-left");
+        place(root, settings.overlay_position || "top-left");
 
         const me = state.me || {};
         const head = `<div class="dio-head"><div class="dio-titles"><div class="dio-ch">${esc(voice.channel_name)}</div>` +
@@ -132,6 +187,7 @@
         stopped = true;
         clearInterval(timer);
         root.remove();
+        msgRoot.remove();
         style.remove();
         delete window.__discordioOverlay;
         delete window.__discordioOverlayStop;

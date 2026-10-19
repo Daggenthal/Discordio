@@ -2,6 +2,7 @@ import { call, toaster } from "@decky/api";
 import { ButtonItem, PanelSectionRow, ToggleField } from "@decky/ui";
 import { useEffect, useState } from "react";
 import { Avatar, MemberRow, Member } from "./VoiceChatViews";
+import { fire } from "../lib/events";
 
 type Guild = { id: string; name: string; icon: string | null };
 type VoiceChannel = { id: string; name: string; members: Member[] };
@@ -68,7 +69,11 @@ function GuildChannels({ guildId }: { guildId: string }) {
             layout="inline"
             label={`🔊 ${ch.name}`}
             description={ch.members.length ? `${ch.members.length} in channel` : "Empty"}
-            onClick={async () => report(await call("join_voice", ch.id), `Joining ${ch.name}`)}
+            onClick={async () => {
+              const res: any = await call("join_voice", ch.id);
+              report(res, `Joining ${ch.name}`);
+              if (!res?.error) fire("collapse:Servers");
+            }}
           >
             Join
           </ButtonItem>
@@ -211,7 +216,11 @@ export function FriendsPanel() {
                 <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</span>
               </span>
             }
-            onClick={async () => report(await call("call_friend", f.id), `Calling ${f.name}`)}
+            onClick={async () => {
+              const res: any = await call("call_friend", f.id);
+              report(res, `Calling ${f.name}`);
+              if (!res?.error) fire("collapse:Friends");
+            }}
           >
             Call
           </ButtonItem>

@@ -292,7 +292,8 @@
         });
         const att = res && res.body && res.body.attachments && res.body.attachments[0];
         if (!att) throw new Error("Discord didn't give an upload URL");
-        const put = await fetch(att.upload_url, { method: "PUT", body: new Blob([bytes], { type: "image/jpeg" }) });
+        const type = /\.png$/i.test(name) ? "image/png" : "image/jpeg";
+        const put = await fetch(att.upload_url, { method: "PUT", body: new Blob([bytes], { type }) });
         if (!put.ok) throw new Error(`upload failed (HTTP ${put.status})`);
         await RestAPI.post({
             url: `/channels/${channelId}/messages`,
@@ -484,6 +485,9 @@
     m("postScreenshot", async ({ channelId, userId, data, filename }) =>
         postScreenshot(channelId || await dmChannel(userId), data, filename));
     m("textChannels", ({ guildId }) => textChannels(guildId));
+    m("history", ({ channelId, limit }) => history(channelId, limit));
+    m("sendMessage", ({ channelId, userId, content }) =>
+        (channelId ? Promise.resolve(channelId) : dmChannel(userId)).then((id) => sendMessage(id, content)));
     m("goLive", ({ quality }) => goLive(false, quality));
     m("stopLive", () => goLive(true));
     m("streamLimits", () => streamLimits());
@@ -510,21 +514,75 @@
         "STREAM_CREATE", "STREAM_DELETE", "STREAM_UPDATE", "RTC_CONNECTION_STATE", "USER_UPDATE",
     ];
 
+    function channelLabel(ch) {
+        if (!ch) return "";
+        if (!ch.guild_id) {
+            const names = (ch.recipients || []).map((r) => userName(C().UserStore.getUser(r)));
+            return ch.name || (names.length > 1 ? names.join(", ") : "Direct message");
+        }
+        const g = C().GuildStore.getGuild(ch.guild_id);
+        return `#${ch.name}${g ? " in " + g.name : ""}`;
+    }
+
+    function messageText(msg) {
+        let text = msg.content || "";
+        // Mentions show as names, not <@id>.
+        text = text.replace(/<@!?(\d+)>/g, (_, id) => "@" + userName(C().UserStore.getUser(id)));
+        text = text.replace(/<#(\d+)>/g, (_, id) => { const c = C().ChannelStore.getChannel(id); return c ? "#" + c.name : "#channel"; });
+        text = text.replace(/<a?:(\w+):\d+>/g, ":$1:");
+        if (!text && msg.attachments && msg.attachments.length) text = `[${msg.attachments.length > 1 ? msg.attachments.length + " attachments" : "attachment"}]`;
+        if (!text && msg.embeds && msg.embeds.length) text = "[embed]";
+        if (!text && msg.sticker_items && msg.sticker_items.length) text = "[sticker]";
+        return text;
+    }
+
+    function simplifyMessage(msg) {
+        const a = msg.author || {};
+        const u = C().UserStore.getUser(a.id) || a;
+        return {
+            id: msg.id, channel_id: msg.channel_id,
+            author: { id: a.id, name: userName(u), avatar: avatarUrl(u) },
+            text: messageText(msg),
+            time: msg.timestamp ? Date.parse(msg.timestamp) : Date.now(),
+            mine: !!(me() && a.id === me().id),
+        };
+    }
+
     function onMessage(e) {
         try {
             const msg = e.message;
             const u = me();
-            if (!msg || !u || !msg.author || msg.author.id === u.id) return;
+            if (!msg || !u || !msg.author || msg.author.id === u.id || e.optimistic) return;
             const ch = C().ChannelStore.getChannel(msg.channel_id);
             const isDM = ch && !ch.guild_id;
-            const mentioned = (msg.mentions || []).some((x) => (x.id || x) === u.id);
+            const mentioned = (msg.mentions || []).some((x) => (x.id || x) === u.id) || !!msg.mention_everyone;
             if (!isDM && !mentioned) return;
-            const g = ch && ch.guild_id ? C().GuildStore.getGuild(ch.guild_id) : null;
-            emit("notification", {
-                title: g ? `${userName(msg.author)} in #${ch.name}` : userName(msg.author),
-                body: (msg.content || (msg.attachments && msg.attachments.length ? "[attachment]" : "")).slice(0, 140),
-            });
-        } catch (_) { }
+            const m = simplifyMessage(msg);
+            emit("message", { ...m, channel_label: channelLabel(ch), is_dm: !!isDM });
+        } catch (err) { warn("message event", err); }
+    }
+
+    async function history(channelId, limit) {
+        const r = await C().RestAPI.get({ url: `/channels/${channelId}/messages`, query: { limit: limit || 25 } });
+        const list = (r && r.body) || [];
+        const ch = C().ChannelStore.getChannel(channelId);
+        return { channel_id: channelId, label: channelLabel(ch), messages: list.map(simplifyMessage).reverse() };
+    }
+
+    async function sendMessage(channelId, content) {
+        content = String(content || "").trim();
+        if (!content) throw new Error("Nothing to send");
+        if (content.length > 2000) throw new Error("Discord messages can be at most 2000 characters");
+        const actions = props("sendMessage", "editMessage");
+        if (actions && actions.sendMessage) {
+            await actions.sendMessage(channelId, { content, tts: false, invalidEmojis: [], validNonShortcutEmojis: [] });
+            return { ok: true, method: "action" };
+        }
+        await C().RestAPI.post({
+            url: `/channels/${channelId}/messages`,
+            body: { content, nonce: C().SnowflakeUtils ? C().SnowflakeUtils.fromTimestamp(Date.now()) : String(Date.now()) },
+        });
+        return { ok: true, method: "rest" };
     }
 
     function start() {

@@ -1,5 +1,5 @@
 import { call, toaster } from "@decky/api";
-import { ButtonItem, PanelSectionRow } from "@decky/ui";
+import { ButtonItem, DialogButton, Focusable, PanelSectionRow } from "@decky/ui";
 import { useEffect, useState } from "react";
 import { Avatar } from "./VoiceChatViews";
 
@@ -10,15 +10,6 @@ type Channel = { id: string; name: string };
 // Steps: pick Friend or Server -> (server) pick a server -> pick a channel / friend -> sent.
 type Step = { kind: "start" } | { kind: "friends" } | { kind: "servers" } | { kind: "channels"; guild: Guild };
 
-const toDataUrl = async (url: string) => {
-  const blob = await (await fetch(url)).blob();
-  return new Promise<string>((resolve, reject) => {
-    const r = new FileReader();
-    r.onload = () => resolve(String(r.result));
-    r.onerror = () => reject(r.error);
-    r.readAsDataURL(blob);
-  });
-};
 
 const Hint = ({ children }: { children: any }) => (
   <PanelSectionRow>
@@ -45,23 +36,107 @@ function useList<T>(what: string, arg?: string) {
   return { items, error };
 }
 
+type Shot = { id: string; appid: number; time: number; thumb: string | null };
+
+const gameName = (appid: number) => {
+  try {
+    return (window as any).appStore?.GetAppOverviewByAppID?.(appid)?.display_name || "";
+  } catch (_) {
+    return "";
+  }
+};
+
+// Grid of recent screenshots from Steam's screenshot folders.
+function ShotGrid({ selected, onPick }: { selected: string | null; onPick: (s: Shot) => void }) {
+  const [shots, setShots] = useState<Shot[] | null>(null);
+  const [total, setTotal] = useState(0);
+  const more = (offset: number) =>
+    call<[number, number], { items: Shot[]; total: number }>("list_screenshots", offset, 12).then((r) => {
+      setShots((old) => [...(offset ? old ?? [] : []), ...(r?.items ?? [])]);
+      setTotal(r?.total ?? 0);
+    });
+  useEffect(() => {
+    more(0);
+  }, []);
+  if (!shots) return <Hint>Loading screenshots...</Hint>;
+  if (shots.length === 0) return <Hint>No screenshots found. Press Steam + R1 in a game to take one.</Hint>;
+  return (
+    <>
+      <PanelSectionRow>
+        <Focusable style={{ display: "flex", flexWrap: "wrap", gap: "6px" }} flow-children="row">
+          {shots.map((sh) => (
+            <DialogButton
+              key={sh.id}
+              onClick={() => onPick(sh)}
+              style={{
+                width: "calc(33% - 4px)", minWidth: 0, padding: 0, height: "54px", overflow: "hidden",
+                border: sh.id === selected ? "2px solid #5865f2" : "2px solid transparent",
+              }}
+            >
+              {sh.thumb ? (
+                <img src={sh.thumb} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+              ) : (
+                <span style={{ fontSize: 10 }}>{gameName(sh.appid) || "Screenshot"}</span>
+              )}
+            </DialogButton>
+          ))}
+        </Focusable>
+      </PanelSectionRow>
+      {shots.length < total && (
+        <PanelSectionRow>
+          <ButtonItem layout="below" onClick={() => more(shots.length)}>
+            Show more ({total - shots.length} left)
+          </ButtonItem>
+        </PanelSectionRow>
+      )}
+    </>
+  );
+}
+
 export function UploadScreenshot() {
-  const [shot, setShot] = useState<string | null>(null);
+  const [shot, setShot] = useState<Shot | null>(null);
+  const [preview, setPreview] = useState<string | null>(null);
+  const [picking, setPicking] = useState(false);
   const [step, setStep] = useState<Step>({ kind: "start" });
   const [sending, setSending] = useState(false);
 
+  // Start with the newest screenshot.
   useEffect(() => {
-    try {
-      SteamClient.Screenshots.GetLastScreenshotTaken().then((r: any) => r?.strUrl && setShot(`https://steamloopback.host/${r.strUrl}`));
-    } catch (_) {}
+    call<[number, number], { items: Shot[] }>("list_screenshots", 0, 1).then((r) => r?.items?.[0] && setShot(r.items[0]));
   }, []);
 
-  if (!shot) return <Hint>Take a Steam screenshot to share it here.</Hint>;
+  useEffect(() => {
+    if (!shot) return;
+    setPreview(shot.thumb);
+    call<[string], { image?: string }>("get_screenshot", shot.id).then((r) => r?.image && setPreview(r.image));
+  }, [shot?.id]);
+
+  if (picking || !shot) {
+    return (
+      <>
+        {shot && (
+          <PanelSectionRow>
+            <ButtonItem layout="below" onClick={() => setPicking(false)}>
+              ← Done
+            </ButtonItem>
+          </PanelSectionRow>
+        )}
+        <ShotGrid
+          selected={shot?.id ?? null}
+          onPick={(sh) => {
+            setShot(sh);
+            setPicking(false);
+            setStep({ kind: "start" });
+          }}
+        />
+      </>
+    );
+  }
 
   const send = async (label: string, target: { channelId?: string; userId?: string }) => {
     setSending(true);
     try {
-      const res: any = await call("post_screenshot", target.channelId ?? null, await toDataUrl(shot), target.userId ?? null);
+      const res: any = await call("post_screenshot_file", shot.id, target.channelId ?? null, target.userId ?? null);
       toaster.toast({ title: "Discordio", body: res?.error ? `Not sent: ${res.error}` : `Screenshot sent to ${label}` });
       if (!res?.error) setStep({ kind: "start" });
     } catch (e) {
@@ -79,14 +154,27 @@ export function UploadScreenshot() {
     </PanelSectionRow>
   );
 
+  const name = gameName(shot.appid);
+
   return (
     <>
       <PanelSectionRow>
-        <img src={shot} style={{ width: "100%", borderRadius: "6px", display: "block" }} />
+        <div style={{ width: "100%" }}>
+          {preview && <img src={preview} style={{ width: "100%", borderRadius: "6px", display: "block" }} />}
+          <div style={{ fontSize: 11, opacity: 0.7, marginTop: 4 }}>
+            {name ? `${name} · ` : ""}
+            {new Date(shot.time * 1000).toLocaleString()}
+          </div>
+        </div>
       </PanelSectionRow>
 
       {step.kind === "start" && (
         <>
+          <PanelSectionRow>
+            <ButtonItem layout="below" onClick={() => setPicking(true)}>
+              Choose another screenshot
+            </ButtonItem>
+          </PanelSectionRow>
           <PanelSectionRow>
             <ButtonItem layout="below" onClick={() => setStep({ kind: "friends" })}>
               Send to a friend

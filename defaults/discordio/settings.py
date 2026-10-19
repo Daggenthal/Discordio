@@ -9,6 +9,9 @@ DEFAULTS = {
     "overlay_enabled": True,
     "overlay_position": "top-left",
     "overlay_engine": "auto",
+    "message_popups": True,
+    "message_position": "top-left",
+    "message_duration": 8,
     # Chosen automatically by the capture helper; "" means "not found yet".
     "capture_variant": "",
     "capture_libs": "bundled",
@@ -18,6 +21,7 @@ RESOLUTIONS = {"480", "720", "1080", "1440", "2160", "source"}
 FRAME_RATES = {5, 10, 15, 24, 30, 45, 60}
 OVERLAY_POSITIONS = {"top-left", "top-right", "bottom-left", "bottom-right"}
 OVERLAY_ENGINES = {"auto", "gamescope", "steam"}
+MESSAGE_DURATIONS = {4, 8, 15, 30}
 LEGACY_PRESETS = {
     "720p30": ("720", 30), "720p60": ("720", 60), "1080p30": ("1080", 30),
     "1080p60": ("1080", 60), "1440p60": ("1440", 60), "source": ("source", 60),

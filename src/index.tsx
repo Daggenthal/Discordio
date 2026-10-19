@@ -23,11 +23,13 @@ import { VoiceChannelView } from "./components/VoiceChatViews";
 import { ServersPanel, FriendsPanel } from "./components/BrowsePanels";
 import { UpdatePanel } from "./components/UpdatePanel";
 import { OverlayPanel } from "./components/OverlayPanel";
+import { MessagesPanel, MessageSettingsPanel } from "./components/MessagesPanel";
 import { SafeSection } from "./components/SafeSection";
 import { useUiSettings, setUiSetting } from "./lib/settings";
 import { startMicBridge } from "./lib/mic";
 import { AudioDevicesPanel } from "./components/AudioDevicesPanel";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { on } from "./lib/events";
 import { UploadScreenshot } from "./components/UploadScreenshot";
 import { OpenDiscordButton } from "./components/buttons/OpenCloseDiscordButton";
 import { DiagnosticsPanel } from "./components/DiagnosticsPanel";
@@ -81,6 +83,8 @@ const Status = ({ state }: { state: any }) => {
 // the QAM is opened; the button toggles it for the current view.
 const Collapsible = ({ title, children, defaultOpen }: { title: string; children: any; defaultOpen: boolean }) => {
   const [open, setOpen] = useState(defaultOpen);
+  // e.g. joining a voice channel collapses Servers, so Call / Go Live is in view.
+  useEffect(() => on(`collapse:${title}`, () => setOpen(false)), [title]);
   return (
     <PanelSection title={title}>
       <PanelSectionRow>
@@ -113,6 +117,7 @@ const SettingsPanel = () => {
           onChange={(v) => setUiSetting("autoOpenFriends", v)}
         />
       </PanelSectionRow>
+      <SafeSection name="Message popups"><MessageSettingsPanel /></SafeSection>
       <SafeSection name="Audio devices"><AudioDevicesPanel /></SafeSection>
     </Collapsible>
   );
@@ -163,6 +168,9 @@ const Content = () => {
             <SafeSection name="Voice"><VoiceChannelView /></SafeSection>
             <SafeSection name="Push to talk"><PushToTalkButton /></SafeSection>
           </PanelSection>
+          <Collapsible title="Messages" defaultOpen={true}>
+            <SafeSection name="Messages"><MessagesPanel /></SafeSection>
+          </Collapsible>
           <PanelSection title="Overlay">
             <SafeSection name="Overlay"><OverlayPanel /></SafeSection>
           </PanelSection>
@@ -202,11 +210,18 @@ export default definePlugin(() => {
   // Microphone bridge: Discord's page asks for the mic, this side provides it.
   const stopMic = safe("Microphone bridge listener", () => startMicBridge());
 
-  // DMs and mentions while Discord is closed.
-  const notificationListener = (n: { title: string; body: string }) => {
-    safe("Show notification", () => toaster.toast({ title: n.title, body: n.body || "" }));
+  // DMs and mentions: the overlay shows them as popups; when it can't, a Steam toast.
+  const notificationListener = (m: any) => {
+    if (!m?.toast) return;
+    safe("Show notification", () =>
+      toaster.toast({
+        title: m.is_dm ? m.author?.name : `${m.author?.name} · ${m.channel_label}`,
+        body: m.text || "",
+        logo: m.author?.avatar ? <img src={m.author.avatar} style={{ borderRadius: "50%", width: "100%" }} /> : undefined,
+      })
+    );
   };
-  addEventListener("notification", notificationListener);
+  addEventListener("message", notificationListener);
 
   const setPlaying = () => {
     safe("Report current game", () => {
@@ -256,7 +271,7 @@ export default definePlugin(() => {
     icon: <FaDiscord />,
     onDismount() {
       disposed = true;
-      removeEventListener("notification", notificationListener);
+      removeEventListener("message", notificationListener);
       for (const fn of [unpatchMenu, appLifetimeUnregister, settingsChangeUnregister, cleanupPtt, stopMic]) {
         try {
           fn?.();
