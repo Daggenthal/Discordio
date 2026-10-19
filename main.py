@@ -680,28 +680,41 @@ class Plugin:
             return {"ok": False, "error": "the capture helper isn't running yet (see Diagnostics)"}
         started = time.time()
         quality = await cls.get_stream_settings()
-        # 1. Discord's own Share Screen button, in the hidden view.
-        res = await cls._req("goLive", {"quality": quality, "uiOnly": True}, timeout=25)
-        if isinstance(res, dict) and "NO_SHARE_BUTTON" in str(res.get("error", "")):
-            # 2. Discord may not draw its call controls while the view is
-            #    hidden: show it for a moment, press the button, hide it.
-            shown = False
+        # Discord's own Share Screen button, pressed in the hidden view. The
+        # view is never shown on screen (that could expose your DMs).
+        # 1. Hidden, with the page laid out at full size (DevTools emulation).
+        stealth = False
+        try:
             try:
+                await cls.view.emulate_full_size(True)
+                await asyncio.sleep(0.4)
+            except Exception as e:
+                log.warning(f"Go Live: full-size emulation unavailable: {e}")
+            res = await cls._req("goLive", {"quality": quality, "uiOnly": True}, timeout=25)
+            if isinstance(res, dict) and "NO_SHARE_BUTTON" in str(res.get("error", "")):
+                # 2. "Visible" to the page but only 1x1 pixel on screen.
                 vis = await cls._req("pageVisible", timeout=5)
                 if isinstance(vis, dict) and not vis.get("visible"):
-                    shown = bool(await cls.view.set_visible(True))
-                    log.info("Go Live: showing the Discord view briefly to reach Share Screen")
-                    await asyncio.sleep(1.2)
+                    stealth = bool(await cls.view.stealth_visible(True))
+                    log.info("Go Live: rendering the Discord view off-screen (1x1) to reach Share Screen")
+                    await asyncio.sleep(1.0)
                 res = await cls._req("goLive", {"quality": quality, "uiOnly": True}, timeout=25)
-            except Exception as e:
-                log.warning(f"Go Live with the view shown failed: {e}")
-            finally:
-                if shown:
-                    await asyncio.sleep(0.5)
+        finally:
+            if stealth:
+                for attempt in range(3):
                     try:
-                        await cls.view.set_visible(False)
-                    except Exception:
-                        pass
+                        await cls.view.stealth_visible(False)
+                        await asyncio.sleep(0.3)
+                        vis = await cls._req("pageVisible", timeout=5)
+                        if not (isinstance(vis, dict) and vis.get("visible")):
+                            break
+                        log.warning("Go Live: the Discord view still reports visible, hiding again")
+                    except Exception as e:
+                        log.warning(f"Go Live: couldn't hide the Discord view again: {e}")
+            try:
+                await cls.view.emulate_full_size(False)
+            except Exception:
+                pass
         if isinstance(res, dict) and "NO_SHARE_BUTTON" in str(res.get("error", "")):
             # 3. Last resort: Discord's stream function plus a stream source.
             res = await cls._req("goLive", {"quality": quality}, timeout=35)

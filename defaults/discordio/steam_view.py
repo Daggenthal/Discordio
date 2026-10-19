@@ -206,10 +206,51 @@ class DiscordView:
                 diag.set("discord_view", diag.WARN, "the Discord view went away, recreating")
                 return
 
-    async def set_visible(self, visible):
-        """Show or hide the Discord view (without giving it focus)."""
-        js = ("(() => { const v = window.DISCORDIO_VIEW; if (!v || !v.m_browserView) return false; "
-              f"v.m_browserView.SetVisible({'true' if visible else 'false'}); return true; }})()")
+    async def view_size(self):
+        js = ("(() => { const v = window.DISCORDIO_VIEW; return v ? [v.WIDTH || 1500, v.HEIGHT || 844] : [1500, 844]; })()")
+        try:
+            w, h = await (await self.shared_context()).evaluate(js, timeout=5)
+            return int(w), int(h)
+        except Exception:
+            return 1500, 844
+
+    async def emulate_full_size(self, on):
+        """
+        Make the hidden Discord page lay itself out at full size and believe
+        it has focus (DevTools emulation), so Discord draws its call controls
+        without the view ever being shown.
+        """
+        if not self.target or not self.target.connected:
+            raise RuntimeError("the Discord view isn't connected")
+        if on:
+            w, h = await self.view_size()
+            await self.target.send("Emulation.setDeviceMetricsOverride",
+                                   {"width": w, "height": h, "deviceScaleFactor": 0, "mobile": False})
+            try:
+                await self.target.send("Emulation.setFocusEmulationEnabled", {"enabled": True})
+            except Exception:
+                pass
+        else:
+            for method, params in (("Emulation.clearDeviceMetricsOverride", {}),
+                                   ("Emulation.setFocusEmulationEnabled", {"enabled": False})):
+                try:
+                    await self.target.send(method, params)
+                except Exception:
+                    pass
+
+    async def stealth_visible(self, on):
+        """
+        "Visible" to the page but one pixel on screen: the view is shown at
+        1x1 (Discord renders as if visible, at full size through emulation),
+        never exposing your DMs. Off: hidden again (still 1x1 until opened).
+        """
+        js = ("(() => { const v = window.DISCORDIO_VIEW; if (!v || !v.m_browserView) return false; const b = v.m_browserView; "
+              + ("b.SetBounds(0, 0, 1, 1); b.SetVisible(true); try { b.SetFocus(false); } catch (e) {} "
+                 if on else
+                 # Stays 1x1 while hidden: if hiding ever fails, nothing shows.
+                 # Opening Discord from the QAM sets its full size again.
+                 "b.SetVisible(false); try { b.SetFocus(false); } catch (e) {} ")
+              + "return true; })()")
         return await (await self.shared_context()).evaluate(js, timeout=5)
 
     async def unlock_audio(self):
