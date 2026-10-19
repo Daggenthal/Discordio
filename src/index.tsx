@@ -87,6 +87,8 @@ const Collapsible = ({ title, children, defaultOpen }: { title: string; children
   const [open, setOpen] = useState(defaultOpen);
   // e.g. joining a voice channel collapses Servers, so Call / Go Live is in view.
   useEffect(() => on(`collapse:${title}`, () => setOpen(false)), [title]);
+  // e.g. a friend's Message button opens Messages.
+  useEffect(() => on(`expand:${title}`, () => setOpen(true)), [title]);
   return (
     <PanelSection title={title}>
       <PanelSectionRow>

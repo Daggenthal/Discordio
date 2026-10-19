@@ -1,6 +1,8 @@
 import { addEventListener, call, removeEventListener, toaster } from "@decky/api";
-import { ButtonItem, PanelSectionRow, TextField, ToggleField } from "@decky/ui";
-import { useEffect, useState } from "react";
+import { ButtonItem, DialogButton, Focusable, PanelSectionRow, TextField, ToggleField } from "@decky/ui";
+import { useEffect, useRef, useState } from "react";
+import { FaPhone } from "react-icons/fa";
+import { fire, on } from "../lib/events";
 import { Avatar } from "./VoiceChatViews";
 import { ChoiceSlider } from "./ChoiceSlider";
 
@@ -12,7 +14,8 @@ type Conversation = {
   unread: number;
   last?: { author: string; text: string; time: number };
 };
-type Message = { id: string; author: { id: string; name: string; avatar: string | null }; text: string; time: number; mine: boolean };
+type Media = { kind: "image" | "gif" | "gifv" | "video" | "sticker" | "file"; url?: string; poster?: string; name?: string; title?: string; width?: number; height?: number };
+type Message = { id: string; author: { id: string; name: string; avatar: string | null }; text: string; time: number; mine: boolean; media?: Media[] };
 type History = { channel_id: string; label: string; messages: Message[]; error?: string };
 
 const small = { fontSize: "12px", lineHeight: "16px", wordBreak: "break-word" as const };
@@ -21,10 +24,39 @@ const ago = (t: number) => {
   return s < 60 ? "now" : s < 3600 ? `${Math.floor(s / 60)}m` : `${Math.floor(s / 3600)}h`;
 };
 
+// Open a conversation from elsewhere (e.g. a friend's Message button). The
+// Messages section may be collapsed (unmounted), so the request is kept
+// until the panel mounts.
+let pendingOpen: Conversation | null = null;
+export async function openConversationWith(friend: { id: string; name: string; avatar: string | null }) {
+  const res: any = await call("open_dm", friend.id);
+  if (!res || res.error) {
+    toaster.toast({ title: "Discordio", body: `Couldn't open the conversation: ${res?.error || "no answer"}` });
+    return;
+  }
+  pendingOpen = { channel_id: res.channel_id, label: friend.name, is_dm: true, avatar: friend.avatar, unread: 0 };
+  fire("expand:Messages");
+  fire("open-conversation");
+}
+
 // DMs and mentions that came in: open one to read and reply.
 export function MessagesPanel() {
   const [convs, setConvs] = useState<Conversation[] | null>(null);
-  const [open, setOpen] = useState<Conversation | null>(null);
+  const [open, setOpen] = useState<Conversation | null>(() => {
+    const p = pendingOpen;
+    pendingOpen = null;
+    return p;
+  });
+  useEffect(
+    () =>
+      on("open-conversation", () => {
+        if (pendingOpen) {
+          setOpen(pendingOpen);
+          pendingOpen = null;
+        }
+      }),
+    []
+  );
 
   const load = () =>
     call<[], { conversations: Conversation[] }>("get_conversations")
@@ -86,6 +118,17 @@ function ConversationView({ conv, onBack }: { conv: Conversation; onBack: () => 
   const [history, setHistory] = useState<History | null>(null);
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
+  const top = useRef<HTMLDivElement>(null);
+
+  // Opening a conversation brings it into view.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      try {
+        top.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      } catch (_) {}
+    }, 150);
+    return () => clearTimeout(t);
+  }, [conv.channel_id]);
 
   const load = () =>
     call<[string], History>("get_history", conv.channel_id)
@@ -124,23 +167,38 @@ function ConversationView({ conv, onBack }: { conv: Conversation; onBack: () => 
   return (
     <>
       <PanelSectionRow>
-        <ButtonItem layout="below" onClick={onBack}>
-          ← Messages
-        </ButtonItem>
+        <div ref={top}>
+          <Focusable style={{ display: "flex", gap: "8px" }}>
+            <DialogButton style={{ flex: 1, minWidth: 0 }} onClick={onBack}>
+              ← Messages
+            </DialogButton>
+            <DialogButton
+              style={{ flex: 1, minWidth: 0, background: "#23a55a", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
+              onClick={async () => {
+                const res: any = await call("call_channel", conv.channel_id);
+                toaster.toast({ title: "Discordio", body: res?.error ? `Couldn't call: ${res.error}` : `Calling ${history?.label || conv.label}` });
+                if (!res?.error) fire("collapse:Messages");
+              }}
+            >
+              <FaPhone /> Call
+            </DialogButton>
+          </Focusable>
+        </div>
       </PanelSectionRow>
       <PanelSectionRow>
         <div style={{ fontWeight: 700, fontSize: 14 }}>{history?.label || conv.label}</div>
       </PanelSectionRow>
       {!history && <Hint>Loading messages...</Hint>}
       {history?.error && <Hint error>{history.error}</Hint>}
-      {history?.messages.slice(-12).map((m) => (
+      {history?.messages.slice(-20).map((m) => (
         <PanelSectionRow key={m.id}>
           <div style={{ display: "flex", gap: 8, alignItems: "flex-start", ...small }}>
             <Avatar src={m.author.avatar} size={22} />
             <div style={{ minWidth: 0 }}>
               <b style={{ color: m.mine ? "#949cf7" : undefined }}>{m.author.name}</b>{" "}
               <span style={{ opacity: 0.5, fontSize: 10 }}>{ago(m.time / 1000)}</span>
-              <div>{m.text || <i style={{ opacity: 0.6 }}>(no text)</i>}</div>
+              {m.text ? <div>{m.text}</div> : !m.media?.length && <i style={{ opacity: 0.6 }}>(no text)</i>}
+              {m.media?.map((x, i) => <MediaView key={i} m={x} />)}
             </div>
           </div>
         </PanelSectionRow>
@@ -213,3 +271,49 @@ const Hint = ({ children, error }: { children: any; error?: boolean }) => (
     <div style={{ ...small, opacity: error ? 1 : 0.7, color: error ? "#ff6b6b" : undefined }}>{children}</div>
   </PanelSectionRow>
 );
+
+// Pictures, GIFs, videos and stickers, like in Discord.
+function MediaView({ m }: { m: Media }) {
+  const box = { display: "block", maxWidth: "100%", maxHeight: 170, borderRadius: 6, marginTop: 4 } as const;
+  const video = useRef<HTMLVideoElement>(null);
+  const [playing, setPlaying] = useState(false);
+  if (m.kind === "file" || !m.url) return <div style={{ opacity: 0.7, marginTop: 2 }}>📎 {m.name || "file"}</div>;
+  if (m.kind === "image" || m.kind === "gif" || m.kind === "sticker") {
+    return <img src={m.url} loading="lazy" style={{ ...box, maxHeight: m.kind === "sticker" ? 96 : 170 }} />;
+  }
+  if (m.kind === "gifv") {
+    return <video src={m.url} poster={m.poster} autoPlay loop muted playsInline style={box} />;
+  }
+  // Videos: select with A to play / pause (with sound).
+  return (
+    <Focusable
+      onActivate={() => {
+        const v = video.current;
+        if (!v) return;
+        if (v.paused) {
+          v.muted = false;
+          v.play().catch(() => {});
+        } else v.pause();
+      }}
+      onOKActionDescription={playing ? "Pause" : "Play"}
+      style={{ position: "relative", display: "inline-block", maxWidth: "100%" }}
+    >
+      <video
+        ref={video}
+        src={m.url}
+        poster={m.poster}
+        preload="metadata"
+        playsInline
+        onPlay={() => setPlaying(true)}
+        onPause={() => setPlaying(false)}
+        onEnded={() => setPlaying(false)}
+        style={box}
+      />
+      {!playing && (
+        <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28, textShadow: "0 0 6px #000" }}>
+          ▶
+        </div>
+      )}
+    </Focusable>
+  );
+}

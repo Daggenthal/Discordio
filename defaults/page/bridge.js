@@ -684,6 +684,16 @@
     });
     m("callFriend", ({ userId }) => callFriend(userId));
     m("incomingCall", () => incoming);
+    m("openDm", async ({ userId }) => {
+        const id = await dmChannel(userId);
+        const ch = C().ChannelStore.getChannel(id);
+        return { channel_id: id, label: channelLabel(ch) };
+    });
+    m("callChannel", async ({ channelId }) => {
+        const method = selectVoice(null, channelId);
+        try { await C().RestAPI.post({ url: `/channels/${channelId}/call/ring`, body: { recipients: null } }); } catch (_) { }
+        return { ok: true, method };
+    });
     m("answerCall", ({ channelId }) => answerCall(channelId));
     m("declineCall", ({ channelId }) => declineCall(channelId));
     m("guilds", () => guilds());
@@ -771,13 +781,47 @@
         return Number(t) || Date.now();
     }
 
+    // Images, GIFs, videos and stickers in a message, for the QAM to show.
+    // REST data is snake_case; Discord's message store uses camelCase.
+    function mediaOf(msg) {
+        const out = [];
+        const src = (o) => o && (o.proxy_url || o.proxyURL || o.url);
+        for (const a of msg.attachments || []) {
+            const ct = a.content_type || a.contentType || "";
+            const name = a.filename || "";
+            const kind = /gif/.test(ct) || /\.gif$/i.test(name) ? "gif"
+                : ct.startsWith("image/") || /\.(png|jpe?g|webp|avif)$/i.test(name) ? "image"
+                : ct.startsWith("video/") || /\.(mp4|webm|mov)$/i.test(name) ? "video" : "file";
+            out.push({ kind, url: src(a), name, width: a.width || null, height: a.height || null });
+        }
+        for (const e of msg.embeds || []) {
+            const thumb = src(e.thumbnail);
+            if ((e.type === "gifv" || e.type === "gif") && e.video) out.push({ kind: "gifv", url: src(e.video), poster: thumb, link: e.url });
+            else if (e.type === "image" && (e.image || e.thumbnail)) out.push({ kind: "image", url: src(e.image) || thumb, link: e.url });
+            else if (e.type === "video" && e.video && /\.(mp4|webm)(\?|$)/i.test(src(e.video) || "")) out.push({ kind: "video", url: src(e.video), poster: thumb });
+            else if (e.image) out.push({ kind: "image", url: src(e.image), link: e.url, title: e.title || null });
+            else if (thumb) out.push({ kind: "image", url: thumb, link: e.url, title: e.title || null });
+        }
+        for (const st of msg.sticker_items || msg.stickerItems || msg.stickers || []) {
+            const fmt = st.format_type || st.formatType;
+            if (fmt === 3) { out.push({ kind: "file", name: `sticker: ${st.name}` }); continue; } // Lottie
+            out.push({ kind: "sticker", url: `https://media.discordapp.net/stickers/${st.id}.${fmt === 4 ? "gif" : "png"}?size=160`, name: st.name });
+        }
+        return out.filter((m) => m.url || m.kind === "file").slice(0, 4);
+    }
+
     function simplifyMessage(msg) {
         const a = msg.author || {};
         const u = C().UserStore.getUser(a.id) || a;
+        const media = mediaOf(msg);
+        let text = messageText(msg);
+        // A message that is just a GIF / image link shows the picture instead.
+        if (media.length && media.some((m) => m.link && text.trim() === m.link)) text = "";
+        if (media.length && /^\[(attachment|\d+ attachments|embed|sticker)\]$/.test(text)) text = "";
         return {
             id: msg.id, channel_id: msg.channel_id,
             author: { id: a.id, name: friendName(u) || userName(u), avatar: avatarUrl(u) },
-            text: messageText(msg),
+            text, media,
             time: msgTime(msg.timestamp),
             mine: !!(me() && a.id === me().id),
         };
@@ -801,7 +845,10 @@
             const mentioned = (msg.mentions || []).some((x) => (x.id || x) === u.id) || !!msg.mention_everyone;
             if (!isDM && !mentioned) return;
             const m = simplifyMessage(msg);
-            emit("message", { ...m, channel_label: channelLabel(ch), is_dm: !!isDM });
+            // Popups have no room for pictures: say what was sent.
+            const label = (m.media || []).map((x) => ({ gif: "GIF", gifv: "GIF", image: "image", video: "video", sticker: "sticker" })[x.kind] || "file");
+            const text = m.text || (label.length ? `[${label[0]}${label.length > 1 ? ` +${label.length - 1}` : ""}]` : "");
+            emit("message", { ...m, text, channel_label: channelLabel(ch), is_dm: !!isDM });
         } catch (err) { warn("message event", err); }
     }
 

@@ -1,5 +1,7 @@
 import { call, toaster } from "@decky/api";
-import { ButtonItem, PanelSectionRow, ToggleField } from "@decky/ui";
+import { ButtonItem, DialogButton, Focusable, PanelSectionRow, ToggleField } from "@decky/ui";
+import { FaComment, FaPhone } from "react-icons/fa";
+import { openConversationWith } from "./MessagesPanel";
 import { useEffect, useState } from "react";
 import { Avatar, MemberRow, Member } from "./VoiceChatViews";
 import { fire } from "../lib/events";
@@ -165,6 +167,7 @@ const STATUS_COLOR: Record<string, string> = {
 export function FriendsPanel() {
   const [friends, setFriends] = useState<Friend[] | null>(null);
   const [showOffline, setShowOffline] = useState(false);
+  const [openId, setOpenId] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -199,33 +202,71 @@ export function FriendsPanel() {
         </PanelSectionRow>
       )}
       {list.map((f) => (
-        <PanelSectionRow key={f.id}>
-          <ButtonItem
-            layout="inline"
-            label={
-              <span style={{ display: "inline-flex", alignItems: "center", gap: "8px", minWidth: 0 }}>
-                <span style={{ position: "relative", display: "inline-block" }}>
-                  <Avatar src={f.avatar} size={28} />
-                  <span
-                    style={{
-                      position: "absolute", right: -1, bottom: -1, width: 10, height: 10, borderRadius: "50%",
-                      background: STATUS_COLOR[f.status] || STATUS_COLOR.offline, border: "2px solid #23262e",
-                    }}
-                  />
-                </span>
-                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</span>
-              </span>
-            }
-            onClick={async () => {
-              const res: any = await call("call_friend", f.id);
-              report(res, `Calling ${f.name}`);
-              if (!res?.error) fire("collapse:Friends");
-            }}
-          >
-            Call
-          </ButtonItem>
-        </PanelSectionRow>
+        <FriendRow key={f.id} f={f} open={openId === f.id} onToggle={() => setOpenId(openId === f.id ? null : f.id)} />
       ))}
+    </>
+  );
+}
+
+const callFriend = async (f: Friend) => {
+  const res: any = await call("call_friend", f.id);
+  report(res, `Calling ${f.name}`);
+  if (!res?.error) fire("collapse:Friends");
+};
+const messageFriend = (f: Friend) => {
+  fire("collapse:Friends");
+  openConversationWith(f);
+};
+
+// A friend: A shows Call / Message, X calls, Options opens your messages.
+function FriendRow({ f, open, onToggle }: { f: Friend; open: boolean; onToggle: () => void }) {
+  return (
+    <>
+      <PanelSectionRow>
+        <Focusable
+          onOptionsButton={() => messageFriend(f)}
+          onOptionsActionDescription="Message"
+          onSecondaryButton={() => callFriend(f)}
+          onSecondaryActionDescription="Call"
+        >
+          <ButtonItem
+            layout="below"
+            onClick={onToggle}
+          >
+            <span style={{ display: "flex", alignItems: "center", gap: "8px", minWidth: 0, textAlign: "left" }}>
+              <span style={{ position: "relative", display: "inline-block", flex: "none" }}>
+                <Avatar src={f.avatar} size={28} />
+                <span
+                  style={{
+                    position: "absolute", right: -1, bottom: -1, width: 10, height: 10, borderRadius: "50%",
+                    background: STATUS_COLOR[f.status] || STATUS_COLOR.offline, border: "2px solid #23262e",
+                  }}
+                />
+              </span>
+              <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</span>
+              <span style={{ opacity: 0.5, fontSize: 18 }}>{open ? "▾" : "▸"}</span>
+            </span>
+          </ButtonItem>
+        </Focusable>
+      </PanelSectionRow>
+      {open && (
+        <PanelSectionRow>
+          <Focusable style={{ display: "flex", gap: "8px" }}>
+            <DialogButton
+              style={{ flex: 1, minWidth: 0, background: "#23a55a", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
+              onClick={() => callFriend(f)}
+            >
+              <FaPhone /> Call
+            </DialogButton>
+            <DialogButton
+              style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
+              onClick={() => messageFriend(f)}
+            >
+              <FaComment /> Message
+            </DialogButton>
+          </Focusable>
+        </PanelSectionRow>
+      )}
     </>
   );
 }

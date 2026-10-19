@@ -614,7 +614,17 @@ class Plugin:
     @classmethod
     async def get_history(cls, channel_id):
         cls.messages.mark_read(channel_id)
-        return await cls._req("history", {"channelId": channel_id, "limit": 20}, timeout=15)
+        return await cls._req("history", {"channelId": channel_id, "limit": 30}, timeout=15)
+
+    @classmethod
+    async def open_dm(cls, user_id):
+        """The DM channel with a friend (created if there's none yet)."""
+        return await cls._req("openDm", {"userId": user_id}, timeout=15)
+
+    @classmethod
+    async def call_channel(cls, channel_id):
+        """Start a call in a DM / group DM and ring the others."""
+        return await cls._req("callChannel", {"channelId": channel_id}, timeout=15)
 
     @classmethod
     async def send_message(cls, channel_id, content):

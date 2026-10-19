@@ -1,5 +1,5 @@
 // Tiny in-QAM event bus, e.g. "collapse the Servers list after joining".
-type Fn = () => void;
+type Fn = (data?: any) => void;
 const listeners = new Map<string, Set<Fn>>();
 
 export const on = (name: string, fn: Fn) => {
@@ -10,4 +10,4 @@ export const on = (name: string, fn: Fn) => {
   };
 };
 
-export const fire = (name: string) => listeners.get(name)?.forEach((fn) => fn());
+export const fire = (name: string, data?: any) => listeners.get(name)?.forEach((fn) => fn(data));
