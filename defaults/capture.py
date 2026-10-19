@@ -397,8 +397,14 @@ class Tap:
         }
 
     def wanted_key(self):
-        height, fps, _ = stream_settings(load_settings())
-        width, h = frame_size(height)
+        # The feed from gamescope runs at one fixed size and rate; the stream
+        # scales to the chosen resolution / frame rate itself. Changing those
+        # used to reconnect to gamescope each time, and gamescope stopped
+        # delivering frames after a few quick reconnects. Only going above
+        # 1080p (needs Nitro) uses a bigger feed.
+        height, _, _ = stream_settings(load_settings())
+        width, h = (2560, 1440) if (height is None or height > 1080) else (1920, 1080)
+        fps = 60
         if TEST_SOURCE:
             return ("test", MY_LIBS, None, width, h, fps)
         node = find_node()[0]
@@ -419,11 +425,19 @@ class Tap:
             since = time.time() - self.started
             if self.running and not for_stream and since < self.MIN_RESTART_S:
                 return self.key  # settings changed: switch over a little later
-            if not self.running and self.error and since < self.MIN_RESTART_S:
+            if not self.running and self.error and since < self.MIN_RESTART_S and not for_stream:
                 raise RuntimeError(self.error)
             self._stop_locked()
             self._start_locked(key)
-            return key
+        if for_stream:
+            # Going live: give a fresh connection a moment to deliver its
+            # first frame, rather than failing on an old stall.
+            deadline = time.time() + 8
+            while time.time() < deadline and not self.last_frame and self.running:
+                time.sleep(0.1)
+            if not self.last_frame:
+                raise RuntimeError(self.error or "gamescope's feed sent no frames within 8s (try Re-detect in Diagnostics)")
+        return key
 
     def _start_locked(self, key):
         variant, libs, node_id, width, height, fps = key
@@ -716,9 +730,9 @@ class Session:
             if not self.webrtc:
                 try:
                     vpt, apt = payload_types(sdp)
-                    await asyncio.wait_for(asyncio.to_thread(self.start, vpt, apt), 10)
+                    await asyncio.wait_for(asyncio.to_thread(self.start, vpt, apt), 15)
                 except asyncio.TimeoutError:
-                    return self.fail("the capture pipeline didn't start within 10s")
+                    return self.fail("the capture pipeline didn't start within 15s")
                 except Exception as e:
                     return self.fail(f"couldn't start capture: {e}")
             offer = GstWebRTC.WebRTCSessionDescription.new(GstWebRTC.WebRTCSDPType.OFFER, sdp)
@@ -732,16 +746,20 @@ class Session:
         height, fps, bitrate = stream_settings(load_settings())
         # Frames come from the shared tap, so going live never opens a second
         # connection to gamescope (and the preview keeps working while live).
-        variant, libs, _node, width, fh, fps = self.helper.tap.ensure(for_stream=True)
-        self.preset = f"{height}p{fps}" if height else f"source ({fh}p) @{fps}"
+        variant, libs, _node, feed_w, feed_h, feed_fps = self.helper.tap.ensure(for_stream=True)
+        width, fh = frame_size(height) if height else (feed_w, feed_h)
+        width, fh = min(width, feed_w), min(fh, feed_h)
+        self.preset = f"{fh}p{fps}" if height else f"source ({fh}p) @{fps}"
         if libs != MY_LIBS:
             self.preset += f" (captured by {libs} GStreamer)"
         self.format = {"width": width, "height": fh, "fps": fps}
-        caps = f"video/x-raw,format=I420,width={width},height={fh},framerate={fps}/1,pixel-aspect-ratio=1/1"
+        feed_caps = f"video/x-raw,format=I420,width={feed_w},height={feed_h},framerate={feed_fps}/1,pixel-aspect-ratio=1/1"
+        out_caps = f"video/x-raw,format=I420,width={width},height={fh},framerate={fps}/1,pixel-aspect-ratio=1/1"
         desc = (
             f"webrtcbin name=send latency=0 bundle-policy=max-bundle "
-            f'appsrc name=vsrc is-live=true do-timestamp=true format=time caps="{caps}"{appsrc_extra()} ! '
+            f'appsrc name=vsrc is-live=true do-timestamp=true format=time caps="{feed_caps}"{appsrc_extra()} ! '
             f"identity name=frames silent=true ! "
+            f"videoscale add-borders=true ! videorate drop-only=true ! {out_caps} ! "
             f"queue max-size-buffers=2 leaky=downstream ! "
             f"vp8enc deadline=1 cpu-used=8 threads={max(2, min(8, (os.cpu_count() or 4) // 2))} "
             f"end-usage=cbr target-bitrate={bitrate} keyframe-max-dist={fps * 2} error-resilient=partitions lag-in-frames=0 ! "

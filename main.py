@@ -160,6 +160,14 @@ class Plugin:
         }, log)
         cls.tasks.append(loop.create_task(cls.view.run()))
         cls.tasks.append(loop.create_task(cls._heartbeat()))
+
+        async def capture_port_changed(port):
+            # The page (and future reloads of it) must use the helper's current address.
+            url = f"ws://127.0.0.1:{port}/webrtc"
+            cls.view.config["captureUrl"] = url
+            await cls.bridge.push("config", {"captureUrl": url})
+
+        cls.capture.on_port = capture_port_changed
         diag.on_change(lambda: loop.create_task(cls._emit_diag()))
 
     @classmethod
@@ -384,6 +392,8 @@ class Plugin:
     async def _on_hello(cls, data):
         cls.ready = True
         log.info(f"Discord page connected ({data.get('version')})")
+        if cls.capture.port:
+            await cls.bridge.push("config", {"captureUrl": f"ws://127.0.0.1:{cls.capture.port}/webrtc"})
         await cls._unlock_audio("page connected")
 
     _last_unlock = 0.0

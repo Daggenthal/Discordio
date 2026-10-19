@@ -83,6 +83,13 @@
         log, warn,
     };
 
+    // Settings the backend updates while running (e.g. the capture helper's
+    // address after it restarts).
+    window.DISCORDIO.onPush("config", (d) => {
+        window.DISCORDIO_CONFIG = window.DISCORDIO_CONFIG || {};
+        Object.assign(window.DISCORDIO_CONFIG, d || {});
+    });
+
     // --------------------------------------------------------------- Discord
     const W = () => Vencord.Webpack;
     const C = () => Vencord.Webpack.Common;

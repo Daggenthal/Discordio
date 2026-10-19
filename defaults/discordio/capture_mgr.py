@@ -42,6 +42,7 @@ class CaptureManager:
         self.restarts = 0
         self.last_exit = None
         self.wake = asyncio.Event()
+        self.on_port = None  # async fn(port): tell the Discord page
 
     @property
     def url(self):
@@ -114,7 +115,21 @@ class CaptureManager:
                             diag.set("capture", diag.ERROR, f"helper exited ({code}): {last}")
                             await asyncio.sleep(min(30, 2 * failures))
                     self.restarts += 1 if self.proc is not None else 0
-                    self.port = system.free_port(self.port)
+                    # Keep the same port: the Discord page was given this
+                    # address. The old helper may hold it for a moment.
+                    want = self.port
+                    for _ in range(15):
+                        if system.free_port(want) == want:
+                            break
+                        await asyncio.sleep(0.2)
+                    self.port = system.free_port(want)
+                    if self.port != want:
+                        self.log.warning(f"Capture port {want} still busy, using {self.port}")
+                    if self.on_port:
+                        try:
+                            await self.on_port(self.port)
+                        except Exception as e:
+                            self.log.warning(f"Couldn't tell Discord the new capture address: {e}")
                     await self.start()
                     await asyncio.sleep(1.5)
                 await self.refresh()

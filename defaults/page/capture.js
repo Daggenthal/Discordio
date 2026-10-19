@@ -63,7 +63,7 @@
         pending = new Promise((resolve, reject) => {
             const pc = new RTCPeerConnection({ iceServers: [] });
             pc.__discordio = "capture";
-            const ws = new WebSocket(CFG.captureUrl || "ws://127.0.0.1:65124/webrtc");
+            const ws = new WebSocket((window.DISCORDIO_CONFIG || CFG).captureUrl || "ws://127.0.0.1:65124/webrtc");
             const stream = new MediaStream();
             let settled = false;
 
