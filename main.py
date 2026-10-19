@@ -42,8 +42,13 @@ logger.setLevel(INFO)
 SETTINGS_DIR = Path(getattr(decky, "DECKY_PLUGIN_SETTINGS_DIR", DECKY_PLUGIN_DIR))
 SETTINGS_FILE = SETTINGS_DIR / "settings.json"
 RUNTIME_DIR = Path(getattr(decky, "DECKY_PLUGIN_RUNTIME_DIR", DECKY_PLUGIN_DIR))
-QUALITY_PRESETS = {"720p30", "720p60", "1080p30", "1080p60", "1440p60", "source"}
-DEFAULTS = {"stream_quality": "720p30", "overlay_enabled": True, "overlay_position": "top-left"}
+RESOLUTIONS = {"480", "720", "1080", "1440", "2160", "source"}
+FRAME_RATES = {5, 10, 15, 24, 30, 45, 60}
+LEGACY_PRESETS = {
+    "720p30": ("720", 30), "720p60": ("720", 60), "1080p30": ("1080", 30),
+    "1080p60": ("1080", 60), "1440p60": ("1440", 60), "source": ("source", 60),
+}
+DEFAULTS = {"stream_resolution": "720", "stream_fps": 30, "overlay_enabled": True, "overlay_position": "top-left"}
 OVERLAY_POSITIONS = {"top-left", "top-right", "bottom-left", "bottom-right"}
 RELEASES_API = "https://api.github.com/repos/Daggenthal/Discordio/releases?per_page=20"
 
@@ -528,18 +533,44 @@ class Plugin:
         return await cls.evt_handler.api.get_screen_bounds()
 
     @classmethod
-    async def get_stream_quality(cls):
-        return load_settings()["stream_quality"]
+    async def get_stream_settings(cls):
+        try:
+            raw = loads(SETTINGS_FILE.read_text())
+        except Exception:
+            raw = {}
+        if "stream_resolution" not in raw and raw.get("stream_quality") in LEGACY_PRESETS:
+            # Migrate the old combined presets (720p30 and friends).
+            res, fps = LEGACY_PRESETS[raw["stream_quality"]]
+        else:
+            res, fps = str(raw.get("stream_resolution", "720")), raw.get("stream_fps", 30)
+        return {"resolution": res if res in RESOLUTIONS else "720", "fps": fps if fps in FRAME_RATES else 30}
 
     @classmethod
-    async def set_stream_quality(cls, quality):
-        if quality not in QUALITY_PRESETS:
-            return False
-        settings = load_settings()
-        settings["stream_quality"] = quality
-        save_settings(settings)
-        logger.info(f"Stream quality set to {quality}")
-        return True
+    async def set_stream_settings(cls, resolution=None, fps=None):
+        current = await cls.get_stream_settings()  # includes a migrated old preset
+        s = load_settings()
+        s["stream_resolution"], s["stream_fps"] = current["resolution"], current["fps"]
+        if resolution is not None and str(resolution) in RESOLUTIONS:
+            s["stream_resolution"] = str(resolution)
+        if fps is not None:
+            try:
+                fps = int(fps)
+            except Exception:
+                fps = None
+            if fps in FRAME_RATES:
+                s["stream_fps"] = fps
+        s.pop("stream_quality", None)
+        save_settings(s)
+        logger.info(f"Stream set to {s.get('stream_resolution')} @ {s.get('stream_fps')} fps")
+        return await cls.get_stream_settings()
+
+    @classmethod
+    async def get_stream_limits(cls):
+        """What the logged-in account (and current server's boosts) allow."""
+        try:
+            return await cls.evt_handler.api._store_access_request("$stream_limits", timeout=5)
+        except Exception as e:
+            return {"error": str(e)}
 
     @classmethod
     async def go_live(cls):
@@ -552,7 +583,7 @@ class Plugin:
     @classmethod
     async def _go_live(cls, stop):
         try:
-            res = await cls.evt_handler.api.go_live(stop=stop)
+            res = await cls.evt_handler.api.go_live(stop=stop, quality=None if stop else await cls.get_stream_settings())
         except Exception as e:
             logger.warning(f"go_live(stop={stop}): {e}")
             return {"ok": False, "error": str(e)}

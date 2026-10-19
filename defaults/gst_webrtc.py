@@ -35,31 +35,52 @@ PIPELINE_DESC = """
   queue ! application/x-rtp,media=audio,encoding-name=OPUS,payload={audio_pt} ! send.
 """
 
-# Resolution, frame rate and local bitrate per QAM preset. Discord re-encodes
-# what it receives, so this hop can use a generous bitrate.
-QUALITY = {
-    "720p30": (1280, 720, 30, 8_000_000),
-    "720p60": (1280, 720, 60, 10_000_000),
-    "1080p30": (1920, 1080, 30, 12_000_000),
-    "1080p60": (1920, 1080, 60, 16_000_000),
-    "1440p60": (2560, 1440, 60, 25_000_000),
-    "source": (None, None, 60, 25_000_000),
+# Stream resolution (output height, or "source") and frame rate, chosen in the
+# QAM. Discord re-encodes what it receives, so this local hop uses a generous
+# bitrate scaled to pixels per second.
+RESOLUTIONS = {"480": 480, "720": 720, "1080": 1080, "1440": 1440, "2160": 2160, "source": None}
+FRAME_RATES = {5, 10, 15, 24, 30, 45, 60}
+LEGACY_PRESETS = {
+    "720p30": ("720", 30), "720p60": ("720", 60), "1080p30": ("1080", 30),
+    "1080p60": ("1080", 60), "1440p60": ("1440", 60), "source": ("source", 60),
 }
 
 
 def read_quality():
+    """Returns (resolution key, fps) from the plugin settings file."""
     path = os.environ.get("DECKCORD_SETTINGS")
     try:
         with open(path) as f:
-            q = json.load(f).get("stream_quality", "720p30")
+            settings = json.load(f)
     except Exception:
-        q = "720p30"
-    return q if q in QUALITY else "720p30"
+        settings = {}
+    res = str(settings.get("stream_resolution", ""))
+    fps = settings.get("stream_fps")
+    if res not in RESOLUTIONS and settings.get("stream_quality") in LEGACY_PRESETS:
+        res, fps = LEGACY_PRESETS[settings["stream_quality"]]
+    if res not in RESOLUTIONS:
+        res = "720"
+    try:
+        fps = int(fps)
+    except Exception:
+        fps = 30
+    if fps not in FRAME_RATES:
+        fps = 30
+    return res, fps
+
+
+def bitrate_for(height, fps):
+    h = height or 1440
+    pixels_per_sec = (h * 16 / 9) * h * fps
+    return int(min(40_000_000, max(3_000_000, pixels_per_sec * 0.12)))
 
 
 def build_pipeline(video_pt, audio_pt, monitor):
-    preset = read_quality()
-    width, height, fps, bitrate = QUALITY[preset]
+    res, fps = read_quality()
+    height = RESOLUTIONS[res]
+    width = int(round(height * 16 / 9 / 2) * 2) if height else None
+    bitrate = bitrate_for(height, fps)
+    preset = f"{res}p{fps}" if height else f"source@{fps}"
     if width:
         # videoscale letterboxes instead of stretching when aspect ratios differ.
         scale = (f"videoscale add-borders=true ! videorate drop-only=true ! "

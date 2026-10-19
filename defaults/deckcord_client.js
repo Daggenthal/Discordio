@@ -324,6 +324,49 @@ window.Vencord.Plugins.plugins.Deckcord = {
         }
         setInterval(pushOverlay, 2000);
 
+        // ---- Stream limits (Nitro / server boosts) ----------------------------
+        // Free accounts stream at up to 720p 30 fps. Nitro (and Nitro Classic)
+        // unlock source resolution at 60 fps. Nitro Basic doesn't include HD
+        // streaming. Boosted servers raise the cap for everyone in them:
+        // level 1 = 720p 60 fps, level 2+ = 1080p 60 fps.
+        function discordioStreamLimits() {
+            const C = Vencord.Webpack.Common;
+            const me = C.UserStore.getCurrentUser() || {};
+            const pt = me.premiumType ?? me.premium_type ?? 0;
+            const plan = { 0: "No Nitro", 1: "Nitro Classic", 2: "Nitro", 3: "Nitro Basic" }[pt] || "No Nitro";
+            let maxHeight = 720, maxFps = 30, reason = plan;
+            if (pt === 1 || pt === 2) { maxHeight = null; maxFps = 60; }
+            let boost = 0, guildName = null;
+            try {
+                const vc = store("SelectedChannelStore").getVoiceChannelId();
+                const ch = vc && C.ChannelStore.getChannel(vc);
+                const g = ch && ch.guild_id && C.GuildStore.getGuild(ch.guild_id);
+                if (g) { boost = g.premiumTier || 0; guildName = g.name; }
+            } catch (_) { }
+            if (maxHeight !== null) {
+                const boostCap = boost >= 2 ? [1080, 60] : boost === 1 ? [720, 60] : null;
+                if (boostCap && (boostCap[0] > maxHeight || boostCap[1] > maxFps)) {
+                    maxHeight = Math.max(maxHeight, boostCap[0]);
+                    maxFps = Math.max(maxFps, boostCap[1]);
+                    reason = `${guildName} server boost level ${boost}`;
+                }
+            }
+            return { premium_type: pt, plan, max_height: maxHeight, max_fps: maxFps, reason, boost_level: boost };
+        }
+
+        // Ask Discord to stream at the chosen quality, clamped to what the
+        // account is allowed (this never unlocks paid quality). Best effort:
+        // if Discord renamed the event, its own default is used instead.
+        function applyStreamQuality(q) {
+            try {
+                const lim = discordioStreamLimits();
+                let height = q.resolution === "source" ? 0 : parseInt(q.resolution, 10) || 720;
+                if (lim.max_height !== null && (height === 0 || height > lim.max_height)) height = lim.max_height;
+                const fps = Math.min(parseInt(q.fps, 10) || 30, lim.max_fps);
+                FluxDispatcher.dispatch({ type: "STREAM_UPDATE_SETTINGS", preset: 3, resolution: height, frameRate: fps });
+            } catch (e) { console.warn("Discordio: could not set stream quality", e); }
+        }
+
         let MediaEngineStore, FluxDispatcher;
         console.log("Deckcord: Waiting for FluxDispatcher...");
         Vencord.Webpack.waitFor(["subscribe", "dispatch", "register"], fdm => {
@@ -401,7 +444,11 @@ window.Vencord.Plugins.plugins.Deckcord = {
                                     result = await sendAttachmentToChannel(data.channel_id, data.attachment_b64, "screenshot.jpg");
                                     break;
                                 case "$golive":
+                                    if (!data.stop && data.quality) applyStreamQuality(data.quality);
                                     result = await deckcordGoLive(!!data.stop);
+                                    break;
+                                case "$stream_limits":
+                                    result = discordioStreamLimits();
                                     break;
                                 case "$nav":
                                     result = window.DISCORDIO_NAV ? window.DISCORDIO_NAV(data.action) : { handled: false, error: "navigator not loaded" };

@@ -95,8 +95,8 @@ class StoreAccess:
     async def post_screenshot(self, channel_id, data):
         return await self._store_access_request("$screenshot", channel_id=channel_id, attachment_b64=data)
 
-    async def go_live(self, stop=False):
-        return await self._store_access_request("$golive", stop=stop, timeout=20)
+    async def go_live(self, stop=False, quality=None):
+        return await self._store_access_request("$golive", stop=stop, quality=quality, timeout=20)
 
     async def get_screen_bounds(self):
         return await self._store_access_request("$get_screen_bounds")
