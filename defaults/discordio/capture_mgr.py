@@ -9,6 +9,22 @@ from aiohttp import ClientSession, ClientTimeout  # type: ignore
 
 from . import diag, system
 
+
+def gst_env(libs, bundled, cache_dir):
+    """Same isolation as capture.py's gst_env (kept in sync; capture.py can't be imported here)."""
+    import os
+    env = {"GST_REGISTRY_1_0": os.path.join(cache_dir, f"gst-registry-{libs}.bin")}
+    if libs == "bundled" and os.path.isdir(bundled):
+        plugins = os.path.join(bundled, "gstreamer-1.0")
+        env.update(LD_LIBRARY_PATH=bundled, GI_TYPELIB_PATH=os.path.join(bundled, "girepository-1.0"),
+                   GST_PLUGIN_SYSTEM_PATH_1_0=plugins, GST_PLUGIN_PATH_1_0="")
+        scanner = os.path.join(plugins, "gst-plugin-scanner")
+        if os.path.exists(scanner):
+            env["GST_PLUGIN_SCANNER_1_0"] = scanner
+        else:
+            env["GST_REGISTRY_FORK"] = "no"
+    return env
+
 EXIT_SWITCH_LIBS = 75
 
 
@@ -52,11 +68,10 @@ class CaptureManager:
         }
         # Bundled GStreamer by default when this build ships it; the helper
         # switches to SteamOS's own if that's what works (exit code 75).
-        if bundled.exists() and s.get("capture_libs") != "system":
-            env.update(LD_LIBRARY_PATH=str(bundled), GI_TYPELIB_PATH=str(bundled / "girepository-1.0"),
-                       GST_PLUGIN_PATH=str(bundled / "gstreamer-1.0"), DISCORDIO_LIBS="bundled")
-        else:
-            env["DISCORDIO_LIBS"] = "system"
+        libs = "bundled" if bundled.exists() and s.get("capture_libs") != "system" else "system"
+        env["DISCORDIO_LIBS"] = libs
+        env["DISCORDIO_CACHE_DIR"] = str(self.runtime)
+        env.update(gst_env(libs, str(bundled), str(self.runtime)))
         self.proc = await asyncio.create_subprocess_exec(
             system.python(), str(self.dir / "capture.py"), env=env,
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
@@ -128,7 +143,9 @@ class CaptureManager:
             return
         st = self.status
         if st.get("missing_elements"):
-            diag.set("capture", diag.ERROR, "GStreamer is missing: " + ", ".join(st["missing_elements"]))
+            details = st.get("missing_details") or {}
+            why = "; ".join(f"{k}: {details.get(k, '?')}" for k in st["missing_elements"][:3])
+            diag.set("capture", diag.ERROR, f"{st.get('libs')} GStreamer can't stream ({why})")
         elif not st.get("node"):
             seen = ", ".join(n["name"] for n in st.get("video_nodes") or []) or "none"
             diag.set("capture", diag.WARN, f"gamescope's video feed not found (video nodes: {seen})")

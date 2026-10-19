@@ -302,16 +302,18 @@ class Plugin:
         return res if isinstance(res, list) else []
 
     @classmethod
-    async def post_screenshot(cls, channel_id, data):
+    async def post_screenshot(cls, channel_id, data, user_id=None):
+        """Send to a channel, or to a friend's DM when user_id is given."""
         b64 = data.split(",", 1)[1] if isinstance(data, str) and data.startswith("data:") else data
-        res = await cls._req("postScreenshot", {"channelId": channel_id, "data": b64}, timeout=60)
-        return res
+        params = {"data": b64, **({"userId": user_id} if user_id else {"channelId": channel_id})}
+        return await cls._req("postScreenshot", params, timeout=60)
 
     @classmethod
     async def discord_query(cls, what, arg=None):
         method, params = {
             "guilds": ("guilds", {}),
             "voice_channels": ("voiceChannels", {"guildId": arg}),
+            "text_channels": ("textChannels", {"guildId": arg}),
             "friends": ("friends", {}),
             "voice": ("voice", {}),
         }.get(what, (None, None))

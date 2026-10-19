@@ -403,7 +403,7 @@
         }).sort((a, b) => (rank[a.status] ?? 3) - (rank[b.status] ?? 3) || a.name.localeCompare(b.name));
     }
 
-    async function callFriend(userId) {
+    async function dmChannel(userId) {
         const CS = C().ChannelStore;
         let dm = CS.getDMFromUserId ? CS.getDMFromUserId(userId) : null;
         if (!dm) {
@@ -412,6 +412,26 @@
             if (!dm) throw new Error("Couldn't open a DM with that friend");
             for (let i = 0; i < 30 && !CS.getChannel(dm); i++) await new Promise((r2) => setTimeout(r2, 100));
         }
+        return dm;
+    }
+
+    function textChannels(guildId) {
+        let list = [];
+        try {
+            const GCS = store("GuildChannelStore");
+            const sel = GCS && GCS.getChannels(guildId) && GCS.getChannels(guildId).SELECTABLE;
+            if (sel) list = sel.map((v) => v.channel || v).filter((c) => c && (c.type === 0 || c.type === 5));
+        } catch (_) { }
+        if (!list.length) {
+            const all = C().ChannelStore.getMutableGuildChannelsForGuild(guildId) || {};
+            list = Object.values(all).filter((c) => c.type === 0 || c.type === 5)
+                .sort((a, b) => (a.position || 0) - (b.position || 0));
+        }
+        return list.map((c) => ({ id: c.id, name: c.name }));
+    }
+
+    async function callFriend(userId) {
+        const dm = await dmChannel(userId);
         const method = selectVoice(null, dm);
         try { await C().RestAPI.post({ url: `/channels/${dm}/call/ring`, body: { recipients: null } }); } catch (_) { }
         return { ok: true, method };
@@ -461,7 +481,9 @@
     });
     m("setActivity", ({ game }) => setActivity(game));
     m("recentChannels", () => recentTextChannels());
-    m("postScreenshot", ({ channelId, data, filename }) => postScreenshot(channelId, data, filename));
+    m("postScreenshot", async ({ channelId, userId, data, filename }) =>
+        postScreenshot(channelId || await dmChannel(userId), data, filename));
+    m("textChannels", ({ guildId }) => textChannels(guildId));
     m("goLive", ({ quality }) => goLive(false, quality));
     m("stopLive", () => goLive(true));
     m("streamLimits", () => streamLimits());

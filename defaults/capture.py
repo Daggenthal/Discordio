@@ -154,6 +154,44 @@ def audio_source():
     return "audiotestsrc is-live=true wave=silence"
 
 
+# Which plugin file provides each element, to explain why one is missing.
+PLUGIN_FILES = {
+    "webrtcbin": "libgstwebrtc.so", "pipewiresrc": "libgstpipewire.so", "vp8enc": "libgstvpx.so",
+    "rtpvp8pay": "libgstrtp.so", "rtpopuspay": "libgstrtp.so", "opusenc": "libgstopus.so",
+    "pulsesrc": "libgstpulseaudio.so", "jpegenc": "libgstjpeg.so", "videorate": "libgstvideorate.so",
+    "videoconvert": "libgstvideoconvertscale.so", "videoscale": "libgstvideoconvertscale.so",
+    "audioconvert": "libgstaudioconvert.so", "audioresample": "libgstaudioresample.so",
+}
+
+
+def explain_missing(names):
+    """For each missing element: the plugin file, and the error loading it."""
+    dirs = [d for d in (os.environ.get("GST_PLUGIN_SYSTEM_PATH_1_0", "") + ":" +
+                        os.environ.get("GST_PLUGIN_PATH_1_0", "")).split(":") if d]
+    if not dirs:
+        dirs = ["/usr/lib/gstreamer-1.0", "/usr/lib64/gstreamer-1.0", "/usr/lib/x86_64-linux-gnu/gstreamer-1.0"]
+    out = {}
+    for name in names:
+        fname = PLUGIN_FILES.get(name)
+        if not fname:
+            out[name] = "unknown plugin"
+            continue
+        path = next((os.path.join(d, fname) for d in dirs if os.path.exists(os.path.join(d, fname))), None)
+        if path is None and name in ("videoconvert", "videoscale"):
+            alt = "libgstvideoconvert.so" if name == "videoconvert" else "libgstvideoscale.so"
+            path = next((os.path.join(d, alt) for d in dirs if os.path.exists(os.path.join(d, alt))), None)
+        if path is None:
+            out[name] = f"{fname} isn't installed (looked in {', '.join(dirs)})"
+            continue
+        try:
+            # Loading it directly also repairs a stale plugin cache for this run.
+            Gst.Registry.get().add_plugin(Gst.Plugin.load_file(path))
+            out[name] = f"{fname} loaded directly (the plugin cache was stale)"
+        except Exception as e:
+            out[name] = f"{fname} won't load: {getattr(e, 'message', e)}"
+    return out
+
+
 def missing_elements():
     need = ["pipewiresrc", "videoconvert", "videoscale", "videorate", "vp8enc", "rtpvp8pay",
             "pulsesrc", "audioconvert", "audioresample", "opusenc", "rtpopuspay", "webrtcbin", "jpegenc"]
@@ -162,15 +200,37 @@ def missing_elements():
 
 # ------------------------------------------------------------------ preview
 
-def env_for(libs):
-    env = dict(os.environ)
-    for k in ("LD_LIBRARY_PATH", "GI_TYPELIB_PATH", "GST_PLUGIN_PATH"):
-        env.pop(k, None)
-    bundled = os.environ.get("DISCORDIO_BUNDLED_DIR", "")
+GST_ENV_KEYS = ("LD_LIBRARY_PATH", "GI_TYPELIB_PATH", "GST_PLUGIN_PATH", "GST_PLUGIN_PATH_1_0",
+                "GST_PLUGIN_SYSTEM_PATH", "GST_PLUGIN_SYSTEM_PATH_1_0", "GST_REGISTRY", "GST_REGISTRY_1_0",
+                "GST_PLUGIN_SCANNER", "GST_PLUGIN_SCANNER_1_0", "GST_REGISTRY_FORK")
+
+
+def gst_env(libs, bundled, cache_dir):
+    """
+    Environment for one GStreamer set, fully isolated from the other. Mixing
+    them (bundled plugins + the system's plugin cache and scanner) makes
+    plugins like webrtcbin fail to load and get skipped from then on.
+    """
+    env = {}
+    cache_dir = cache_dir or tempfile.gettempdir()
+    env["GST_REGISTRY_1_0"] = os.path.join(cache_dir, f"gst-registry-{libs}.bin")
     if libs == "bundled" and bundled and os.path.isdir(bundled):
+        plugins = os.path.join(bundled, "gstreamer-1.0")
         env["LD_LIBRARY_PATH"] = bundled
         env["GI_TYPELIB_PATH"] = os.path.join(bundled, "girepository-1.0")
-        env["GST_PLUGIN_PATH"] = os.path.join(bundled, "gstreamer-1.0")
+        env["GST_PLUGIN_SYSTEM_PATH_1_0"] = plugins  # only the bundled plugins
+        env["GST_PLUGIN_PATH_1_0"] = ""
+        scanner = os.path.join(plugins, "gst-plugin-scanner")
+        if os.path.exists(scanner):
+            env["GST_PLUGIN_SCANNER_1_0"] = scanner
+        else:
+            env["GST_REGISTRY_FORK"] = "no"  # scan in-process with the bundled libs
+    return env
+
+
+def env_for(libs):
+    env = {k: v for k, v in os.environ.items() if k not in GST_ENV_KEYS}
+    env.update(gst_env(libs, os.environ.get("DISCORDIO_BUNDLED_DIR", ""), os.environ.get("DISCORDIO_CACHE_DIR")))
     env["DISCORDIO_LIBS"] = libs
     return env
 
@@ -313,6 +373,7 @@ class Helper:
             "libs": MY_LIBS,
             "gstreamer": Gst.version_string(),
             "missing_elements": missing_elements(),
+            "missing_details": explain_missing(missing_elements()),
             "node": node,
             "video_nodes": nodes,
             "method": s.get("capture_variant") or None,
@@ -553,6 +614,10 @@ def main():
     missing = missing_elements()
     log.info(f"capture helper {os.getpid()} on 127.0.0.1:{PORT}, {MY_LIBS} {Gst.version_string()}"
              + (f", missing: {', '.join(missing)}" if missing else ""))
+    if missing:
+        for name, why in explain_missing(missing).items():
+            log.warning(f"missing {name}: {why}")
+        missing = missing_elements()  # some may have been repaired just now
     if missing and not TEST_SOURCE:
         # The bundled GStreamer may lack parts SteamOS's own has (or the other
         # way around): check the other set and switch if it's complete.
