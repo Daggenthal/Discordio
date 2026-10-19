@@ -38,6 +38,7 @@ class EventHandler:
         self.vc_guild_name = ""
 
         self.webrtc = None
+        self.overlay_state = None
     
     async def yield_new_state(self):
         while True:
@@ -99,9 +100,14 @@ class EventHandler:
                 self._process_event(loads(msg.data))
             elif msg.type == WSMsgType.ERROR:
                 print('ws connection closed with exception %s' % self.ws.exception())
+        # Page went away: don't leave a stale call on the overlay.
+        self.overlay_state = None
 
     def _process_event(self, data):
         if data["type"] == "$ping":
+            return
+        if data["type"] == "$overlay":
+            self.overlay_state = data.get("state")
             return
         if data["type"] == "$deckcord_request" and "increment" in data:
             self.api._set_result(data["increment"], data["result"])

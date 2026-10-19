@@ -263,6 +263,40 @@ window.Vencord.Plugins.plugins.Deckcord = {
             return { ok: true, method };
         }
 
+        // ---- In-game overlay state ----------------------------------------
+        // Pushed to the backend whenever voice state or speaking changes; the
+        // overlay process polls it from there.
+        const discordioSpeaking = new Set();
+        const OVERLAY_EVENTS = new Set([
+            "VOICE_STATE_UPDATES", "VOICE_CHANNEL_SELECT", "AUDIO_TOGGLE_SELF_MUTE",
+            "AUDIO_TOGGLE_SELF_DEAF", "STREAM_START", "STREAM_STOP", "STREAM_CREATE",
+            "STREAM_DELETE", "RTC_CONNECTION_STATE",
+        ]);
+        let overlayTimer = null, lastOverlay = "";
+        function pushOverlay() {
+            if (overlayTimer) return;
+            overlayTimer = setTimeout(() => {
+                overlayTimer = null;
+                try {
+                    let voice = discordioQuery("voice");
+                    if (voice) {
+                        for (const m of voice.members) m.speaking = discordioSpeaking.has(m.id);
+                    } else {
+                        discordioSpeaking.clear();
+                    }
+                    const me = Vencord.Webpack.Common.UserStore.getCurrentUser();
+                    const mine = voice && me ? voice.members.find(m => m.id === me.id) : null;
+                    const state = { voice, me: mine ? { muted: mine.muted, deafened: mine.deafened, live: mine.live } : null };
+                    const json = JSON.stringify(state);
+                    if (json === lastOverlay) return;
+                    lastOverlay = json;
+                    if (window.DECKCORD_WS && window.DECKCORD_WS.readyState === 1)
+                        window.DECKCORD_WS.send(JSON.stringify({ type: "$overlay", state }));
+                } catch (err) { console.warn("Discordio: overlay state failed", err); }
+            }, 40);
+        }
+        setInterval(pushOverlay, 2000);
+
         let MediaEngineStore, FluxDispatcher;
         console.log("Deckcord: Waiting for FluxDispatcher...");
         Vencord.Webpack.waitFor(["subscribe", "dispatch", "register"], fdm => {
@@ -404,6 +438,12 @@ window.Vencord.Plugins.plugins.Deckcord = {
 
                 FluxDispatcher.addInterceptor(e => {
                     if (e.type == "CHANNEL_SELECT") patchTypingField();
+                    if (e.type == "SPEAKING") {
+                        if (e.speakingFlags) discordioSpeaking.add(e.userId); else discordioSpeaking.delete(e.userId);
+                        pushOverlay();
+                    } else if (OVERLAY_EVENTS.has(e.type)) {
+                        setTimeout(pushOverlay, 50);
+                    }
                     const shouldPass = [
                         "CONNECTION_OPEN",
                         "LOGOUT",

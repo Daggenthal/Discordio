@@ -21,6 +21,7 @@ import { PushToTalkButton, cleanupPtt } from "./components/buttons/PushToTalk";
 import { VoiceChannelView } from "./components/VoiceChatViews";
 import { ServersPanel, FriendsPanel } from "./components/BrowsePanels";
 import { UpdatePanel } from "./components/UpdatePanel";
+import { OverlayPanel } from "./components/OverlayPanel";
 import { useState } from "react";
 import { UploadScreenshot } from "./components/UploadScreenshot";
 import { OpenDiscordButton } from "./components/buttons/OpenCloseDiscordButton";
@@ -131,6 +132,9 @@ const Content = () => {
           <PanelSection title="Voice">
             <VoiceChannelView />
             <PushToTalkButton />
+          </PanelSection>
+          <PanelSection title="Overlay">
+            <OverlayPanel />
           </PanelSection>
           <Collapsible title="Servers">
             <ServersPanel />

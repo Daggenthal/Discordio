@@ -1,5 +1,6 @@
 from aiohttp.web import (  # type: ignore
     Application,
+    json_response,
     get,
     WebSocketResponse,
     AppRunner,
@@ -12,7 +13,8 @@ from json import dumps, loads
 import re
 from aiohttp import ClientSession, ClientTimeout  # type: ignore
 from pathlib import Path
-from subprocess import PIPE
+from subprocess import PIPE, STDOUT
+import time
 from shutil import which
 from traceback import format_exc
 import os
@@ -41,7 +43,8 @@ SETTINGS_DIR = Path(getattr(decky, "DECKY_PLUGIN_SETTINGS_DIR", DECKY_PLUGIN_DIR
 SETTINGS_FILE = SETTINGS_DIR / "settings.json"
 RUNTIME_DIR = Path(getattr(decky, "DECKY_PLUGIN_RUNTIME_DIR", DECKY_PLUGIN_DIR))
 QUALITY_PRESETS = {"720p30", "720p60", "1080p30", "1080p60", "1440p60", "source"}
-DEFAULTS = {"stream_quality": "720p30"}
+DEFAULTS = {"stream_quality": "720p30", "overlay_enabled": True, "overlay_position": "top-left"}
+OVERLAY_POSITIONS = {"top-left", "top-right", "bottom-left", "bottom-right"}
 RELEASES_API = "https://api.github.com/repos/Daggenthal/Discordio/releases?per_page=20"
 
 
@@ -227,6 +230,7 @@ class Plugin:
             [
                 get("/openkb", cls._openkb),
                 get("/socket", cls._websocket_handler),
+                get("/overlay", cls._overlay_state),
             ]
         )
         for r in list(cls.server.router.routes())[:-1]:
@@ -240,6 +244,7 @@ class Plugin:
         cls.init_task = create_task(cls._run_discord())
         create_task(cls._connect_shared_js())
         await cls._start_capture_helper()
+        cls.overlay_task = create_task(cls._run_overlay())
 
         async for state in cls.evt_handler.yield_new_state():
             await emit("state", cls._state(state))
@@ -254,6 +259,137 @@ class Plugin:
             except Exception:
                 await sleep(1)
         create_task(cls._notification_dispatcher())
+
+    # ---- in-game overlay -----------------------------------------------
+
+    overlay_proc = None
+    overlay_status = "not started"
+    overlay_task = None
+
+    @staticmethod
+    def _steam_display():
+        """
+        DISPLAY and XAUTHORITY of the running Steam client, so the overlay
+        lands on the same gamescope X server Steam uses.
+        """
+        user = getattr(decky, "DECKY_USER", None) or "deck"
+        try:
+            uid = pwd.getpwnam(user).pw_uid
+        except KeyError:
+            uid = 1000
+        for pid in os.listdir("/proc"):
+            if not pid.isdigit():
+                continue
+            try:
+                if os.stat(f"/proc/{pid}").st_uid != uid:
+                    continue
+                with open(f"/proc/{pid}/comm") as f:
+                    if f.read().strip() not in ("steam", "steamwebhelper"):
+                        continue
+                with open(f"/proc/{pid}/environ", "rb") as f:
+                    env = dict(
+                        kv.split(b"=", 1) for kv in f.read().split(b"\0") if b"=" in kv
+                    )
+                if b"DISPLAY" in env:
+                    out = {"DISPLAY": env[b"DISPLAY"].decode()}
+                    if b"XAUTHORITY" in env:
+                        out["XAUTHORITY"] = env[b"XAUTHORITY"].decode()
+                    return out
+            except Exception:
+                continue
+        return {"DISPLAY": ":0"}
+
+    @classmethod
+    async def _run_overlay(cls):
+        """Keep the overlay process running while it's enabled. Never raises."""
+        failures = 0
+        while True:
+            try:
+                if not load_settings().get("overlay_enabled", True):
+                    cls.overlay_status = "off"
+                    await sleep(2)
+                    continue
+                python = "/usr/bin/python" if os.path.exists("/usr/bin/python") else (which("python3") or "python3")
+                env = {
+                    **user_env(),
+                    **cls._steam_display(),
+                    "PATH": "/usr/bin:/bin",
+                    "DISCORDIO_CACHE": str(RUNTIME_DIR / "avatars"),
+                    "PYTHONUNBUFFERED": "1",
+                }
+                cls.overlay_status = f"running on {env['DISPLAY']}"
+                logger.info(f"Starting overlay on DISPLAY={env['DISPLAY']}")
+                started = time.monotonic()
+                cls.overlay_proc = await create_subprocess_exec(
+                    python, str(Path(DECKY_PLUGIN_DIR) / "overlay.py"),
+                    env=env, stdout=PIPE, stderr=STDOUT,
+                )
+                last = ""
+                async for line in cls.overlay_proc.stdout:
+                    last = line.decode("utf-8", "replace").rstrip()
+                    if last:
+                        logger.info(last if last.startswith("[overlay]") else "[overlay] " + last)
+                code = await cls.overlay_proc.wait()
+                cls.overlay_proc = None
+                if code in (0, -15):
+                    await sleep(1)
+                    continue
+                failures = failures + 1 if time.monotonic() - started < 30 else 1
+                cls.overlay_status = f"stopped (exit {code}): {last[-160:]}"
+                logger.warning(f"Overlay exited with {code}")
+                # Back off so a missing library doesn't spin forever.
+                await sleep(min(60, 3 * failures))
+            except CancelledError:
+                raise
+            except Exception as e:
+                cls.overlay_status = f"error: {e}"
+                logger.error("Overlay manager:\n" + format_exc())
+                await sleep(10)
+
+    @classmethod
+    async def _stop_overlay(cls):
+        proc = cls.overlay_proc
+        if proc and proc.returncode is None:
+            try:
+                proc.terminate()
+                await proc.wait()
+            except Exception:
+                pass
+
+    @classmethod
+    async def _overlay_state(cls, request):
+        settings = load_settings()
+        return json_response({
+            **(cls.evt_handler.overlay_state or {}),
+            "settings": {
+                "overlay_enabled": settings.get("overlay_enabled", True),
+                "overlay_position": settings.get("overlay_position", "top-left"),
+            },
+        })
+
+    @classmethod
+    async def get_overlay_settings(cls):
+        s = load_settings()
+        return {
+            "enabled": s.get("overlay_enabled", True),
+            "position": s.get("overlay_position", "top-left"),
+            "status": cls.overlay_status,
+        }
+
+    @classmethod
+    async def set_overlay_settings(cls, enabled=None, position=None):
+        s = load_settings()
+        if enabled is not None:
+            s["overlay_enabled"] = bool(enabled)
+        if position in OVERLAY_POSITIONS:
+            s["overlay_position"] = position
+        save_settings(s)
+        if enabled is False:
+            cls.overlay_status = "off"
+            await cls._stop_overlay()
+        elif enabled is True and not cls.overlay_status.startswith("running"):
+            cls.overlay_status = "starting"
+        return await cls.get_overlay_settings()
 
     # ---- local http endpoints ------------------------------------------
 
@@ -506,6 +642,9 @@ class Plugin:
     async def _unload(cls):
         if cls.init_task:
             cls.init_task.cancel()
+        if cls.overlay_task:
+            cls.overlay_task.cancel()
+        await cls._stop_overlay()
 
         if hasattr(cls, "webrtc_server"):
             try:
