@@ -1,5 +1,5 @@
 from json import dumps, loads
-from asyncio import sleep, get_event_loop, Task, Event, Queue
+from asyncio import sleep, get_running_loop, Task, Event, Queue
 from aiohttp import WSMsgType # type: ignore
 from aiohttp.web import WebSocketResponse # type: ignore
 from traceback import print_exception
@@ -124,7 +124,7 @@ class EventHandler:
             if e:
                 print(f"Exception during handling of {data['type']} event.   {e}")
                 print_exception(e)
-        get_event_loop().create_task(callback(data)).add_done_callback(_)
+        get_running_loop().create_task(callback(data)).add_done_callback(_)
 
     async def _loaded(self, data):
         self.loaded = True

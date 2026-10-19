@@ -5,7 +5,7 @@ import aiohttp # type: ignore
 from aiohttp import web # type: ignore
 from logging import getLogger
 from gi import require_version # type: ignore
-from asyncio import run_coroutine_threadsafe, get_event_loop, to_thread
+from asyncio import run_coroutine_threadsafe, new_event_loop, set_event_loop, to_thread
 from subprocess import getoutput
 import json
 import logging
@@ -180,7 +180,12 @@ class WebRTCServer:
     def __init__(self, app = web.Application()) -> None:
         Gst.init(None)
 
-        self.loop = get_event_loop()
+        # Create the loop explicitly. Newer Python (as shipped on current SteamOS)
+        # no longer makes one implicitly, so get_event_loop() here raised
+        # "There is no current event loop" and the helper died at startup,
+        # which is why Go Live never captured anything.
+        self.loop = new_event_loop()
+        set_event_loop(self.loop)
         self.app = app
         self.app.add_routes([
             web.get("/webrtc", self.websocket_handler),
