@@ -6,6 +6,7 @@ import {
   Router,
   sleep,
   Focusable,
+  ButtonItem,
 } from "@decky/ui";
 import { FaDiscord } from "react-icons/fa";
 
@@ -17,7 +18,10 @@ import { MuteButton } from "./components/buttons/MuteButton";
 import { DeafenButton } from "./components/buttons/DeafenButton";
 import { DisconnectButton } from "./components/buttons/DisconnectButton";
 import { PushToTalkButton, cleanupPtt } from "./components/buttons/PushToTalk";
-import { VoiceChatChannel, VoiceChatMembers } from "./components/VoiceChatViews";
+import { VoiceChannelView } from "./components/VoiceChatViews";
+import { ServersPanel, FriendsPanel } from "./components/BrowsePanels";
+import { UpdatePanel } from "./components/UpdatePanel";
+import { useState } from "react";
 import { UploadScreenshot } from "./components/UploadScreenshot";
 import { OpenDiscordButton } from "./components/buttons/OpenCloseDiscordButton";
 import { GoLivePanel } from "./components/GoLivePanel";
@@ -70,6 +74,20 @@ const Status = ({ state }: { state: any }) => {
   return null;
 };
 
+const Collapsible = ({ title, children, defaultOpen = false }: { title: string; children: any; defaultOpen?: boolean }) => {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <PanelSection title={title}>
+      <PanelSectionRow>
+        <ButtonItem layout="below" onClick={() => setOpen(!open)}>
+          {open ? `Hide ${title.toLowerCase()}` : `Show ${title.toLowerCase()}`}
+        </ButtonItem>
+      </PanelSectionRow>
+      {open && children}
+    </PanelSection>
+  );
+};
+
 const Content = () => {
   const state = useDeckcordState();
   const ready = state?.loaded && state?.logged_in;
@@ -91,7 +109,7 @@ const Content = () => {
               </Focusable>
             </PanelSectionRow>
             <PanelSectionRow>
-              <span style={{ display: "inline-flex", alignItems: "center", gap: "8px" }}>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: "8px", minWidth: 0 }}>
                 {state?.me?.avatar && (
                   <img
                     src={`https://cdn.discordapp.com/avatars/${state?.me?.id}/${state?.me?.avatar}.webp`}
@@ -100,12 +118,10 @@ const Content = () => {
                     style={{ display: "block", borderRadius: "50%" }}
                   />
                 )}
-                {state?.me?.username}
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {state?.me?.username}
+                </span>
               </span>
-            </PanelSectionRow>
-            <PanelSectionRow>
-              <VoiceChatChannel />
-              <VoiceChatMembers />
             </PanelSectionRow>
           </>
         )}
@@ -113,8 +129,15 @@ const Content = () => {
       {ready && (
         <>
           <PanelSection title="Voice">
+            <VoiceChannelView />
             <PushToTalkButton />
           </PanelSection>
+          <Collapsible title="Servers">
+            <ServersPanel />
+          </Collapsible>
+          <Collapsible title="Friends">
+            <FriendsPanel />
+          </Collapsible>
           <PanelSection title="Stream">
             <GoLivePanel />
           </PanelSection>
@@ -125,6 +148,9 @@ const Content = () => {
           </PanelSection>
         </>
       )}
+      <PanelSection title="Updates">
+        <UpdatePanel />
+      </PanelSection>
       <DiagnosticsPanel backend={state} />
     </>
   );

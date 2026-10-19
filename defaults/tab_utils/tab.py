@@ -42,6 +42,11 @@ CREATE_TAB_JS = r"""
     tab.HEIGHT = (bw && bw.innerHeight) || 800;
     tab.m_browserView.SetBounds(0, 0, tab.WIDTH, tab.HEIGHT);
     tab.m_browserView.LoadURL("%s");
+    // Start hidden and unfocused. Browser views are created visible, which
+    // covered the Steam UI with a black screen at boot, and the focused login
+    // field made Steam pop up its on-screen keyboard.
+    try { tab.m_browserView.SetVisible(false); } catch (e) {}
+    try { tab.m_browserView.SetFocus(false); } catch (e) {}
 
     // Shrink Discord while the on-screen keyboard is open. Optional: if Valve
     // moved this, Discord still works, the keyboard just overlaps it.
@@ -153,6 +158,8 @@ async def setup_discord_tab(tab: Tab, cache_dir=None):
         + (plugin_dir / "deckcord_client.js").read_text()
         + "\n"
         + (plugin_dir / "webrtc_client.js").read_text()
+        + "\n"
+        + (plugin_dir / "discordio_nav.js").read_text()
     )
     await tab._send_devtools_cmd({
         "method": "Page.addScriptToEvaluateOnNewDocument",

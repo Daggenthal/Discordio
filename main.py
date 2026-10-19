@@ -9,6 +9,8 @@ from aiohttp.web import (  # type: ignore
 from asyncio import sleep, create_task, create_subprocess_exec, CancelledError
 import aiohttp_cors  # type: ignore
 from json import dumps, loads
+import re
+from aiohttp import ClientSession, ClientTimeout  # type: ignore
 from pathlib import Path
 from subprocess import PIPE
 from shutil import which
@@ -24,6 +26,7 @@ from logging import INFO
 sys.path.append(DECKY_PLUGIN_DIR)
 
 from tab_utils.tab import (
+    _ssl_context,
     create_discord_tab,
     setup_discord_tab,
     boot_discord,
@@ -39,6 +42,13 @@ SETTINGS_FILE = SETTINGS_DIR / "settings.json"
 RUNTIME_DIR = Path(getattr(decky, "DECKY_PLUGIN_RUNTIME_DIR", DECKY_PLUGIN_DIR))
 QUALITY_PRESETS = {"720p30", "720p60", "1080p30", "1080p60", "1440p60", "source"}
 DEFAULTS = {"stream_quality": "720p30"}
+RELEASES_API = "https://api.github.com/repos/Daggenthal/Discordio/releases?per_page=20"
+
+
+def build_number(version):
+    """CI builds are versioned like 0.1.0-build.42; local builds have no number."""
+    m = re.search(r"build[.-](\d+)", version or "")
+    return int(m.group(1)) if m else 0
 
 
 def load_settings():
@@ -412,6 +422,81 @@ class Plugin:
         except Exception:
             pass
         return {"ok": True, "method": method}
+
+    @classmethod
+    async def discord_nav(cls, action):
+        try:
+            return await cls.evt_handler.api._store_access_request("$nav", action=action, timeout=5)
+        except Exception as e:
+            return {"handled": False, "error": str(e)}
+
+    @classmethod
+    async def discord_query(cls, what, arg=None):
+        """Read-only lists for the QAM: servers, voice channels, friends."""
+        try:
+            return await cls.evt_handler.api._store_access_request("$query", what=what, arg=arg, timeout=10)
+        except Exception as e:
+            logger.warning(f"discord_query({what}): {e}")
+            return {"error": str(e)}
+
+    @classmethod
+    async def join_voice(cls, channel_id):
+        try:
+            return await cls.evt_handler.api._store_access_request("$join_voice", channel_id=channel_id, timeout=15)
+        except Exception as e:
+            return {"error": str(e)}
+
+    @classmethod
+    async def call_friend(cls, user_id):
+        try:
+            return await cls.evt_handler.api._store_access_request("$call_friend", user_id=user_id, timeout=20)
+        except Exception as e:
+            return {"error": str(e)}
+
+    @classmethod
+    async def get_update_info(cls):
+        """
+        Look for a newer CI build on GitHub. The QAM then hands the zip URL to
+        Decky's own installer, which swaps the plugin in place and reloads it,
+        so updating never needs Desktop Mode or a Decky restart.
+        """
+        current = getattr(decky, "DECKY_PLUGIN_VERSION", "") or ""
+        info = {"current": current, "current_build": build_number(current), "available": False}
+        try:
+            async with ClientSession(timeout=ClientTimeout(total=15)) as session:
+                res = await session.get(
+                    RELEASES_API,
+                    ssl=_ssl_context(),
+                    headers={"Accept": "application/vnd.github+json", "User-Agent": "Discordio"},
+                )
+                if not res.ok:
+                    info["error"] = f"GitHub returned HTTP {res.status}"
+                    return info
+                releases = await res.json()
+        except Exception as e:
+            info["error"] = f"{type(e).__name__}: {e}"
+            return info
+
+        best = None
+        for rel in releases:
+            if rel.get("draft"):
+                continue
+            n = build_number(rel.get("tag_name", ""))
+            asset = next((a for a in rel.get("assets", []) if a.get("name", "").endswith(".zip")), None)
+            if n and asset and (best is None or n > best[0]):
+                best = (n, rel, asset)
+
+        if best:
+            n, rel, asset = best
+            info.update(
+                latest=rel.get("name") or rel.get("tag_name"),
+                latest_build=n,
+                version=f"build.{n}",
+                url=asset["browser_download_url"],
+                notes=(rel.get("body") or "")[:400],
+                available=n > info["current_build"],
+            )
+        return info
 
     @classmethod
     async def mic_webrtc_answer(cls, answer):

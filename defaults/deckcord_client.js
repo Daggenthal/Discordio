@@ -167,6 +167,102 @@ window.Vencord.Plugins.plugins.Deckcord = {
             return { error: "Could not " + (stop ? "stop" : "start") + " the stream (" + errors.join("; ") + ")" };
         }
 
+        // ---- Lists and actions for the QAM (servers, voice, friends) ----------
+        const store = (name) => { try { return Vencord.Webpack.findStore(name); } catch (_) { return null; } };
+        const userName = (u) => u ? (u.globalName || u.global_name || u.username) : "Unknown";
+        const avatarUrl = (u) => u && u.avatar ? `https://cdn.discordapp.com/avatars/${u.id}/${u.avatar}.webp?size=64` : null;
+
+        function voiceMembers(channelId) {
+            const VS = store("VoiceStateStore");
+            const states = VS ? Object.values(VS.getVoiceStatesForChannel(channelId) || {}) : [];
+            return states.map(s => {
+                const u = Vencord.Webpack.Common.UserStore.getUser(s.userId);
+                return {
+                    id: s.userId, name: userName(u), avatar: avatarUrl(u),
+                    muted: !!(s.selfMute || s.mute), deafened: !!(s.selfDeaf || s.deaf),
+                    live: !!s.selfStream, video: !!s.selfVideo,
+                };
+            });
+        }
+
+        function discordioQuery(what, arg) {
+            const C = Vencord.Webpack.Common;
+            if (what === "guilds") {
+                const sorted = store("SortedGuildStore");
+                let ids = [];
+                try { ids = sorted.getFlattenedGuildIds(); } catch (_) { }
+                if (!ids || !ids.length) ids = Object.keys(C.GuildStore.getGuilds());
+                return ids.map(id => C.GuildStore.getGuild(id)).filter(Boolean).map(g => ({
+                    id: g.id, name: g.name,
+                    icon: g.icon ? `https://cdn.discordapp.com/icons/${g.id}/${g.icon}.webp?size=64` : null,
+                }));
+            }
+            if (what === "voice_channels") {
+                const GCS = store("GuildChannelStore");
+                const vocal = (GCS && GCS.getChannels(arg) && GCS.getChannels(arg).VOCAL) || [];
+                return vocal.map(v => v.channel).filter(Boolean).map(ch => ({
+                    id: ch.id, name: ch.name, members: voiceMembers(ch.id),
+                }));
+            }
+            if (what === "voice") {
+                const id = store("SelectedChannelStore").getVoiceChannelId();
+                if (!id) return null;
+                const ch = C.ChannelStore.getChannel(id);
+                const guild = ch && ch.guild_id ? C.GuildStore.getGuild(ch.guild_id) : null;
+                const dmName = ch && !ch.guild_id ? (ch.name || (ch.recipients || []).map(r => userName(C.UserStore.getUser(r))).join(", ")) : null;
+                return { channel_id: id, channel_name: dmName || (ch && ch.name) || "Voice", guild_name: guild ? guild.name : "Direct call", members: voiceMembers(id) };
+            }
+            if (what === "friends") {
+                const RS = store("RelationshipStore"), PS = store("PresenceStore");
+                let ids = [];
+                try { ids = RS.getFriendIDs(); } catch (_) {
+                    const rel = RS.getRelationships ? RS.getRelationships() : {};
+                    ids = Object.keys(rel).filter(k => rel[k] === 1 || (rel[k] && rel[k].type === 1));
+                }
+                const rank = { online: 0, idle: 1, dnd: 2, offline: 3 };
+                return ids.map(id => {
+                    const u = C.UserStore.getUser(id);
+                    const status = (PS && PS.getStatus(id)) || "offline";
+                    return { id, name: userName(u), avatar: avatarUrl(u), status };
+                }).sort((a, b) => (rank[a.status] ?? 3) - (rank[b.status] ?? 3) || a.name.localeCompare(b.name));
+            }
+            return { error: "unknown query " + what };
+        }
+
+        function selectVoice(guildId, channelId) {
+            // Discord's own action creator if we can find it, otherwise the raw event.
+            try {
+                const actions = Vencord.Webpack.findByProps("selectVoiceChannel");
+                if (actions && actions.selectVoiceChannel) { actions.selectVoiceChannel(channelId); return "action"; }
+            } catch (_) { }
+            FluxDispatcher.dispatch({
+                type: "VOICE_CHANNEL_SELECT", guildId, channelId,
+                currentVoiceChannelId: store("SelectedChannelStore").getVoiceChannelId(),
+                video: false, stream: false,
+            });
+            return "dispatch";
+        }
+
+        async function discordioJoinVoice(channelId) {
+            const ch = Vencord.Webpack.Common.ChannelStore.getChannel(channelId);
+            if (!ch) return { error: "Channel not found" };
+            return { ok: true, method: selectVoice(ch.guild_id || null, channelId) };
+        }
+
+        async function discordioCallFriend(userId) {
+            const C = Vencord.Webpack.Common;
+            let dmId = C.ChannelStore.getDMFromUserId ? C.ChannelStore.getDMFromUserId(userId) : null;
+            if (!dmId) {
+                const res = await C.RestAPI.post({ url: "/users/@me/channels", body: { recipients: [userId] } });
+                dmId = res && res.body && res.body.id;
+                if (!dmId) return { error: "Could not open a DM with that friend" };
+                for (let i = 0; i < 20 && !C.ChannelStore.getChannel(dmId); i++) await new Promise(r => setTimeout(r, 100));
+            }
+            const method = selectVoice(null, dmId);
+            try { await C.RestAPI.post({ url: `/channels/${dmId}/call/ring`, body: { recipients: null } }); } catch (_) { }
+            return { ok: true, method };
+        }
+
         let MediaEngineStore, FluxDispatcher;
         console.log("Deckcord: Waiting for FluxDispatcher...");
         Vencord.Webpack.waitFor(["subscribe", "dispatch", "register"], fdm => {
@@ -245,6 +341,18 @@ window.Vencord.Plugins.plugins.Deckcord = {
                                     break;
                                 case "$golive":
                                     result = await deckcordGoLive(!!data.stop);
+                                    break;
+                                case "$nav":
+                                    result = window.DISCORDIO_NAV ? window.DISCORDIO_NAV(data.action) : { handled: false, error: "navigator not loaded" };
+                                    break;
+                                case "$query":
+                                    result = discordioQuery(data.what, data.arg);
+                                    break;
+                                case "$join_voice":
+                                    result = await discordioJoinVoice(data.channel_id);
+                                    break;
+                                case "$call_friend":
+                                    result = await discordioCallFriend(data.user_id);
                                     break;
                                 case "$webrtc":
                                     return
