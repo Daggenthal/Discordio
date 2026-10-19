@@ -1,5 +1,6 @@
 import { ButtonItem, PanelSectionRow } from "@decky/ui";
 import { ChoiceSlider } from "./ChoiceSlider";
+import { logSlider } from "../lib/diag";
 import { call, toaster } from "@decky/api";
 import { useEffect, useState } from "react";
 import { FaVideo, FaStop } from "react-icons/fa";
@@ -35,53 +36,27 @@ const describe = (lim: Limits) => {
   return `${res} at ${lim.max_fps} fps`;
 };
 
-export function GoLivePanel({ inCall }: { inCall?: boolean } = {}) {
-  const state = useDeckcordState();
+// Resolution and frame rate for Go Live, with what your account allows.
+// Shown in the Call section and in Settings.
+export function StreamQualityPanel() {
   const [settings, setSettings] = useState<StreamSettings>({ resolution: "720", fps: 30 });
   const [limits, setLimits] = useState<Limits | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [status, setStatus] = useState<{ text: string; error?: boolean } | null>(null);
-
   useEffect(() => {
     call<[], StreamSettings>("get_stream_settings").then((s) => s && setSettings(s)).catch(() => {});
     call<[], Limits>("get_stream_limits").then(setLimits).catch(() => {});
-  }, [inCall]);
-
-  const inVoice = inCall ?? (state?.vc && Object.keys(state.vc).length > 0);
-  const live = !!state?.me?.is_live;
-
+  }, []);
   const save = async (resolution?: string, fps?: number) => {
     setSettings((old) => ({ ...old, ...(resolution ? { resolution } : {}), ...(fps ? { fps } : {}) }));
-    const s = await call<[string | null, number | null], StreamSettings>(
-      "set_stream_settings",
-      resolution ?? null,
-      fps ?? null
-    );
-    if (s) setSettings(s);
-  };
-
-  const toggle = async () => {
-    setBusy(true);
-    setStatus({ text: live ? "Stopping stream..." : "Starting stream... (can take up to 20 seconds)" });
     try {
-      const res: any = await call(live ? "stop_go_live" : "go_live");
-      if (res && res.ok === false) {
-        const msg = res.error || "Could not start the stream";
-        setStatus({ text: msg, error: true });
-        toaster.toast({ title: "Discordio", body: msg });
-      } else {
-        setStatus({ text: live ? "Stream stopped" : `Live (started via ${res?.method ?? "Discord"})` });
-      }
+      const s = await call<[string | null, number | null], StreamSettings>("set_stream_settings", resolution ?? null, fps ?? null);
+      logSlider(resolution ? "Resolution" : "Frame rate", `saved; backend now has ${s?.resolution} @ ${s?.fps}`);
+      if (s) setSettings(s);
     } catch (e) {
-      setStatus({ text: String(e), error: true });
-    } finally {
-      setBusy(false);
+      logSlider(resolution ? "Resolution" : "Frame rate", `save failed: ${e}`);
     }
   };
-
   const selected = RESOLUTIONS.find((r) => r.data === settings.resolution) ?? RESOLUTIONS[1];
   const needsUpgrade = overRes(selected.height, limits) || overFps(settings.fps, limits);
-
   return (
     <>
       <PanelSectionRow>
@@ -108,7 +83,6 @@ export function GoLivePanel({ inCall }: { inCall?: boolean } = {}) {
           onChange={(v) => save(undefined, v)}
         />
       </PanelSectionRow>
-      {inVoice && <StreamPreview />}
       {limits && !limits.error && (
         <PanelSectionRow>
           <div style={{ fontSize: "12px", lineHeight: "16px", color: needsUpgrade ? "#f0b232" : undefined, opacity: needsUpgrade ? 1 : 0.75 }}>
@@ -118,6 +92,41 @@ export function GoLivePanel({ inCall }: { inCall?: boolean } = {}) {
           </div>
         </PanelSectionRow>
       )}
+    </>
+  );
+}
+
+export function GoLivePanel({ inCall }: { inCall?: boolean } = {}) {
+  const state = useDeckcordState();
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState<{ text: string; error?: boolean } | null>(null);
+
+  const inVoice = inCall ?? (state?.vc && Object.keys(state.vc).length > 0);
+  const live = !!state?.me?.is_live;
+
+  const toggle = async () => {
+    setBusy(true);
+    setStatus({ text: live ? "Stopping stream..." : "Starting stream... (can take up to 20 seconds)" });
+    try {
+      const res: any = await call(live ? "stop_go_live" : "go_live");
+      if (res && res.ok === false) {
+        const msg = res.error || "Could not start the stream";
+        setStatus({ text: msg, error: true });
+        toaster.toast({ title: "Discordio", body: msg });
+      } else {
+        setStatus({ text: live ? "Stream stopped" : `Live (started via ${res?.method ?? "Discord"})` });
+      }
+    } catch (e) {
+      setStatus({ text: String(e), error: true });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <StreamQualityPanel />
+      {inVoice && <StreamPreview />}
       <PanelSectionRow>
         <ButtonItem
           layout="below"

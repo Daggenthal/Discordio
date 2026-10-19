@@ -568,6 +568,36 @@
         return { ok: true, method };
     }
 
+    // --------------------------------------------------------- human check
+    // Discord sometimes asks "are you human?" (hCaptcha), e.g. after Go Live
+    // or a call started from Discordio. In the hidden view nobody would see
+    // it, so tell the QAM, which points you to Discord to finish it.
+    let captcha = false;
+    function captchaShown() {
+        if (document.querySelector('iframe[src*="hcaptcha"], iframe[src*="captcha"], iframe[title*="captcha" i]')) return true;
+        for (const d of document.querySelectorAll("[role=dialog]")) {
+            if (/are you human|captcha|verify (that )?you/i.test(d.textContent || "")) return true;
+        }
+        return false;
+    }
+    function watchCaptcha() {
+        const check = () => {
+            const now = captchaShown();
+            if (now === captcha) return;
+            captcha = now;
+            log(now ? "Discord is asking for a human check (captcha)" : "human check finished");
+            emit("captcha", { active: now });
+        };
+        let pending = false;
+        const mo = new MutationObserver(() => {
+            if (pending) return;
+            pending = true;
+            setTimeout(() => { pending = false; check(); }, 300);
+        });
+        const start = () => mo.observe(document.body, { childList: true, subtree: true });
+        if (document.body) start(); else addEventListener("DOMContentLoaded", start);
+    }
+
     // ------------------------------------------------------- incoming calls
     // Discord announces a call with CALL_CREATE / CALL_UPDATE, whose
     // "ringing" list holds the users being rung, and ends it with
@@ -913,6 +943,7 @@
             pushState();
         });
         f.subscribe("MESSAGE_CREATE", onMessage);
+        watchCaptcha();
         for (const t of ["CALL_CREATE", "CALL_UPDATE", "CALL_DELETE"]) f.subscribe(t, (e) => onCall({ ...e, type: t }));
         // Joining the call any other way (in Discord itself) also ends the ringing.
         f.subscribe("VOICE_CHANNEL_SELECT", () => {

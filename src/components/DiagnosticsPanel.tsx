@@ -2,7 +2,7 @@ import { ButtonItem, PanelSection, PanelSectionRow } from "@decky/ui";
 import { addEventListener, call, removeEventListener, toaster } from "@decky/api";
 import { useEffect, useState } from "react";
 import { ChoiceSlider } from "./ChoiceSlider";
-import { getDiag, subscribeDiag, DiagEntry } from "../lib/diag";
+import { getSliderLog, getDiag, subscribeDiag, DiagEntry } from "../lib/diag";
 import { BoundsMode, getBoundsMode, setBoundsMode } from "../lib/view";
 import { micStatus } from "../lib/mic";
 
@@ -92,7 +92,11 @@ export function DiagnosticsPanel() {
 
   const exportReport = async () => {
     try {
-      const path = await call<[any], string>("export_report", { checks: getDiag(), mic: micStatus() });
+      const path = await call<[any], string>("export_report", {
+        checks: getDiag(),
+        mic: micStatus(),
+        sliders: getSliderLog().map((e) => `${new Date(e.t).toLocaleTimeString()} ${e.slider}: ${e.what}`),
+      });
       toaster.toast({ title: "Discordio report saved", body: path });
     } catch (e) {
       toaster.toast({ title: "Discordio", body: `Couldn't write the report: ${e}` });
@@ -127,6 +131,20 @@ export function DiagnosticsPanel() {
             </PanelSectionRow>
           ))}
 
+          {getSliderLog().length > 0 && (
+            <PanelSectionRow>
+              <div style={small}>
+                <b>Slider log</b> (newest last)
+                {getSliderLog()
+                  .slice(-10)
+                  .map((e, i) => (
+                    <div key={i} style={{ opacity: 0.85 }}>
+                      {new Date(e.t).toLocaleTimeString()} {e.slider}: {e.what}
+                    </div>
+                  ))}
+              </div>
+            </PanelSectionRow>
+          )}
           {qamProblems.length > 0 && (
             <PanelSectionRow>
               <div style={small}>

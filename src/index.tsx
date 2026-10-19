@@ -29,7 +29,9 @@ import { useUiSettings, setUiSetting } from "./lib/settings";
 import { startMicBridge } from "./lib/mic";
 import { AudioDevicesPanel } from "./components/AudioDevicesPanel";
 import { AudioCheckPanel } from "./components/AudioCheckPanel";
+import { StreamQualityPanel } from "./components/GoLivePanel";
 import { IncomingCallBanner, startCallNotifications } from "./components/IncomingCall";
+import { CaptchaBanner, startCaptchaNotifications } from "./components/CaptchaBanner";
 import { useEffect, useState } from "react";
 import { on } from "./lib/events";
 import { UploadScreenshot } from "./components/UploadScreenshot";
@@ -122,6 +124,10 @@ const SettingsPanel = () => {
         />
       </PanelSectionRow>
       <SafeSection name="Message popups"><MessageSettingsPanel /></SafeSection>
+      <PanelSectionRow>
+        <div style={{ fontWeight: 700, fontSize: "13px", marginTop: "6px" }}>Stream quality</div>
+      </PanelSectionRow>
+      <SafeSection name="Stream quality"><StreamQualityPanel /></SafeSection>
       <SafeSection name="Audio devices"><AudioDevicesPanel /></SafeSection>
       <SafeSection name="Call shortcuts"><CallShortcutsPanel /></SafeSection>
     </Collapsible>
@@ -136,6 +142,7 @@ const Content = () => {
   return (
     <>
       {ready && <SafeSection name="Incoming call"><IncomingCallBanner /></SafeSection>}
+      {ready && <SafeSection name="Human check"><CaptchaBanner /></SafeSection>}
       <PanelSection>
         <PanelSectionRow>
           <OpenDiscordButton />
@@ -180,15 +187,15 @@ const Content = () => {
           <Collapsible title="Messages" defaultOpen={true}>
             <SafeSection name="Messages"><MessagesPanel /></SafeSection>
           </Collapsible>
-          <PanelSection title="Overlay">
-            <SafeSection name="Overlay"><OverlayPanel /></SafeSection>
-          </PanelSection>
           <Collapsible title="Servers" defaultOpen={ui.autoOpenServers}>
             <SafeSection name="Servers"><ServersPanel /></SafeSection>
           </Collapsible>
           <Collapsible title="Friends" defaultOpen={ui.autoOpenFriends}>
             <SafeSection name="Friends"><FriendsPanel /></SafeSection>
           </Collapsible>
+          <PanelSection title="Overlay">
+            <SafeSection name="Overlay"><OverlayPanel /></SafeSection>
+          </PanelSection>
           <PanelSection title="Screenshots">
             <SafeSection name="Screenshots"><UploadScreenshot /></SafeSection>
           </PanelSection>
@@ -220,6 +227,7 @@ export default definePlugin(() => {
   const stopMic = safe("Microphone bridge listener", () => startMicBridge());
   safe("Controller mic button", () => startMicShortcut());
   const stopCallNotifications = safe("Incoming call notifications", () => startCallNotifications());
+  const stopCaptchaNotifications = safe("Human check notifications", () => startCaptchaNotifications());
 
   // DMs and mentions: the overlay shows them as popups; when it can't, a Steam toast.
   const notificationListener = (m: any) => {
@@ -283,7 +291,7 @@ export default definePlugin(() => {
     onDismount() {
       disposed = true;
       removeEventListener("message", notificationListener);
-      for (const fn of [unpatchMenu, appLifetimeUnregister, settingsChangeUnregister, cleanupPtt, stopMic, stopCallNotifications]) {
+      for (const fn of [unpatchMenu, appLifetimeUnregister, settingsChangeUnregister, cleanupPtt, stopMic, stopCallNotifications, stopCaptchaNotifications]) {
         try {
           fn?.();
         } catch (_) {}

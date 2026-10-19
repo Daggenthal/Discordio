@@ -59,3 +59,18 @@ export const subscribeDiag = (fn: () => void) => {
     listeners.delete(fn);
   };
 };
+
+// Slider events, to diagnose sliders that don't move: each left / right
+// press, what the slider reported, what was saved, and what came back.
+export type SliderEvent = { t: number; slider: string; what: string };
+const sliderLog: SliderEvent[] = [];
+export const logSlider = (slider: string, what: string) => {
+  sliderLog.push({ t: Date.now(), slider, what });
+  if (sliderLog.length > 40) sliderLog.shift();
+  listeners.forEach((l) => {
+    try {
+      l();
+    } catch (_) {}
+  });
+};
+export const getSliderLog = () => sliderLog.slice();

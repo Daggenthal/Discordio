@@ -84,6 +84,7 @@ class Plugin:
     ready = False         # page bridge said hello
     gamepads = None
     incoming = None       # a call ringing us right now
+    captcha = False       # Discord is showing a human check
     call_hint = "Answer or decline in Discordio (Quick Access Menu)"
     capture_events = []   # recent screen-capture events from the page
     mic_events = []
@@ -111,6 +112,7 @@ class Plugin:
         cls.bridge.on("rtc", cls._on_rtc)
         cls.bridge.on("call_incoming", cls._on_call_incoming)
         cls.bridge.on("call_ended", cls._on_call_ended)
+        cls.bridge.on("captcha", cls._on_captcha)
         cls.bridge.on("mic_level", cls._on_mic_level)
         diag.set("call", diag.OFF, "not in a call")
         diag.set("controller", diag.OFF, "no shortcuts set")
@@ -266,6 +268,18 @@ class Plugin:
             else:
                 bits.append("no video sent yet (sent once someone watches)" + (f" [{detail}]" if detail else ""))
         diag.set("call", diag.WARN if problems else diag.OK, "; ".join(bits))
+
+    @classmethod
+    async def _on_captcha(cls, data):
+        cls.captcha = bool((data or {}).get("active"))
+        try:
+            await decky.emit("captcha", {"active": cls.captcha})
+        except Exception:
+            pass
+
+    @classmethod
+    async def get_captcha(cls):
+        return {"active": cls.captcha}
 
     @classmethod
     async def _on_call_incoming(cls, data):
