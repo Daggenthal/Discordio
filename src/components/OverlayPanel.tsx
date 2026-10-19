@@ -3,7 +3,7 @@ import { PanelSectionRow, ToggleField } from "@decky/ui";
 import { ChoiceSlider } from "./ChoiceSlider";
 import { useEffect, useState } from "react";
 
-type OverlaySettings = { enabled: boolean; position: string; engine: string; active: string | null; status: string; perf_overlay?: string };
+type OverlaySettings = { enabled: boolean; position: string; engine: string; active: string | null; status: string; perf_overlay?: string; calls?: boolean };
 
 const ENGINES = [
   { value: "auto", short: "Auto", label: "Auto" },
@@ -13,7 +13,7 @@ const ENGINES = [
 
 const ENGINE_HELP: Record<string, string> = {
   auto: "Uses the gamescope overlay, and switches to Steam's overlay layer while the performance overlay (FPS) is on, so both show at once",
-  gamescope: "Smoothest, but hides while Steam's performance overlay is on (gamescope allows only one)",
+  gamescope: "Smoothest. While Steam's performance overlay is on, Steam's overlay layer is used instead (gamescope shows only one)",
   steam: "Drawn inside Steam's own overlay, works alongside the performance overlay",
 };
 
@@ -34,12 +34,13 @@ export function OverlayPanel() {
     return () => clearInterval(t);
   }, []);
 
-  const update = async (enabled?: boolean, position?: string, engine?: string) => {
-    const res = await call<[boolean | null, string | null, string | null], OverlaySettings>(
+  const update = async (enabled?: boolean, position?: string, engine?: string, calls?: boolean) => {
+    const res = await call<[boolean | null, string | null, string | null, boolean | null], OverlaySettings>(
       "set_overlay_settings",
       enabled ?? null,
       position ?? null,
-      engine ?? null
+      engine ?? null,
+      calls ?? null
     );
     setS(res);
   };
@@ -56,6 +57,16 @@ export function OverlayPanel() {
           onChange={(v) => update(v)}
         />
       </PanelSectionRow>
+      {!s.enabled && (
+        <PanelSectionRow>
+          <ToggleField
+            label="Turn on for calls"
+            description="Show the overlay while a call is ringing or you're in one, even with it off"
+            checked={s.calls !== false}
+            onChange={(v) => update(undefined, undefined, undefined, v)}
+          />
+        </PanelSectionRow>
+      )}
       {s.enabled && (
         <PanelSectionRow>
           <ChoiceSlider

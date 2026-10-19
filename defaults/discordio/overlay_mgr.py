@@ -35,18 +35,33 @@ class OverlayManager:
         self.steam_tabs = set()
         self.status = "starting"
         self.perf = (None, "not checked yet")
+        self.call_active = lambda: False  # set by the plugin: ringing or in a call
         self.started_at = 0.0
+
+    def enabled(self, s=None):
+        """On, or off but turned on for the call that's ringing / in progress."""
+        s = s or self.settings.load()
+        if s.get("overlay_enabled", True):
+            return True
+        try:
+            return bool(s.get("overlay_calls", True) and self.call_active())
+        except Exception:
+            return False
 
     def active_engine(self, s=None):
         s = s or self.settings.load()
-        if not s.get("overlay_enabled", True):
+        if not self.enabled(s):
             return None
         engine = s.get("overlay_engine", "auto")
+        visible, _ = self.perf
+        if visible is None:  # couldn't tell: the old rule, mangoapp running at all
+            visible = system.process_running("mangoapp")
         if engine == "auto":
-            visible, _ = self.perf
-            if visible is None:  # couldn't tell: the old rule, mangoapp running at all
-                visible = system.process_running("mangoapp")
             return "steam" if visible else "gamescope"
+        if engine == "gamescope" and visible:
+            # gamescope shows one external overlay, and the performance
+            # overlay has it: the gamescope engine would be invisible now.
+            return "steam"
         return engine if engine in ("gamescope", "steam") else "gamescope"
 
     @property
@@ -169,4 +184,4 @@ class OverlayManager:
         s = self.settings.load()
         return {"enabled": s.get("overlay_enabled", True), "position": s.get("overlay_position", "top-left"),
                 "engine": s.get("overlay_engine", "auto"), "active": self.active_engine(s), "status": self.status,
-                "perf_overlay": self.perf[1]}
+                "perf_overlay": self.perf[1], "calls": s.get("overlay_calls", True)}

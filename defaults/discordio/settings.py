@@ -9,6 +9,8 @@ DEFAULTS = {
     "overlay_enabled": True,
     "overlay_position": "top-left",
     "overlay_engine": "auto",
+    # Show the overlay while a call rings or you're in one, even when it's off.
+    "overlay_calls": True,
     "message_popups": True,
     "message_position": "top-left",
     "message_duration": 8,

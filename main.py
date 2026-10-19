@@ -140,6 +140,7 @@ class Plugin:
         cls.capture = CaptureManager(decky, PLUGIN_DIR, RUNTIME_DIR, cls.settings, log)
         cls.overlay = OverlayManager(decky, PLUGIN_DIR, RUNTIME_DIR, cls.settings,
                                      f"http://127.0.0.1:{cls.port}/overlay", log)
+        cls.overlay.call_active = lambda: bool((cls.state or {}).get("voice") or cls.incoming)
         loop = asyncio.get_running_loop()
         cls.tasks = [loop.create_task(cls.capture.run()), loop.create_task(cls.overlay.run())]
         # The page needs the capture helper's port, which is known once it starts.
@@ -486,7 +487,7 @@ class Plugin:
             "voice": voice,
             "me": {"live": bool(media.get("live")), "muted": bool(mine and mine["muted"]),
                    "deafened": bool(mine and mine["deafened"])},
-            "settings": {"overlay_enabled": s.get("overlay_enabled", True),
+            "settings": {"overlay_enabled": cls.overlay.enabled(s),
                          "overlay_position": s.get("overlay_position", "top-left"),
                          "overlay_engine_active": cls.overlay.active_engine(s),
                          "message_position": s.get("message_position", "top-left"),
@@ -785,8 +786,10 @@ class Plugin:
         return cls.overlay.info()
 
     @classmethod
-    async def set_overlay_settings(cls, enabled=None, position=None, engine=None):
+    async def set_overlay_settings(cls, enabled=None, position=None, engine=None, calls=None):
         changes = {}
+        if calls is not None:
+            changes["overlay_calls"] = bool(calls)
         if enabled is not None:
             changes["overlay_enabled"] = bool(enabled)
         if position in OVERLAY_POSITIONS:
@@ -795,8 +798,6 @@ class Plugin:
             changes["overlay_engine"] = engine
         if changes:
             cls.settings.update(**changes)
-        if enabled is False:
-            await cls.overlay.stop()
         return cls.overlay.info()
 
     # -- updates
