@@ -39,8 +39,10 @@ export function ChoiceSlider<T>({
     return () => logSlider(label, `removed after ${renders.current} redraws`);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  // Positions are numbered from 1, not 0: Steam's slider ignored left /
+  // right while sitting on position 0 (the first choice, e.g. 480p).
   const notches = useMemo(
-    () => choices.map((c, i) => ({ notchIndex: i, label: c.short, value: i })),
+    () => choices.map((c, i) => ({ notchIndex: i, label: c.short, value: i + 1 })),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [choices.map((c) => c.short).join("|")]
   );
@@ -49,9 +51,9 @@ export function ChoiceSlider<T>({
     <SliderField
       label={`${label}: ${current?.label ?? current?.short ?? ""}`}
       description={description}
-      value={index}
-      min={0}
-      max={choices.length - 1}
+      value={index + 1}
+      min={1}
+      max={choices.length}
       step={1}
       notchCount={choices.length}
       notchLabels={notches}
@@ -59,7 +61,7 @@ export function ChoiceSlider<T>({
       validValues="steps"
       showValue={false}
       onChange={(i) => {
-        const n = Math.max(0, Math.min(choices.length - 1, Math.round(i)));
+        const n = Math.max(0, Math.min(choices.length - 1, Math.round(i) - 1));
         logSlider(label, `moved: Steam reported ${i}, now #${n} (${choices[n]?.short}), was #${index}`);
         setIndex(n);
         const c = choices[n];
