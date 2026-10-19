@@ -150,6 +150,7 @@ export function GoLivePanel({ inCall }: { inCall?: boolean } = {}) {
 export function StreamPreview() {
   const [url, setUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
 
   useEffect(() => {
@@ -157,14 +158,19 @@ export function StreamPreview() {
     const timeout = new Promise<{ error: string }>((r) =>
       setTimeout(() => r({ error: "the capture helper didn't answer within 12s" }), 12000)
     );
-    Promise.race([call<[], { image?: string; error?: string }>("get_stream_preview"), timeout])
-      .then((res: { image?: string; error?: string }) => {
+    Promise.race([call<[], { image?: string; error?: string; pending?: string }>("get_stream_preview"), timeout])
+      .then((res: { image?: string; error?: string; pending?: string }) => {
         if (!alive) return;
         if (res?.image) {
           setUrl(res.image);
           setError(null);
+          setPending(null);
+        } else if (res?.pending) {
+          setPending(res.pending);
+          setError(null);
         } else {
           setError(res?.error || "no image");
+          setPending(null);
         }
       })
       .catch((e) => alive && setError(String(e)));
@@ -179,7 +185,7 @@ export function StreamPreview() {
     <PanelSectionRow>
       <div style={{ width: "100%" }}>
         <div style={{ fontSize: "12px", opacity: 0.75, marginBottom: "4px" }}>Stream preview (what viewers will see)</div>
-        {url && !error ? (
+        {url && !error && !pending ? (
           <img src={url} style={{ width: "100%", borderRadius: "6px", display: "block", background: "#000" }} />
         ) : (
           <div
@@ -190,7 +196,7 @@ export function StreamPreview() {
               color: error ? "#ff6b6b" : "#9aa0a6", wordBreak: "break-word",
             }}
           >
-            {error ? `No preview: ${error}` : "Loading preview..."}
+            {error ? `No preview: ${error}` : pending ?? "Loading preview..."}
           </div>
         )}
       </div>

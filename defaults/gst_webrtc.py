@@ -187,33 +187,76 @@ CAPTURE_NODE = None
 CAPTURE_NODES = []
 
 
-def video_source():
-    if TEST_SOURCE:
-        return TEST_SOURCE
-    global CAPTURE_NODE, CAPTURE_NODES
-    CAPTURE_NODE, CAPTURE_NODES = find_capture_node()
+# ---- capture method selection ----------------------------------------------
+#
+# gamescope's PipeWire feed only starts sending frames once the format is
+# negotiated, and which settings work depends on the PipeWire / GStreamer
+# versions involved (the bundled plugin can be older than the system's).
+# So the helper tries a few combinations, each in a separate process that can
+# be killed if it hangs, remembers the first that delivers a frame, and uses it
+# for both the preview and the stream.
+
+VARIANTS = ["target+raw", "path+raw", "target", "path"]
+MY_LIBS = os.environ.get("DISCORDIO_LIBS", "bundled")
+
+
+def load_settings_file():
+    try:
+        with open(os.environ.get("DECKCORD_SETTINGS", "")) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def save_capture_choice(variant, libs):
+    path = os.environ.get("DECKCORD_SETTINGS")
+    if not path:
+        return
+    s = load_settings_file()
+    s["capture_variant"], s["capture_libs"] = variant, libs
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as f:
+            json.dump(s, f, indent=2)
+    except Exception as e:
+        log.warning(f"Could not save capture method: {e}")
+
+
+def build_source(variant, node):
     el = Gst.ElementFactory.make("pipewiresrc", None)
     if el is None:
         raise RuntimeError("GStreamer's pipewiresrc element is missing")
     has = lambda prop: el.find_property(prop) is not None
     src = "pipewiresrc do-timestamp=true"
-    # Only set properties this PipeWire version knows; an unknown one makes
-    # the whole pipeline fail to parse.
+    # Only properties this PipeWire version knows; an unknown one makes the
+    # whole pipeline fail to parse.
     if has("keepalive-time"):
         src += " keepalive-time=1000"  # keep frames flowing when the screen is static
     if has("always-copy"):
         src += " always-copy=true"
-    if CAPTURE_NODE:
-        if has("target-object"):
-            target = CAPTURE_NODE.get("serial") or CAPTURE_NODE["name"]
-            src += f' target-object="{target}"'
+    if node:
+        if variant.startswith("target") and has("target-object"):
+            src += f' target-object="{node.get("serial") or node["name"]}"'
         else:
-            src += f" path={CAPTURE_NODE['id']}"
-        log.info(f"Capture source: {CAPTURE_NODE['name'] or CAPTURE_NODE['desc']} (node {CAPTURE_NODE['id']}, {CAPTURE_NODE['class']})")
+            src += f" path={node['id']}"
+    if variant.endswith("+raw"):
+        # Ask for frames in normal memory instead of GPU buffers.
+        src += " ! video/x-raw"
+    return src
+
+
+def video_source():
+    if TEST_SOURCE:
+        return TEST_SOURCE
+    global CAPTURE_NODE, CAPTURE_NODES
+    CAPTURE_NODE, CAPTURE_NODES = find_capture_node()
+    variant = load_settings_file().get("capture_variant") or VARIANTS[0]
+    if CAPTURE_NODE:
+        log.info(f"Capture source: {CAPTURE_NODE['name'] or CAPTURE_NODE['desc']} (node {CAPTURE_NODE['id']}), method {variant}, {MY_LIBS} GStreamer")
     else:
         names = ", ".join(f"{n['name']} [{n['class']}]" for n in CAPTURE_NODES) or "none"
         log.warning(f"No gamescope video node found; video nodes seen: {names}")
-    return src
+    return build_source(variant, CAPTURE_NODE)
 
 
 def check_element(name):
@@ -221,34 +264,76 @@ def check_element(name):
         raise RuntimeError(f"GStreamer element '{name}' is missing")
 
 
-def grab_preview_jpeg(width=640, height=360, timeout_s=4):
-    """One frame from the capture source, letterboxed to 16:9, as JPEG bytes."""
+def grab_one(src, out_path, timeout_s=4, width=640, height=360):
+    """Runs in a child process: write one JPEG frame from `src` to out_path."""
     pipe = Gst.parse_launch(
-        f"{video_source()} ! videoconvert ! videoscale add-borders=true ! "
+        f"{src} ! videoconvert ! videoscale add-borders=true ! "
         f"video/x-raw,width={width},height={height},pixel-aspect-ratio=1/1 ! "
         "jpegenc quality=80 ! appsink name=sink max-buffers=1 drop=true sync=false"
     )
     sink = pipe.get_by_name("sink")
+    pipe.set_state(Gst.State.PLAYING)
+    sample = sink.emit("try-pull-sample", timeout_s * Gst.SECOND)
+    if sample is None:
+        bus = pipe.get_bus()
+        notes = []
+        while True:
+            msg = bus.pop_filtered(Gst.MessageType.ERROR | Gst.MessageType.WARNING)
+            if not msg:
+                break
+            err, dbg = msg.parse_error() if msg.type == Gst.MessageType.ERROR else msg.parse_warning()
+            notes.append(err.message)
+        raise RuntimeError("; ".join(notes) or f"no frame within {timeout_s}s")
+    buf = sample.get_buffer()
+    ok, info = buf.map(Gst.MapFlags.READ)
     try:
-        pipe.set_state(Gst.State.PLAYING)
-        sample = sink.emit("try-pull-sample", timeout_s * Gst.SECOND)
-        if sample is None:
-            bus = pipe.get_bus()
-            msg = bus.pop_filtered(Gst.MessageType.ERROR)
-            if msg:
-                err, _ = msg.parse_error()
-                raise RuntimeError(err.message)
-            raise RuntimeError("no frame from the capture source within %ds" % timeout_s)
-        buf = sample.get_buffer()
-        ok, info = buf.map(Gst.MapFlags.READ)
-        if not ok:
-            raise RuntimeError("could not read the captured frame")
-        try:
-            return bytes(info.data)
-        finally:
-            buf.unmap(info)
+        with open(out_path, "wb") as f:
+            f.write(bytes(info.data))
     finally:
-        pipe.set_state(Gst.State.NULL)
+        buf.unmap(info)
+    # No set_state(NULL): a stuck source could block here; the process just exits.
+    os._exit(0)
+
+
+def env_for(libs):
+    env = dict(os.environ)
+    bundled = os.environ.get("DISCORDIO_BUNDLED_DIR", "")
+    for k in ("LD_LIBRARY_PATH", "GI_TYPELIB_PATH", "GST_PLUGIN_PATH"):
+        env.pop(k, None)
+    if libs == "bundled" and bundled and os.path.isdir(bundled):
+        env["LD_LIBRARY_PATH"] = bundled
+        env["GI_TYPELIB_PATH"] = os.path.join(bundled, "girepository-1.0")
+        env["GST_PLUGIN_PATH"] = os.path.join(bundled, "gstreamer-1.0")
+    env["DISCORDIO_LIBS"] = libs
+    return env
+
+
+async def grab_in_child(variant, libs, node, timeout_s=7):
+    """Try one capture method in a killable child process. Returns (jpeg, error)."""
+    import tempfile
+    from asyncio import create_subprocess_exec, wait_for as wf
+    from asyncio.subprocess import PIPE
+    fd, out = tempfile.mkstemp(suffix=".jpg")
+    os.close(fd)
+    proc = await create_subprocess_exec(
+        sys.executable, os.path.abspath(__file__), "--grab", variant, json.dumps(node or {}), out,
+        env=env_for(libs), stdout=PIPE, stderr=PIPE,
+    )
+    try:
+        _, err = await wf(proc.communicate(), timeout_s)
+        if proc.returncode == 0 and os.path.getsize(out) > 0:
+            with open(out, "rb") as f:
+                return f.read(), None
+        lines = [l for l in err.decode("utf-8", "replace").splitlines() if l.strip()]
+        return None, (lines[-1] if lines else f"exit {proc.returncode}")
+    except AsyncTimeout:
+        proc.kill()
+        return None, "hung (no frame, source never started)"
+    finally:
+        try:
+            os.remove(out)
+        except OSError:
+            pass
 
 
 class WebRTCServer:
@@ -270,6 +355,8 @@ class WebRTCServer:
         self.webrtc = None
         self.remote_ws = None
         self.pipe = None
+        self.probe_task = None
+        self.probe_status = "Starting capture..."
 
     def start_pipeline(self, create_offer=True, audio_pt=96, video_pt=97):
         log.info(f"Creating pipeline, create_offer: {create_offer}")
@@ -321,20 +408,53 @@ class WebRTCServer:
         run_coroutine_threadsafe(self.remote_ws.send_json(msg), self.loop)
 
     async def preview_handler(self, request):
-        try:
-            # Hard cap, so a stuck capture source can't hang the request.
-            jpeg = await wait_for(to_thread(grab_preview_jpeg), 8)
-        except AsyncTimeout:
-            e = "the capture source didn't deliver a frame (is a game or Steam running in Game Mode?)"
-            log.warning(f"Preview failed: {e}")
-            return web.Response(status=504, text=e, headers={"Access-Control-Allow-Origin": "*"})
-        except Exception as e:
-            log.warning(f"Preview failed: {e}")
-            return web.Response(status=503, text=f"Screen capture (PipeWire): {e}", headers={"Access-Control-Allow-Origin": "*"})
-        return web.Response(body=jpeg, content_type="image/jpeg", headers={
-            "Cache-Control": "no-store",
-            "Access-Control-Allow-Origin": "*",
-        })
+        headers = {"Access-Control-Allow-Origin": "*", "Cache-Control": "no-store"}
+        if TEST_SOURCE:
+            jpeg, err = await grab_in_child("test", MY_LIBS, None)
+        else:
+            if self.probe_task and not self.probe_task.done():
+                return web.Response(status=202, text=self.probe_status, headers=headers)
+            node, _ = find_capture_node()
+            settings = load_settings_file()
+            variant = settings.get("capture_variant")
+            libs = settings.get("capture_libs") or MY_LIBS
+            if variant and libs == MY_LIBS:
+                jpeg, err = await grab_in_child(variant, libs, node)
+                if jpeg is None:
+                    log.warning(f"Saved capture method {variant} stopped working: {err}; searching again")
+            else:
+                jpeg, err = None, None
+            if jpeg is None:
+                if not self.probe_task or self.probe_task.done():
+                    self.probe_task = self.loop.create_task(self.probe(node))
+                return web.Response(status=202, text=self.probe_status, headers=headers)
+        if jpeg is None:
+            return web.Response(status=503, text=f"Screen capture (PipeWire): {err}", headers=headers)
+        return web.Response(body=jpeg, content_type="image/jpeg", headers=headers)
+
+    async def probe(self, node):
+        """Find a capture method that delivers frames. Logs every attempt."""
+        if not node:
+            self.probe_status = "No gamescope video feed found in PipeWire"
+            return
+        other = "system" if MY_LIBS == "bundled" else "bundled"
+        combos = [(v, MY_LIBS) for v in VARIANTS] + [(v, other) for v in VARIANTS]
+        for i, (variant, libs) in enumerate(combos, 1):
+            self.probe_status = f"Finding a working capture method ({i}/{len(combos)}: {variant}, {libs} GStreamer)..."
+            jpeg, err = await grab_in_child(variant, libs, node)
+            if jpeg is not None:
+                log.info(f"Capture works with method {variant} using {libs} GStreamer")
+                save_capture_choice(variant, libs)
+                if libs != MY_LIBS:
+                    self.probe_status = f"Found a working method ({libs} GStreamer); restarting the capture helper..."
+                    log.info("Restarting the capture helper to switch GStreamer libraries")
+                    self.loop.call_later(0.5, lambda: os._exit(75))
+                else:
+                    self.probe_status = "Capture method found"
+                return
+            log.warning(f"Capture method {variant} ({libs} GStreamer) failed: {err}")
+        self.probe_status = "No capture method delivered a frame; see the capture log in Diagnostics"
+        log.error(self.probe_status)
 
     async def websocket_handler(self, request):
         ws = web.WebSocketResponse()
@@ -392,6 +512,16 @@ def main():
     app = WebRTCServer()
     web.run_app(app.app, host="127.0.0.1", port=65124, loop=app.loop)
 
+
+if __name__ == "__main__" and len(sys.argv) > 1 and sys.argv[1] == "--grab":
+    # Child process used by grab_in_child().
+    Gst.init(None)
+    try:
+        _variant, _node, _out = sys.argv[2], json.loads(sys.argv[3] or "{}"), sys.argv[4]
+        grab_one(TEST_SOURCE if _variant == "test" else build_source(_variant, _node or None), _out)
+    except Exception as _e:
+        print(f"{type(_e).__name__}: {_e}", file=sys.stderr, flush=True)
+        os._exit(1)
 
 if __name__ == "__main__":
     main()

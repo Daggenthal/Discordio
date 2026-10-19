@@ -211,12 +211,18 @@ class Plugin:
             "DECKCORD_SETTINGS": str(SETTINGS_FILE),
             "PATH": "/usr/bin:/bin",
         }
-        # Only point at bundled GStreamer libraries if this build ships them;
-        # otherwise use the system's.
-        if bundled.exists():
+        # Bundled GStreamer by default (when this build ships it). The helper
+        # can find that SteamOS's own GStreamer works better with gamescope;
+        # it saves capture_libs = "system" and exits, and is restarted here.
+        libs = load_settings().get("capture_libs", "bundled")
+        env["DISCORDIO_BUNDLED_DIR"] = str(bundled)
+        if bundled.exists() and libs != "system":
             env["LD_LIBRARY_PATH"] = str(bundled)
             env["GI_TYPELIB_PATH"] = str(bundled / "girepository-1.0")
             env["GST_PLUGIN_PATH"] = str(bundled / "gstreamer-1.0")
+            env["DISCORDIO_LIBS"] = "bundled"
+        else:
+            env["DISCORDIO_LIBS"] = "system"
         try:
             cls.webrtc_server = await create_subprocess_exec(
                 python,
@@ -647,12 +653,13 @@ class Plugin:
             return None
         last = CAPTURE_LOG[-1] if CAPTURE_LOG else "no output"
         logger.warning(f"Capture helper not running (last output: {last}), restarting")
-        CAPTURE_LOG.clear()
+        CAPTURE_LOG.append("--- capture helper restarted ---")
         await cls._start_capture_helper()
         await sleep(2)
         proc = getattr(cls, "webrtc_server", None)
         if proc is None or proc.returncode is not None:
             return "Capture helper won't start: " + (" | ".join(CAPTURE_LOG[-3:]) or "unknown error")
+        await sleep(0)
         return None
 
     @classmethod
@@ -674,6 +681,9 @@ class Plugin:
             async with ClientSession(timeout=ClientTimeout(total=8)) as session:
                 res = await session.get("http://127.0.0.1:65124/preview")
                 body = await res.read()
+                if res.status == 202:
+                    # Still searching for a capture method that works here.
+                    return {"pending": body.decode("utf-8", "replace")[:300]}
                 if res.status != 200:
                     return {"error": body.decode("utf-8", "replace")[:300] or f"HTTP {res.status}"}
         except Exception as e:
