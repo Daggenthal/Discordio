@@ -211,18 +211,39 @@ class Plugin:
         if prev is None:
             diag.set("call", diag.PENDING, f"voice connection {states}, measuring...")
             return
+        st = cls.state or {}
+        media = st.get("media") or {}
+        others = max(0, len((st.get("voice") or {}).get("members") or []) - 1)
         sending = now["audio_out"] > prev["audio_out"]
         receiving = now["audio_in"] > prev["audio_in"]
-        bits = [f"voice connection {states}" + (f" via {path}" if path else ""),
-                "sending audio" if sending else "NOT sending audio",
-                "receiving audio" if receiving else "no audio coming in",
-                f"mic level {now['mic_level']:.2f}"]
-        if (cls.state or {}).get("media", {}).get("live"):
-            bits.append("sending video" if now["video_out"] > prev["video_out"] else "NOT sending video")
-        bad = not sending or ((cls.state or {}).get("media", {}).get("live") and now["video_out"] <= prev["video_out"])
-        # Silence while muted, or alone in the channel, is normal.
-        muted = (cls.state or {}).get("media", {}).get("mute")
-        diag.set("call", diag.WARN if bad and not muted else diag.OK, "; ".join(bits))
+        talking = now["mic_level"] >= 0.02
+        bits = [f"voice connection {states}" + (f" via {path}" if path else "")]
+        problems = []
+        # Discord only sends audio while you talk (voice activity), so a quiet
+        # mic with nothing sent is normal; talking with nothing sent is not.
+        if media.get("mute"):
+            bits.append("muted")
+        elif sending:
+            bits.append("sending audio")
+        elif talking:
+            bits.append("NOT sending audio while you talk")
+            problems.append("audio")
+        else:
+            bits.append("mic quiet (nothing to send)")
+        if others == 0:
+            bits.append("alone in the channel")
+        else:
+            bits.append("receiving audio" if receiving else "no one talking")
+        bits.append(f"mic level {now['mic_level']:.2f}")
+        if media.get("live"):
+            # Discord holds back stream video until someone watches it.
+            if now["video_out"] > prev["video_out"]:
+                bits.append("sending video")
+            elif others == 0:
+                bits.append("stream waiting for a viewer")
+            else:
+                bits.append("no video sent yet (sent once someone watches)")
+        diag.set("call", diag.WARN if problems else diag.OK, "; ".join(bits))
 
     @classmethod
     async def _on_rtc(cls, data):
