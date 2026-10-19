@@ -82,6 +82,7 @@ class Plugin:
     tasks = []
     state = None          # last state from the Discord page
     ready = False         # page bridge said hello
+    gamepads = None
     incoming = None       # a call ringing us right now
     call_hint = "Answer or decline in Discordio (Quick Access Menu)"
     capture_events = []   # recent screen-capture events from the page
@@ -112,6 +113,14 @@ class Plugin:
         cls.bridge.on("call_ended", cls._on_call_ended)
         cls.bridge.on("mic_level", cls._on_mic_level)
         diag.set("call", diag.OFF, "not in a call")
+        diag.set("controller", diag.OFF, "no shortcuts set")
+        from discordio.gamepad import Gamepads
+        loop_ = asyncio.get_running_loop()
+
+        def pad_changed(path, name, mask):
+            loop_.create_task(decky.emit("pad", {"device": path, "name": name, "mask": str(mask)}))
+
+        cls.gamepads = Gamepads(pad_changed, log)
 
         # Local server: the bridge, plus overlay state for the overlay engines.
         cls.port = system.free_port(65123)
@@ -149,6 +158,10 @@ class Plugin:
     async def _unload(cls):
         for t in cls.tasks:
             t.cancel()
+        try:
+            cls.gamepads.stop()
+        except Exception:
+            pass
         if cls.capture:
             await cls.capture.stop()
         if cls.overlay:
@@ -292,6 +305,23 @@ class Plugin:
             "hint": cls.call_hint,
             "age": 1.0,
         }]
+
+    @classmethod
+    async def gamepad_start(cls):
+        """Start reading controller buttons for the QAM's shortcuts."""
+        cls.gamepads.start()
+        await asyncio.sleep(0.3)
+        return cls.gamepads.info()
+
+    @classmethod
+    async def gamepad_stop(cls):
+        cls.gamepads.stop()
+        diag.set("controller", diag.OFF, "no shortcuts set")
+        return True
+
+    @classmethod
+    async def get_gamepads(cls):
+        return cls.gamepads.info()
 
     @classmethod
     async def set_call_hint(cls, text):
@@ -884,6 +914,7 @@ class Plugin:
         lines += ["", "== Bridge", "  " + json.dumps(d["bridge"])]
         lines += ["", "== Capture", "  " + json.dumps(d["capture"], default=str)]
         lines += ["", "== Overlay", "  " + json.dumps(d["overlay"])]
+        lines += ["", "== Controllers", "  " + json.dumps(cls.gamepads.info() if cls.gamepads else None)]
         lines += ["", "== Mic events", "  " + json.dumps(d["mic_events"])]
         for title, method in (("Call connections", "rtcStats"), ("Go Live capture (page)", "captureStatus"),
                               ("Sounds", "soundStatus"), ("Microphone (page)", "micStatus")):

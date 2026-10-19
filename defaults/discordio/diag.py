@@ -22,6 +22,7 @@ COMPONENTS = [
     ("account", "Discord account"),
     ("mic", "Microphone bridge"),
     ("call", "Call connection"),
+    ("controller", "Controller shortcuts"),
     ("capture", "Screen capture"),
     ("overlay", "In-game overlay"),
     ("updates", "Updates"),

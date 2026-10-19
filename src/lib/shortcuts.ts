@@ -1,9 +1,11 @@
-import { call, toaster } from "@decky/api";
+import { addEventListener, call, removeEventListener, toaster } from "@decky/api";
 import { note } from "./diag";
 
-// Controller shortcuts, read from Steam's raw controller state: every
-// physical button on any controller (DualSense, Xbox, Steam Controller,
-// Deck), the same whatever the game's Steam Input layout is.
+// Controller shortcuts. The plugin backend reads the physical controllers
+// from Linux's input devices (Steam's own controller API is missing on the
+// SteamOS beta) and sends their button state here: every button on any
+// controller (DualSense, Xbox, Steam Controller, Deck), the same whatever
+// the game's Steam Input layout is. Steam's API is only a fallback.
 //
 //   mic      press: toggle mute (or hold: push to talk)
 //   answer   while a call is ringing (default: hold Options/Start + R2)
@@ -104,7 +106,6 @@ export function callHint() {
 
 // ------------------------------------------------------------ runtime state
 let unregister: (() => void) | undefined;
-const prev = new Map<number, bigint>();
 let pttHeld = false;
 let ringing: string | null = null; // channel of a call ringing us
 let learn: { action: Action; union: bigint; armed: boolean; done: (mask: bigint) => void } | null = null;
@@ -147,20 +148,23 @@ function edge(now: bigint, before: bigint, mask: string) {
 }
 
 function onStates(changes: any[]) {
+  for (const c of changes || []) processMask(`steam:${c.unControllerIndex ?? 0}`, pressedOf(c));
+}
+
+const prevByDevice = new Map<string, bigint>();
+function processMask(device: string, now: bigint) {
   lastEvent = Date.now();
-  for (const c of changes || []) {
-    const idx = c.unControllerIndex ?? 0;
-    const now = pressedOf(c);
-    const before = prev.get(idx) ?? 0n;
-    if (now === before) continue;
-    prev.set(idx, now);
+  {
+    const before = prevByDevice.get(device) ?? 0n;
+    if (now === before) return;
+    prevByDevice.set(device, now);
 
     if (learn) {
       // Wait until everything is released (the press that started
       // learning), then collect buttons until all are let go again.
       if (!learn.armed) {
         if (now === 0n) learn.armed = true;
-        continue;
+        return;
       }
       learn.union |= now;
       if (now === 0n && learn.union) {
@@ -169,23 +173,23 @@ function onStates(changes: any[]) {
         l.done(l.union);
       }
       changed();
-      continue;
+      return;
     }
 
     // Calls first: while ringing, their combos win over the mic button.
     if (ringing) {
       if (bindings.answer.enabled && edge(now, before, bindings.answer.mask) === 1) {
         callAction("answer_call");
-        continue;
+        return;
       }
       if (bindings.decline.enabled && edge(now, before, bindings.decline.mask) === 1) {
         callAction("decline_call");
-        continue;
+        return;
       }
     }
     if (bindings.mic.enabled) {
       const e = edge(now, before, bindings.mic.mask);
-      if (!e) continue;
+      if (!e) return;
       if (bindings.mic.mode === "mute") {
         if (e === 1) call("toggle_mute").catch(() => {});
       } else if ((e === 1) !== pttHeld) {
@@ -200,17 +204,43 @@ function anyEnabled() {
   return (bindings.mic.enabled && BigInt(bindings.mic.mask) !== 0n) || bindings.answer.enabled || bindings.decline.enabled;
 }
 
-function ensureListening() {
-  if (unregister) return;
+const onPad = (d: any) => {
+  try {
+    processMask(String(d?.device || "pad"), BigInt(d?.mask || "0"));
+  } catch (_) {}
+};
+
+function steamFallback() {
   try {
     const input = (window as any).SteamClient?.Input;
-    if (!input?.RegisterForControllerStateChanges) throw new Error("Steam has no controller state API here");
+    if (!input?.RegisterForControllerStateChanges) throw new Error("Steam has no controller state API here either");
     const r = input.RegisterForControllerStateChanges(onStates);
     unregister = () => r?.unregister?.();
-    note("Controller shortcuts", true, "listening to controller buttons");
+    note("Controller shortcuts", true, "using Steam's controller API");
   } catch (e) {
     note("Controller shortcuts", false, String(e));
   }
+}
+
+function ensureListening() {
+  if (unregister) return;
+  addEventListener("pad", onPad);
+  unregister = () => {
+    removeEventListener("pad", onPad);
+    call("gamepad_stop").catch(() => {});
+  };
+  call<[], any>("gamepad_start")
+    .then((info) => {
+      const n = (info?.controllers || []).length;
+      note("Controller shortcuts", true, n ? `reading ${info.controllers.map((c: any) => c.name).join(", ")}` : "waiting for a controller");
+    })
+    .catch((e) => {
+      // Older backend or no access to input devices: Steam's API if it has one.
+      removeEventListener("pad", onPad);
+      unregister = undefined;
+      note("Controller shortcuts", false, `backend reader failed (${e}); trying Steam's API`);
+      steamFallback();
+    });
 }
 
 function stopIfIdle() {
@@ -250,7 +280,8 @@ export function startLearning(action: Action, done: (mask: string | null) => voi
   learn = {
     action,
     union: 0n,
-    armed: false,
+    // Ready at once unless a button (the A that opened this) is still held.
+    armed: [...prevByDevice.values()].every((m) => m === 0n),
     done: (mask) => {
       update(action, { mask: mask.toString(), enabled: true });
       done(mask.toString());
