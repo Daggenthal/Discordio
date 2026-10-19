@@ -568,7 +568,8 @@ def main():
         log.info(f"gamescope feed: node {node['id']} ({node['name']}), method {current_variant()}")
     else:
         log.warning("gamescope's video feed not found yet: " + (", ".join(n["name"] for n in nodes) or "no video nodes"))
-    web.run_app(app, host="127.0.0.1", port=PORT, loop=loop, print=None, handle_signals=True)
+    # access_log=None: request lines every 3s buried the useful messages in Diagnostics.
+    web.run_app(app, host="127.0.0.1", port=PORT, loop=loop, print=None, handle_signals=True, access_log=None)
 
 
 if __name__ == "__main__":
