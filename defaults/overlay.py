@@ -24,6 +24,10 @@ import threading
 import time
 import urllib.request
 
+# gamescope overlays are X11 windows; never let GTK choose Wayland.
+os.environ["GDK_BACKEND"] = "x11"
+os.environ.pop("WAYLAND_DISPLAY", None)
+
 import gi
 
 gi.require_version("Gtk", "3.0")

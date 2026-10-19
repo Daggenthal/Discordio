@@ -21,6 +21,7 @@ COMPONENTS = [
     ("bridge", "Discord bridge"),
     ("account", "Discord account"),
     ("mic", "Microphone bridge"),
+    ("call", "Call connection"),
     ("capture", "Screen capture"),
     ("overlay", "In-game overlay"),
     ("updates", "Updates"),
@@ -76,15 +77,33 @@ def snapshot():
     }
 
 
+def _append(created, body):
+    """
+    Add a log line. A line repeating one of the last few (a crash loop, say)
+    bumps a counter on it instead, so it can't push everything else out.
+    """
+    for entry in list(_log)[-4:]:
+        if entry[1] == body:
+            entry[2] += 1
+            entry[3] = created
+            return
+    _log.append([created, body, 1, created])
+
+
 def log_lines(n=200):
-    return list(_log)[-n:]
+    out = []
+    for first, body, count, last in list(_log)[-n:]:
+        line = f"{time.strftime('%H:%M:%S', time.localtime(first))} {body}"
+        if count > 1:
+            line += f"  (x{count}, last {time.strftime('%H:%M:%S', time.localtime(last))})"
+        out.append(line)
+    return out
 
 
 class _RingHandler(logging.Handler):
     def emit(self, record):
         try:
-            _log.append(f"{time.strftime('%H:%M:%S', time.localtime(record.created))} "
-                        f"{record.levelname[0]} {self.format(record)}")
+            _append(record.created, f"{record.levelname[0]} {self.format(record)}")
         except Exception:
             pass
 
@@ -97,4 +116,4 @@ def install_log_handler(logger):
 
 def log_external(prefix, line):
     """Lines from child processes (capture helper, overlay)."""
-    _log.append(f"{time.strftime('%H:%M:%S')} {prefix} {line}")
+    _append(time.time(), f"{prefix} {line}")

@@ -30,6 +30,7 @@
             const id = ++seq;
             if (pc) { try { pc.close(); } catch (_) { } }
             const p = new RTCPeerConnection({ iceServers: [] });
+            p.__discordio = "microphone bridge";
             pc = p;
             p.addTransceiver("audio", { direction: "recvonly" });
             const out = new MediaStream();
@@ -45,6 +46,7 @@
             await p.setRemoteDescription({ type: "answer", sdp: a.sdp });
             const s = await Promise.race([gotTrack, timeout(10000, "no audio arrived from Steam")]);
             stream = s;
+            if (D.media) D.media.keepFlowing(s, "microphone");
             lastError = null;
             D.log("microphone bridge connected");
             return s;
@@ -63,11 +65,30 @@
         if (d.error) w.reject(new Error(d.error)); else w.resolve(d);
     });
 
+    // A track that arrived over WebRTC rejects applyConstraints and has no
+    // audio settings, unlike a real microphone. Discord adjusts its mic
+    // (echo cancellation, noise suppression...) through those, and a
+    // rejection can stall its audio setup. Steam already processes the
+    // microphone, so accept the call and describe a normal mono mic.
+    function adaptMic(track) {
+        const realApply = track.applyConstraints.bind(track);
+        track.applyConstraints = async (c) => {
+            try { await realApply(c); } catch (_) { }
+        };
+        const realSettings = track.getSettings ? track.getSettings.bind(track) : () => ({});
+        track.getSettings = () => ({
+            sampleRate: 48000, sampleSize: 16, channelCount: 1,
+            echoCancellation: false, noiseSuppression: false, autoGainControl: false,
+            ...realSettings(),
+        });
+        return track;
+    }
+
     navigator.mediaDevices.getUserMedia = async (constraints) => {
         if (constraints && constraints.audio && !constraints.video) {
             const s = await micStream();
             // Clones, so Discord stopping its copy doesn't end the bridge.
-            return new MediaStream(s.getAudioTracks().map((t) => t.clone()));
+            return new MediaStream(s.getAudioTracks().map((t) => adaptMic(t.clone())));
         }
         return realGetUserMedia(constraints);
     };

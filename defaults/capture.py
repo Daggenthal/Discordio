@@ -686,6 +686,7 @@ class Session:
         self.preset = ""
         self.error = None
         self.vsrc = None
+        self.format = None
 
     def info(self):
         return {
@@ -735,6 +736,7 @@ class Session:
         self.preset = f"{height}p{fps}" if height else f"source ({fh}p) @{fps}"
         if libs != MY_LIBS:
             self.preset += f" (captured by {libs} GStreamer)"
+        self.format = {"width": width, "height": fh, "fps": fps}
         caps = f"video/x-raw,format=I420,width={width},height={fh},framerate={fps}/1,pixel-aspect-ratio=1/1"
         desc = (
             f"webrtcbin name=send latency=0 bundle-policy=max-bundle "
@@ -811,7 +813,7 @@ class Session:
             self.loop.call_soon_threadsafe(self.fail, "couldn't create a WebRTC answer (the capture pipeline failed to start)")
             return
         self.webrtc.emit("set-local-description", answer, Gst.Promise.new())
-        self.send({"sdp": {"type": "answer", "sdp": answer.sdp.as_text()}})
+        self.send({"sdp": {"type": "answer", "sdp": answer.sdp.as_text()}, "format": self.format})
 
     def close(self):
         self.vsrc = None

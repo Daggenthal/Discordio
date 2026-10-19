@@ -55,6 +55,43 @@ def steam_display(decky):
     return {"DISPLAY": ":0"}
 
 
+def perf_overlay_state(decky=None):
+    """
+    Is Steam's performance overlay (MangoHud, drawn by mangoapp) showing?
+
+    mangoapp runs for the whole Game Mode session, even with the overlay
+    off, so its presence says nothing. Steam turns it on and off by writing
+    MangoHud's config file (MANGOHUD_CONFIGFILE in mangoapp's environment):
+    "no_display" in it means hidden.
+
+    Returns (visible: bool | None, detail). None means it couldn't be read.
+    """
+    for pid in os.listdir("/proc"):
+        if not pid.isdigit():
+            continue
+        try:
+            with open(f"/proc/{pid}/comm") as f:
+                if f.read().strip() != "mangoapp":
+                    continue
+            with open(f"/proc/{pid}/environ", "rb") as f:
+                env = dict(kv.split(b"=", 1) for kv in f.read().split(b"\0") if b"=" in kv)
+        except Exception:
+            continue
+        path = (env.get(b"MANGOHUD_CONFIGFILE") or b"").decode()
+        if not path:
+            return None, "mangoapp has no MANGOHUD_CONFIGFILE"
+        try:
+            with open(path) as f:
+                lines = [l.strip() for l in f.read().splitlines()]
+        except Exception as e:
+            return None, f"can't read {path}: {e}"
+        if not any(lines):
+            return False, "MangoHud config is empty"
+        hidden = any(l == "no_display" or l.startswith("no_display=1") for l in lines)
+        return (not hidden), ("hidden (no_display)" if hidden else f"showing ({len([l for l in lines if l])} settings)")
+    return False, "mangoapp isn't running"
+
+
 def process_running(name):
     for pid in os.listdir("/proc"):
         if pid.isdigit():

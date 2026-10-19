@@ -7,7 +7,8 @@ overlay (MangoHud's mangoapp) uses it. So there are two engines:
   gamescope  overlay.py, an external overlay window (smoothest)
   steam      overlay_web.js, drawn inside Steam's own overlay window
 
-"auto" uses the Steam layer while mangoapp runs, gamescope otherwise.
+"auto" uses the Steam layer while the performance overlay is showing,
+gamescope otherwise.
 """
 
 import asyncio
@@ -33,6 +34,8 @@ class OverlayManager:
         self.failures = 0
         self.steam_tabs = set()
         self.status = "starting"
+        self.perf = (None, "not checked yet")
+        self.started_at = 0.0
 
     def active_engine(self, s=None):
         s = s or self.settings.load()
@@ -40,7 +43,10 @@ class OverlayManager:
             return None
         engine = s.get("overlay_engine", "auto")
         if engine == "auto":
-            return "steam" if system.process_running("mangoapp") else "gamescope"
+            visible, _ = self.perf
+            if visible is None:  # couldn't tell: the old rule, mangoapp running at all
+                visible = system.process_running("mangoapp")
+            return "steam" if visible else "gamescope"
         return engine if engine in ("gamescope", "steam") else "gamescope"
 
     @property
@@ -52,6 +58,7 @@ class OverlayManager:
         asyncio.get_running_loop().create_task(self._steam_layer())
         while True:
             try:
+                self.perf = system.perf_overlay_state()
                 active = self.active_engine()
                 if active == "gamescope":
                     if not self.running and time.monotonic() >= self.retry_at:
@@ -82,7 +89,8 @@ class OverlayManager:
                            else "waiting for Steam's overlay window")
             diag.set("overlay", diag.OK if self.steam_tabs else diag.PENDING, f"Steam layer: {self.status}")
         elif self.running:
-            self.failures = 0
+            if time.monotonic() - self.started_at > 10:
+                self.failures = 0  # only once it has stayed up, or a crash loop never backs off
             diag.set("overlay", diag.OK, f"gamescope engine: {self.status}")
         else:
             diag.set("overlay", diag.ERROR if self.failures else diag.PENDING, f"gamescope engine: {self.status}")
@@ -95,6 +103,11 @@ class OverlayManager:
             "DISCORDIO_OVERLAY_URL": self.state_url,
             "PYTHONUNBUFFERED": "1",
         }
+        # gamescope's overlay slot is an X11 window property; GTK must not pick
+        # Wayland even when the session exports WAYLAND_DISPLAY.
+        env["GDK_BACKEND"] = "x11"
+        env.pop("WAYLAND_DISPLAY", None)
+        self.started_at = time.monotonic()
         self.proc = await asyncio.create_subprocess_exec(
             system.python(), str(self.dir / "overlay.py"), env=env,
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
@@ -155,4 +168,5 @@ class OverlayManager:
     def info(self):
         s = self.settings.load()
         return {"enabled": s.get("overlay_enabled", True), "position": s.get("overlay_position", "top-left"),
-                "engine": s.get("overlay_engine", "auto"), "active": self.active_engine(s), "status": self.status}
+                "engine": s.get("overlay_engine", "auto"), "active": self.active_engine(s), "status": self.status,
+                "perf_overlay": self.perf[1]}

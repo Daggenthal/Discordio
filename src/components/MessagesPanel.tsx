@@ -35,7 +35,11 @@ export function MessagesPanel() {
     load();
     const onMsg = () => load();
     addEventListener("message", onMsg);
-    return () => removeEventListener("message", onMsg);
+    const t = setInterval(load, 4000);
+    return () => {
+      clearInterval(t);
+      removeEventListener("message", onMsg);
+    };
   }, []);
 
   if (open) return <ConversationView conv={open} onBack={() => { setOpen(null); load(); }} />;
@@ -92,7 +96,14 @@ function ConversationView({ conv, onBack }: { conv: Conversation; onBack: () => 
     load();
     const onMsg = (m: any) => m?.channel_id === conv.channel_id && load();
     addEventListener("message", onMsg);
-    return () => removeEventListener("message", onMsg);
+    // Discord's message store answers instantly, so a short poll keeps the
+    // conversation live for messages that don't raise a notification
+    // (your own, and replies in a server channel that don't mention you).
+    const t = setInterval(load, 2000);
+    return () => {
+      clearInterval(t);
+      removeEventListener("message", onMsg);
+    };
   }, [conv.channel_id]);
 
   const send = async () => {

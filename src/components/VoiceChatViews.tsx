@@ -127,6 +127,7 @@ export function VoiceChannelView() {
           ))}
         </div>
       </PanelSectionRow>
+      <CallHealth />
       <GoLivePanel inCall />
       <PanelSectionRow>
         <ButtonItem layout="below" onClick={() => call("disconnect_vc")}>
@@ -136,5 +137,24 @@ export function VoiceChannelView() {
         </ButtonItem>
       </PanelSectionRow>
     </div>
+  );
+}
+
+// One line on whether audio is really flowing, so a silent call is obvious
+// right away instead of after asking "can you hear me?".
+function CallHealth() {
+  const [h, setH] = useState<{ state: string; detail: string } | null>(null);
+  useEffect(() => {
+    const load = () => call<[], { state: string; detail: string }>("get_call_health").then(setH).catch(() => {});
+    load();
+    const t = setInterval(load, 3000);
+    return () => clearInterval(t);
+  }, []);
+  if (!h || h.state === "off") return null;
+  const color = h.state === "ok" ? "#23a55a" : h.state === "pending" ? "#b5bac1" : h.state === "warn" ? "#f0b232" : "#ed4245";
+  return (
+    <PanelSectionRow>
+      <div style={{ fontSize: "11px", color, wordBreak: "break-word" }}>{h.detail}</div>
+    </PanelSectionRow>
   );
 }

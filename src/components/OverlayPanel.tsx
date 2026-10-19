@@ -3,7 +3,7 @@ import { PanelSectionRow, ToggleField } from "@decky/ui";
 import { ChoiceSlider } from "./ChoiceSlider";
 import { useEffect, useState } from "react";
 
-type OverlaySettings = { enabled: boolean; position: string; engine: string; active: string | null; status: string };
+type OverlaySettings = { enabled: boolean; position: string; engine: string; active: string | null; status: string; perf_overlay?: string };
 
 const ENGINES = [
   { value: "auto", short: "Auto", label: "Auto" },
@@ -75,6 +75,14 @@ export function OverlayPanel() {
             value={s.engine}
             onChange={(v) => update(undefined, undefined, v)}
           />
+        </PanelSectionRow>
+      )}
+      {s.enabled && s.engine === "auto" && (
+        <PanelSectionRow>
+          <div style={{ fontSize: "11px", opacity: 0.7 }}>
+            Using {s.active === "steam" ? "Steam's overlay layer" : "the gamescope overlay"} (performance overlay:{" "}
+            {s.perf_overlay || "unknown"})
+          </div>
         </PanelSectionRow>
       )}
       {s.enabled && s.status && !s.status.startsWith("running") && (

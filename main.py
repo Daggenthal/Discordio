@@ -104,6 +104,10 @@ class Plugin:
         cls.bridge.on("keyboard", lambda _: cls.view.show_keyboard())
         cls.bridge.on("mic", cls._on_mic)
         cls.bridge.on("capture", cls._on_capture)
+        cls.bridge.on("sound_blocked", cls._on_sound_blocked)
+        cls.bridge.on("rtc", cls._on_rtc)
+        cls.bridge.on("mic_level", cls._on_mic_level)
+        diag.set("call", diag.OFF, "not in a call")
 
         # Local server: the bridge, plus overlay state for the overlay engines.
         cls.port = system.free_port(65123)
@@ -158,13 +162,78 @@ class Plugin:
     @classmethod
     async def _heartbeat(cls):
         """Ping the page now and then so a wedged bridge shows up in diagnostics."""
+        n = 0
         while True:
-            await asyncio.sleep(15)
-            if cls.bridge.connected and cls.ready:
+            await asyncio.sleep(5)
+            n += 1
+            if not (cls.bridge.connected and cls.ready):
+                continue
+            if n % 3 == 0:
                 try:
                     await cls.bridge.request("ping", timeout=5)
                 except Exception:
                     diag.set("bridge", diag.WARN, "Discord page stopped answering pings")
+            try:
+                await cls._check_call()
+            except Exception as e:
+                diag.set("call", diag.WARN, f"couldn't read call stats: {e}")
+
+    _call_prev = None
+
+    @classmethod
+    def _call_summary(cls, peers):
+        """Discord's own connections only (not Discordio's local mic/capture links)."""
+        discord = [p for p in peers or [] if p.get("who") == "discord"]
+        audio_out = sum(((p.get("sent") or {}).get("audio") or {}).get("bytes", 0) for p in discord)
+        audio_in = sum(((p.get("received") or {}).get("audio") or {}).get("bytes", 0) for p in discord)
+        video_out = sum(((p.get("sent") or {}).get("video") or {}).get("bytes", 0) for p in discord)
+        mic_level = max([((p.get("sent") or {}).get("micLevel") or 0) for p in discord] or [0])
+        return {"peers": discord, "audio_out": audio_out, "audio_in": audio_in,
+                "video_out": video_out, "mic_level": mic_level}
+
+    @classmethod
+    async def _check_call(cls):
+        """Is audio actually flowing in the call? Shown as "Call connection" in Diagnostics."""
+        if not (cls.state or {}).get("voice"):
+            cls._call_prev = None
+            diag.set("call", diag.OFF, "not in a call")
+            return
+        now = cls._call_summary(await cls.bridge.request("rtcStats", timeout=5))
+        prev, cls._call_prev = cls._call_prev, now
+        states = ", ".join(sorted({p.get("state", "?") for p in now["peers"]})) or "none"
+        path = next((p.get("path") for p in now["peers"] if p.get("path")), None)
+        if not now["peers"]:
+            diag.set("call", diag.ERROR, "in a call, but Discord opened no voice connection")
+            return
+        if all(p.get("state") in ("failed", "disconnected", "closed") for p in now["peers"]):
+            diag.set("call", diag.ERROR, f"Discord's voice connection {states}: no audio can get through")
+            return
+        if prev is None:
+            diag.set("call", diag.PENDING, f"voice connection {states}, measuring...")
+            return
+        sending = now["audio_out"] > prev["audio_out"]
+        receiving = now["audio_in"] > prev["audio_in"]
+        bits = [f"voice connection {states}" + (f" via {path}" if path else ""),
+                "sending audio" if sending else "NOT sending audio",
+                "receiving audio" if receiving else "no audio coming in",
+                f"mic level {now['mic_level']:.2f}"]
+        if (cls.state or {}).get("media", {}).get("live"):
+            bits.append("sending video" if now["video_out"] > prev["video_out"] else "NOT sending video")
+        bad = not sending or ((cls.state or {}).get("media", {}).get("live") and now["video_out"] <= prev["video_out"])
+        # Silence while muted, or alone in the channel, is normal.
+        muted = (cls.state or {}).get("media", {}).get("mute")
+        diag.set("call", diag.WARN if bad and not muted else diag.OK, "; ".join(bits))
+
+    @classmethod
+    async def _on_rtc(cls, data):
+        log.info(f"Discord voice connection: {(data or {}).get('state')}")
+
+    @classmethod
+    async def _on_mic_level(cls, data):
+        try:
+            await decky.emit("mic_level", data)
+        except Exception:
+            pass
 
     # ------------------------------------------------------- page events
 
@@ -172,6 +241,27 @@ class Plugin:
     async def _on_hello(cls, data):
         cls.ready = True
         log.info(f"Discord page connected ({data.get('version')})")
+        await cls._unlock_audio("page connected")
+
+    _last_unlock = 0.0
+
+    @classmethod
+    async def _unlock_audio(cls, why):
+        cls._last_unlock = time.monotonic()
+        try:
+            r = await cls.view.unlock_audio()
+            if not (r or {}).get("activated"):
+                log.warning(f"Discord sounds may stay blocked ({why}): the page isn't marked as interacted with")
+            elif (r or {}).get("retried"):
+                log.info(f"Discord sounds unlocked ({why}), replayed {r['retried']} blocked sound(s)")
+        except Exception as e:
+            log.warning(f"couldn't unlock Discord sounds ({why}): {e}")
+
+    @classmethod
+    async def _on_sound_blocked(cls, data):
+        log.info(f"Discord sound blocked by autoplay rules: {(data or {}).get('sound')}")
+        if time.monotonic() - cls._last_unlock > 2:
+            await cls._unlock_audio("a sound was blocked")
 
     @classmethod
     async def _on_state(cls, state):
@@ -533,6 +623,39 @@ class Plugin:
     # -- view
 
     @classmethod
+    async def mic_test(cls, seconds=6, loopback=False):
+        """Measure the microphone as Discord would get it, optionally hearing yourself."""
+        await cls._unlock_audio("mic test")
+        try:
+            r = await cls.bridge.request("micTest", {"seconds": int(seconds), "loopback": bool(loopback)},
+                                         timeout=int(seconds) + 25)
+            log.info(f"Mic test: {r}")
+            return r
+        except Exception as e:
+            log.warning(f"Mic test failed: {e}")
+            return {"error": str(e)}
+
+    @classmethod
+    async def get_call_health(cls):
+        return diag.get("call") or {"state": "off", "detail": "not in a call"}
+
+    @classmethod
+    async def get_call_stats(cls):
+        try:
+            return cls._call_summary(await cls.bridge.request("rtcStats", timeout=5))
+        except Exception as e:
+            return {"error": str(e)}
+
+    @classmethod
+    async def test_sound(cls):
+        """Play a Discord sound in the view, to check that you can hear its ringing and alerts."""
+        await cls._unlock_audio("test sound")
+        try:
+            return await cls.bridge.request("testSound", timeout=8)
+        except Exception as e:
+            return {"error": str(e)}
+
+    @classmethod
     async def restart_discord(cls):
         cls.ready = False
         cls.view.restart()
@@ -598,6 +721,22 @@ class Plugin:
                 raise RuntimeError(r["lastError"])
             return f"connection: {r.get('connection')}"
 
+        async def mic_level():
+            r = await cls.bridge.request("micTest", {"seconds": 3, "loopback": False}, timeout=30)
+            if r.get("verdict") == "silent":
+                raise RuntimeError(f"Discord hears silence from the microphone (peak {r.get('peak')}); "
+                                   "talk during the test, or check the input in Settings")
+            return f"peak {r.get('peak')}, {r.get('verdict')}"
+
+        async def sounds():
+            await cls._unlock_audio("self-test")
+            r = await cls.bridge.request("soundStatus", timeout=5)
+            if not r.get("activated"):
+                raise RuntimeError("Chromium is blocking sound in the Discord view (no user interaction)")
+            if r.get("blocked") and r.get("last"):
+                return f"allowed now; {r['blocked']} blocked earlier (last: {r['last']})"
+            return f"allowed, {r.get('played', 0)} played"
+
         async def capture():
             await cls.capture.refresh()
             st = cls.capture.status
@@ -624,6 +763,8 @@ class Plugin:
         await check("Bridge", bridge())
         await check("Discord internals", internals())
         await check("Microphone bridge", mic())
+        await check("Discord sounds", sounds())
+        await check("Microphone level", mic_level())
         await check("Capture helper", capture())
         await check("Capture preview", preview())
         log.info("Self-test: " + "; ".join(f"{r['name']} {'ok' if r['ok'] else 'FAILED: ' + r['detail']}" for r in results))
@@ -651,6 +792,12 @@ class Plugin:
         lines += ["", "== Capture", "  " + json.dumps(d["capture"], default=str)]
         lines += ["", "== Overlay", "  " + json.dumps(d["overlay"])]
         lines += ["", "== Mic events", "  " + json.dumps(d["mic_events"])]
+        for title, method in (("Call connections", "rtcStats"), ("Sounds", "soundStatus"), ("Microphone (page)", "micStatus")):
+            try:
+                value = await cls.bridge.request(method, timeout=5)
+            except Exception as e:
+                value = {"error": str(e)}
+            lines += ["", f"== {title}", "  " + json.dumps(value, default=str)]
         if frontend:
             lines += ["", "== QAM side", "  " + json.dumps(frontend, default=str)]
         lines += ["", "== Settings", "  " + json.dumps(cls.settings.load())]

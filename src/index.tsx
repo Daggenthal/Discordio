@@ -28,6 +28,7 @@ import { SafeSection } from "./components/SafeSection";
 import { useUiSettings, setUiSetting } from "./lib/settings";
 import { startMicBridge } from "./lib/mic";
 import { AudioDevicesPanel } from "./components/AudioDevicesPanel";
+import { AudioCheckPanel } from "./components/AudioCheckPanel";
 import { useEffect, useState } from "react";
 import { on } from "./lib/events";
 import { UploadScreenshot } from "./components/UploadScreenshot";
@@ -168,6 +169,9 @@ const Content = () => {
             <SafeSection name="Voice"><VoiceChannelView /></SafeSection>
             <SafeSection name="Push to talk"><PushToTalkButton /></SafeSection>
           </PanelSection>
+          <Collapsible title="Audio check" defaultOpen={false}>
+            <SafeSection name="Audio check"><AudioCheckPanel /></SafeSection>
+          </Collapsible>
           <Collapsible title="Messages" defaultOpen={true}>
             <SafeSection name="Messages"><MessagesPanel /></SafeSection>
           </Collapsible>

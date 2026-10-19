@@ -15,7 +15,7 @@ from pathlib import Path
 from . import cdp, diag, vencord
 
 PLACEHOLDER = "data:text/plain,discordio"
-PAGE_SCRIPTS = ["config", "bridge.js", "mic.js", "capture.js", "nav.js"]
+PAGE_SCRIPTS = ["config", "bridge.js", "media.js", "mic.js", "capture.js", "nav.js"]
 
 CREATE_JS = r"""
 (() => {
@@ -205,6 +205,20 @@ class DiscordView:
                         pass
                 diag.set("discord_view", diag.WARN, "the Discord view went away, recreating")
                 return
+
+    async def unlock_audio(self):
+        """
+        Let the Discord page play sound (ringing, joins, notifications).
+        Chromium blocks audio until the user interacts with a page, and you
+        rarely click into this one; a DevTools call marked as a user gesture
+        counts as that interaction.
+        """
+        if not self.target or not self.target.connected:
+            raise RuntimeError("the Discord view isn't connected")
+        return await self.target.evaluate(
+            "window.DISCORDIO_UNLOCK_AUDIO ? window.DISCORDIO_UNLOCK_AUDIO() : "
+            "({activated: !!(navigator.userActivation && navigator.userActivation.hasBeenActive)})",
+            timeout=5, user_gesture=True)
 
     def _page_event(self, method, params):
         # Page errors go to the log, so they show up in diagnostics and reports.

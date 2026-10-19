@@ -137,12 +137,17 @@ class Target:
             raise CDPError(f"{method}: {data['error'].get('message', data['error'])}")
         return data.get("result", {})
 
-    async def evaluate(self, expression, timeout=10, await_promise=True):
-        """Evaluate JS and return its value. Raises JSError if it threw."""
+    async def evaluate(self, expression, timeout=10, await_promise=True, user_gesture=False):
+        """
+        Evaluate JS and return its value. Raises JSError if it threw.
+        user_gesture: run it as if the user had clicked, which also lets the
+        page play sound from then on.
+        """
         res = await self.send("Runtime.evaluate", {
             "expression": expression,
             "returnByValue": True,
             "awaitPromise": await_promise,
+            "userGesture": bool(user_gesture),
         }, timeout=timeout)
         if "exceptionDetails" in res:
             d = res["exceptionDetails"]

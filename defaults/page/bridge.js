@@ -536,6 +536,13 @@
         return text;
     }
 
+    // REST messages have ISO strings, Discord's store has moment/Date objects.
+    function msgTime(t) {
+        if (!t) return Date.now();
+        if (typeof t === "string") return Date.parse(t) || Date.now();
+        return Number(t) || Date.now();
+    }
+
     function simplifyMessage(msg) {
         const a = msg.author || {};
         const u = C().UserStore.getUser(a.id) || a;
@@ -543,7 +550,7 @@
             id: msg.id, channel_id: msg.channel_id,
             author: { id: a.id, name: userName(u), avatar: avatarUrl(u) },
             text: messageText(msg),
-            time: msg.timestamp ? Date.parse(msg.timestamp) : Date.now(),
+            time: msgTime(msg.timestamp),
             mine: !!(me() && a.id === me().id),
         };
     }
@@ -562,11 +569,36 @@
         } catch (err) { warn("message event", err); }
     }
 
+    // Read from Discord's own message store, which updates the instant a
+    // message arrives or is sent; fall back to the REST API (and ask Discord
+    // to load the channel) the first time a channel is opened.
     async function history(channelId, limit) {
-        const r = await C().RestAPI.get({ url: `/channels/${channelId}/messages`, query: { limit: limit || 25 } });
-        const list = (r && r.body) || [];
+        limit = limit || 25;
         const ch = C().ChannelStore.getChannel(channelId);
-        return { channel_id: channelId, label: channelLabel(ch), messages: list.map(simplifyMessage).reverse() };
+        const MS = store("MessageStore");
+        let local = null;
+        try { local = MS && MS.getMessages(channelId); } catch (_) { }
+        const arr = local && typeof local.toArray === "function" ? local.toArray() : [];
+        if (arr.length) {
+            return { channel_id: channelId, label: channelLabel(ch), source: "live",
+                     messages: arr.slice(-limit).map(simplifyMessage) };
+        }
+        try {
+            const actions = props("fetchMessages", "sendMessage");
+            if (actions) actions.fetchMessages({ channelId, limit: 50 });
+        } catch (_) { }
+        const r = await C().RestAPI.get({ url: `/channels/${channelId}/messages`, query: { limit } });
+        const list = (r && r.body) || [];
+        return { channel_id: channelId, label: channelLabel(ch), source: "rest", messages: list.map(simplifyMessage).reverse() };
+    }
+
+    function nonce() {
+        try {
+            const S = C().SnowflakeUtils;
+            if (S && S.fromTimestamp) return String(S.fromTimestamp(Date.now()));
+        } catch (_) { }
+        // Same shape as a Discord snowflake: ms since 2015 shifted left 22 bits.
+        return String((BigInt(Date.now() - 1420070400000) << 22n) + BigInt(Math.floor(Math.random() * 4096)));
     }
 
     async function sendMessage(channelId, content) {
@@ -575,13 +607,18 @@
         if (content.length > 2000) throw new Error("Discord messages can be at most 2000 characters");
         const actions = props("sendMessage", "editMessage");
         if (actions && actions.sendMessage) {
-            await actions.sendMessage(channelId, { content, tts: false, invalidEmojis: [], validNonShortcutEmojis: [] });
-            return { ok: true, method: "action" };
+            try {
+                // Newer Discord reads a 4th "options" argument (nonce etc.);
+                // leaving it out was the "reading 'nonce'" error.
+                await actions.sendMessage(channelId,
+                    { content, tts: false, invalidEmojis: [], validNonShortcutEmojis: [] },
+                    undefined, { nonce: nonce() });
+                return { ok: true, method: "action" };
+            } catch (e) {
+                warn("sendMessage action failed, using the REST API:", e);
+            }
         }
-        await C().RestAPI.post({
-            url: `/channels/${channelId}/messages`,
-            body: { content, nonce: C().SnowflakeUtils ? C().SnowflakeUtils.fromTimestamp(Date.now()) : String(Date.now()) },
-        });
+        await C().RestAPI.post({ url: `/channels/${channelId}/messages`, body: { content, nonce: nonce(), tts: false } });
         return { ok: true, method: "rest" };
     }
 
