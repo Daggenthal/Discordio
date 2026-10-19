@@ -3,6 +3,7 @@ import { ButtonItem, DialogButton, Focusable, PanelSectionRow, ToggleField } fro
 import { FaComment, FaPhone } from "react-icons/fa";
 import { openConversationWith } from "./MessagesPanel";
 import { useEffect, useState } from "react";
+import { ColorButton } from "./ColorButton";
 import { Avatar, MemberRow, Member } from "./VoiceChatViews";
 import { fire } from "../lib/events";
 
@@ -252,12 +253,9 @@ function FriendRow({ f, open, onToggle }: { f: Friend; open: boolean; onToggle: 
       {open && (
         <PanelSectionRow>
           <Focusable style={{ display: "flex", gap: "8px" }}>
-            <DialogButton
-              style={{ flex: 1, minWidth: 0, background: "#23a55a", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
-              onClick={() => callFriend(f)}
-            >
+            <ColorButton color="#23a55a" onClick={() => callFriend(f)}>
               <FaPhone /> Call
-            </DialogButton>
+            </ColorButton>
             <DialogButton
               style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
               onClick={() => messageFriend(f)}

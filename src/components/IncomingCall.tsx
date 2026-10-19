@@ -1,7 +1,8 @@
 import { addEventListener, call, removeEventListener, toaster } from "@decky/api";
-import { DialogButton, Focusable, Navigation, PanelSection, PanelSectionRow } from "@decky/ui";
+import { Focusable, Navigation, PanelSection, PanelSectionRow } from "@decky/ui";
 import { useEffect, useRef, useState } from "react";
 import { FaPhone, FaPhoneSlash } from "react-icons/fa";
+import { ColorButton } from "./ColorButton";
 import { Avatar } from "./VoiceChatViews";
 import { callHint, setRinging } from "../lib/shortcuts";
 
@@ -101,20 +102,12 @@ export function IncomingCallBanner() {
             the controller can move to them; wrapper divs made them unreachable. */}
         <div ref={answerRef}>
           <Focusable style={{ display: "flex", gap: "8px" }}>
-            <DialogButton
-              disabled={busy}
-              onClick={() => act("answer_call")}
-              style={{ flex: 1, background: "#23a55a", color: "#fff", minWidth: 0, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
-            >
+            <ColorButton color="#23a55a" disabled={busy} onClick={() => act("answer_call")}>
               <FaPhone /> Answer
-            </DialogButton>
-            <DialogButton
-              disabled={busy}
-              onClick={() => act("decline_call")}
-              style={{ flex: 1, background: "#da373c", color: "#fff", minWidth: 0, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
-            >
+            </ColorButton>
+            <ColorButton color="#da373c" disabled={busy} onClick={() => act("decline_call")}>
               <FaPhoneSlash /> Decline
-            </DialogButton>
+            </ColorButton>
           </Focusable>
         </div>
       </PanelSectionRow>

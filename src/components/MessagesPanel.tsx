@@ -3,6 +3,7 @@ import { ButtonItem, DialogButton, Focusable, PanelSectionRow, TextField, Toggle
 import { useEffect, useRef, useState } from "react";
 import { FaPhone } from "react-icons/fa";
 import { fire, on } from "../lib/events";
+import { ColorButton } from "./ColorButton";
 import { Avatar } from "./VoiceChatViews";
 import { ChoiceSlider } from "./ChoiceSlider";
 
@@ -172,16 +173,13 @@ function ConversationView({ conv, onBack }: { conv: Conversation; onBack: () => 
             <DialogButton style={{ flex: 1, minWidth: 0 }} onClick={onBack}>
               ← Messages
             </DialogButton>
-            <DialogButton
-              style={{ flex: 1, minWidth: 0, background: "#23a55a", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
-              onClick={async () => {
+            <ColorButton color="#23a55a" onClick={async () => {
                 const res: any = await call("call_channel", conv.channel_id);
                 toaster.toast({ title: "Discordio", body: res?.error ? `Couldn't call: ${res.error}` : `Calling ${history?.label || conv.label}` });
                 if (!res?.error) fire("collapse:Messages");
-              }}
-            >
+              }}>
               <FaPhone /> Call
-            </DialogButton>
+            </ColorButton>
           </Focusable>
         </div>
       </PanelSectionRow>
