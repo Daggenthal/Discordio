@@ -160,7 +160,11 @@ class CaptureManager:
         elif st.get("last_error"):
             diag.set("capture", diag.WARN, st["last_error"])
         elif st.get("method"):
-            diag.set("capture", diag.OK, f"ready: {st['method']} via {st.get('method_libs')} GStreamer")
+            feed = st.get("feed") or {}
+            state = (f"connected, {feed.get('frames')} frames" if feed.get("running")
+                     else "disconnected until the next preview")
+            diag.set("capture", diag.OK, f"ready: {st['method']} via {st.get('method_libs')} GStreamer; "
+                                          f"game feed {state} ({feed.get('connects', 0)} connects)")
         else:
             diag.set("capture", diag.PENDING, "ready; capture method is found on the first preview")
 

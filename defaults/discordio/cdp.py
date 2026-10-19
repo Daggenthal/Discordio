@@ -112,6 +112,13 @@ class Target:
             pass
         finally:
             self._fail_pending(CDPError("connection lost"))
+            # Steam went away (e.g. Game Mode restarting): release the HTTP
+            # session too, or aiohttp warns about it being left open.
+            if self._ws is not None and self._ws.closed:
+                self._ws = None
+                session, self._session = self._session, None
+                if session is not None:
+                    asyncio.get_running_loop().create_task(session.close())
 
     async def send(self, method, params=None, timeout=10):
         if not self.connected:

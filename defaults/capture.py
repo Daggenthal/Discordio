@@ -13,6 +13,11 @@ Which PipeWire settings deliver frames depends on the PipeWire / GStreamer
 versions on the machine, so the helper tries a few methods, each in a child
 process that is killed if it hangs, and remembers the first that works.
 
+gamescope has a bug where a PipeWire client disconnecting at the wrong
+moment aborts gamescope (and with it the whole Game Mode session), so this
+helper keeps ONE long-lived connection (the "tap") that the preview and the
+stream share, instead of connecting for every preview frame.
+
 Started by the plugin backend; exits when the backend goes away.
 """
 
@@ -283,12 +288,22 @@ def child_grab(variant, node_json, out_path, timeout_s=4):
             err, _ = msg.parse_error() if msg.type == Gst.MessageType.ERROR else msg.parse_warning()
             notes.append(err.message)
         print("; ".join(notes) or f"no frame within {timeout_s}s", file=sys.stderr, flush=True)
-        os._exit(1)
+        quit_after_teardown(pipe, 1)
     buf = sample.get_buffer()
     ok, info = buf.map(Gst.MapFlags.READ)
     with open(out_path, "wb") as f:
         f.write(bytes(info.data))
-    os._exit(0)  # skip teardown: a stuck source can block set_state(NULL)
+    quit_after_teardown(pipe, 0)
+
+
+def quit_after_teardown(pipe, code, limit_s=2.0):
+    """
+    Disconnect from PipeWire in an orderly way, then exit. A stuck source can
+    block set_state(NULL), so give up on it after limit_s.
+    """
+    threading.Timer(limit_s, lambda: os._exit(code)).start()
+    pipe.set_state(Gst.State.NULL)
+    os._exit(code)
 
 
 async def grab(variant, libs, node, timeout_s=7):
@@ -315,6 +330,216 @@ async def grab(variant, libs, node, timeout_s=7):
             pass
 
 
+
+# ------------------------------------------------------------------ tap
+
+def frame_size(height):
+    """(width, height) of the frames the tap delivers: 16:9, source capped at 1440p."""
+    h = height or 1440
+    return int(round(h * 16 / 9 / 2) * 2), h
+
+
+def appsrc_extra():
+    el = Gst.ElementFactory.make("appsrc", None)
+    if el is not None and el.find_property("leaky-type") is not None:
+        return " max-buffers=2 leaky-type=downstream"
+    return ""
+
+
+def detached(buf):
+    """Same frame memory, no timestamps (the receiving pipeline stamps its own)."""
+    return buf.copy_region(Gst.BufferCopyFlags.MEMORY | Gst.BufferCopyFlags.FLAGS, 0, buf.get_size())
+
+
+class Tap:
+    """
+    The single connection to gamescope's feed. A child process (with whichever
+    GStreamer's PipeWire plugin works) captures and writes raw I420 frames to
+    a pipe; this process keeps the newest one for previews and forwards every
+    frame to the running stream, if any.
+
+    Reconnects are kept rare on purpose (see the module docstring): it starts
+    on the first preview, stays up while previewing or streaming, and stops
+    only after a long idle period.
+    """
+
+    IDLE_STOP_S = 90       # no preview requests and no stream for this long
+    STALL_S = 10           # no frames for this long: give up and report it
+    MIN_RESTART_S = 15     # never reconnect to gamescope more often than this
+
+    def __init__(self, helper):
+        self.helper = helper
+        self.lock = threading.Lock()
+        self.key = None
+        self.proc = None
+        self.pipe = None
+        self.latest = None
+        self.frames = 0
+        self.last_frame = 0.0
+        self.started = 0.0
+        self.error = None
+        self.connects = 0
+        self.last_used = 0.0
+        self.tail = []
+
+    @property
+    def running(self):
+        return self.proc is not None and self.proc.poll() is None
+
+    def info(self):
+        return {
+            "running": self.running,
+            "key": list(self.key) if self.key else None,
+            "frames": self.frames,
+            "last_frame_age_s": round(time.time() - self.last_frame, 1) if self.last_frame else None,
+            "connects": self.connects,
+            "error": self.error,
+        }
+
+    def wanted_key(self):
+        height, fps, _ = stream_settings(load_settings())
+        width, h = frame_size(height)
+        if TEST_SOURCE:
+            return ("test", MY_LIBS, None, width, h, fps)
+        node = find_node()[0]
+        if not node:
+            raise RuntimeError("gamescope's video feed isn't in PipeWire")
+        variant, libs = source_settings()
+        return (variant, libs, node["id"], width, h, fps)
+
+    def ensure(self, for_stream=False):
+        """Make sure the tap runs with the current settings. Returns the key in use."""
+        with self.lock:
+            self.last_used = time.time()
+            key = self.wanted_key()
+            if self.running and self.key == key:
+                return key
+            if self.running and not for_stream and self.helper.session is not None:
+                return self.key  # live: the stream's format wins until it ends
+            since = time.time() - self.started
+            if self.running and not for_stream and since < self.MIN_RESTART_S:
+                return self.key  # settings changed: switch over a little later
+            if not self.running and self.error and since < self.MIN_RESTART_S:
+                raise RuntimeError(self.error)
+            self._stop_locked()
+            self._start_locked(key)
+            return key
+
+    def _start_locked(self, key):
+        variant, libs, node_id, width, height, fps = key
+        node = None if TEST_SOURCE else find_node(0)[0]
+        self.error = None
+        self.frames = 0
+        self.last_frame = 0.0
+        self.latest = None
+        self.started = time.time()
+        self.connects += 1
+        log.info(f"connecting to gamescope's feed: {variant} via {libs} GStreamer, {width}x{height}@{fps}")
+        self.proc = subprocess.Popen(
+            [sys.executable, os.path.abspath(__file__), "--feed", variant, json.dumps(node),
+             str(width), str(height), str(fps)],
+            env=env_for(libs), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        )
+        threading.Thread(target=self._read_log, args=(self.proc,), daemon=True).start()
+        parse = "rawvideoparse" if Gst.ElementFactory.find("rawvideoparse") else "videoparse"
+        self.pipe = Gst.parse_launch(
+            f"fdsrc fd={self.proc.stdout.fileno()} blocksize={width * height * 3 // 2} ! "
+            f"{parse} format=i420 width={width} height={height} framerate={fps}/1 ! "
+            "appsink name=sink emit-signals=true max-buffers=1 drop=true sync=false"
+        )
+        self.pipe.get_by_name("sink").connect("new-sample", self._on_sample)
+        self.pipe.set_state(Gst.State.PLAYING)
+        self.key = key
+
+    def _on_sample(self, sink):
+        sample = sink.emit("pull-sample")
+        if sample is None:
+            return Gst.FlowReturn.OK
+        self.latest = sample
+        self.frames += 1
+        self.last_frame = time.time()
+        session = self.helper.session
+        if session is not None:
+            session.push(sample.get_buffer())
+        return Gst.FlowReturn.OK
+
+    def _read_log(self, proc):
+        for raw in proc.stderr:
+            line = raw.decode("utf-8", "replace").rstrip()
+            if line:
+                self.tail = (self.tail + [line])[-5:]
+                log.info(f"feed: {line}")
+
+    def stop(self, reason=""):
+        with self.lock:
+            self._stop_locked(reason)
+
+    def _stop_locked(self, reason=""):
+        if self.proc is not None:
+            if reason:
+                log.info(f"disconnecting from gamescope's feed: {reason}")
+            proc, self.proc = self.proc, None
+            try:
+                proc.terminate()  # the child closes its PipeWire stream cleanly on SIGTERM
+                proc.wait(3)
+            except Exception:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+        if self.pipe is not None:
+            pipe, self.pipe = self.pipe, None
+            threading.Thread(target=pipe.set_state, args=(Gst.State.NULL,), daemon=True).start()
+        self.latest = None
+
+    def check(self):
+        """Called every couple of seconds: stop when idle, report a stalled or dead feed."""
+        now = time.time()
+        if self.proc is None:
+            return
+        if self.proc.poll() is not None:
+            self.error = "the capture process stopped: " + (self.tail[-1] if self.tail else f"exit {self.proc.returncode}")
+            log.warning(self.error)
+            self.stop()
+            return
+        streaming = self.helper.session is not None
+        if not streaming and now - self.last_used > self.IDLE_STOP_S:
+            self.stop("not used for a while")
+            return
+        last = self.last_frame or self.started
+        if now - last > self.STALL_S:
+            self.error = (f"no frames from gamescope for {self.STALL_S}s with method {self.key[0]} "
+                          f"({self.key[1]} GStreamer); use Re-detect in Diagnostics if this keeps happening")
+            log.warning(self.error)
+            self.stop()
+
+    def jpeg(self, timeout_s=3):
+        """The newest frame as a small JPEG, or None if there isn't a fresh one."""
+        sample = self.latest
+        if sample is None or time.time() - self.last_frame > 3:
+            return None
+        caps = sample.get_caps().to_string()
+        pipe = Gst.parse_launch(
+            f"appsrc name=src format=time caps=\"{caps}\" ! videoconvert ! videoscale add-borders=true ! "
+            "video/x-raw,width=640,height=360,pixel-aspect-ratio=1/1 ! jpegenc quality=80 ! "
+            "appsink name=sink max-buffers=1 sync=false"
+        )
+        try:
+            pipe.set_state(Gst.State.PLAYING)
+            src = pipe.get_by_name("src")
+            src.emit("push-buffer", detached(sample.get_buffer()))
+            src.emit("end-of-stream")
+            out = pipe.get_by_name("sink").emit("try-pull-sample", timeout_s * Gst.SECOND)
+            if out is None:
+                return None
+            buf = out.get_buffer()
+            ok, info = buf.map(Gst.MapFlags.READ)
+            data = bytes(info.data)
+            buf.unmap(info)
+            return data
+        finally:
+            pipe.set_state(Gst.State.NULL)
+
 # ------------------------------------------------------------------ server
 
 class Helper:
@@ -327,6 +552,15 @@ class Helper:
         self.last_preview = 0.0
         self.session = None
         self.started = time.time()
+        self.tap = Tap(self)
+
+    async def housekeeping(self):
+        while True:
+            await asyncio.sleep(2)
+            try:
+                await asyncio.to_thread(self.tap.check)
+            except Exception as e:
+                log.warning(f"tap check failed: {e}")
 
     # -- method search
 
@@ -342,7 +576,11 @@ class Helper:
             log.info(f"not trying {other} GStreamer for capture: " +
                      ("it doesn't load" if other_missing is None else "no pipewiresrc"))
         self.probe_log = []
+        await asyncio.to_thread(self.tap.stop, "searching for a capture method")
         for i, (variant, libs) in enumerate(combos, 1):
+            if i > 1:
+                # Let gamescope settle between test connections (see the module docstring).
+                await asyncio.sleep(2)
             self.probe_status = f"Finding a capture method that works here ({i}/{len(combos)}: {variant}, {libs} GStreamer)..."
             jpeg, err = await grab(variant, libs, node)
             line = f"{variant} / {libs}: {'works' if jpeg else err}"
@@ -363,28 +601,28 @@ class Helper:
         h = {"Cache-Control": "no-store"}
         if self.probe_task and not self.probe_task.done():
             return web.Response(status=202, text=self.probe_status, headers=h)
-        if TEST_SOURCE:
-            jpeg, err = await grab("test", MY_LIBS, None)
-        else:
+        if not TEST_SOURCE:
             node, nodes = find_node()
             if not node:
                 seen = ", ".join(f"{n['name']} [{n['class']}]" for n in nodes) or "none"
                 self.last_error = f"gamescope's video feed isn't in PipeWire (video nodes seen: {seen})"
                 return web.Response(status=503, text=self.last_error, headers=h)
-            saved = load_settings().get("capture_variant")
-            variant, libs = source_settings()
-            jpeg, err = (None, None)
-            if saved:
-                jpeg, err = await grab(variant, libs, node)
-            if jpeg is None:
-                if saved:
-                    log.warning(f"saved method {variant} ({libs}) failed ({err}); searching again")
+            if not load_settings().get("capture_variant"):
+                # First run (or Re-detect): find a method once, then remember it.
                 self.probe_task = self.loop.create_task(self.probe(node))
                 self.probe_status = "Finding a capture method that works here..."
                 return web.Response(status=202, text=self.probe_status, headers=h)
+        try:
+            await asyncio.to_thread(self.tap.ensure)
+        except Exception as e:
+            self.last_error = str(e)
+            return web.Response(status=503, text=self.last_error, headers=h)
+        jpeg = await asyncio.to_thread(self.tap.jpeg)
         if jpeg is None:
-            self.last_error = err
-            return web.Response(status=503, text=err, headers=h)
+            if self.tap.error:
+                self.last_error = self.tap.error
+                return web.Response(status=503, text=self.tap.error, headers=h)
+            return web.Response(status=202, text="Connecting to the game's video...", headers=h)
         self.last_preview = time.time()
         self.last_error = None
         return web.Response(body=jpeg, content_type="image/jpeg", headers=h)
@@ -409,6 +647,7 @@ class Helper:
             "probe_log": self.probe_log[-8:],
             "last_preview_age_s": round(time.time() - self.last_preview) if self.last_preview else None,
             "stream": self.session.info() if self.session else None,
+            "feed": self.tap.info(),
             "last_error": self.last_error,
         })
 
@@ -446,7 +685,7 @@ class Session:
         self.started = time.time()
         self.preset = ""
         self.error = None
-        self.feeder = None
+        self.vsrc = None
 
     def info(self):
         return {
@@ -490,40 +729,17 @@ class Session:
 
     def start(self, vpt, apt):
         height, fps, bitrate = stream_settings(load_settings())
-        node = None if TEST_SOURCE else find_node(0)[0]
-        if not TEST_SOURCE and not node:
-            raise RuntimeError("gamescope's video feed isn't in PipeWire")
-        if height:
-            width = int(round(height * 16 / 9 / 2) * 2)
-            scale = (f"videoscale add-borders=true ! videorate drop-only=true ! "
-                     f"video/x-raw,width={width},height={height},pixel-aspect-ratio=1/1,framerate={fps}/1 !")
-            self.preset = f"{height}p{fps}"
-        else:
-            scale = f"videorate drop-only=true ! video/x-raw,framerate={fps}/1 !"
-            self.preset = f"source@{fps}"
-        variant, src_libs = ("test", MY_LIBS) if TEST_SOURCE else source_settings()
-        if src_libs != MY_LIBS or os.environ.get("DISCORDIO_FORCE_FEEDER"):
-            # Capture with the other GStreamer (the one whose PipeWire plugin
-            # works with gamescope) in a child process, which hands raw frames
-            # to this one (which has WebRTC) through a pipe.
-            width = int(round((height or 1440) * 16 / 9 / 2) * 2)
-            fh = height or 1440
-            self.feeder = subprocess.Popen(
-                [sys.executable, os.path.abspath(__file__), "--feed", variant, json.dumps(node), str(width), str(fh), str(fps)],
-                env=env_for(src_libs), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            )
-            threading.Thread(target=self._feeder_log, daemon=True).start()
-            parse = "rawvideoparse" if Gst.ElementFactory.find("rawvideoparse") else "videoparse"
-            video = (f"fdsrc fd={self.feeder.stdout.fileno()} blocksize={width * fh * 3 // 2} ! "
-                     f"{parse} format=i420 width={width} height={fh} framerate={fps}/1 ! "
-                     f"identity name=frames silent=true ! ")
-            scale = ""
-            self.preset += f" (captured by {src_libs} GStreamer)"
-        else:
-            video = f"{build_source(variant, node)} ! identity name=frames silent=true ! videoconvert ! "
+        # Frames come from the shared tap, so going live never opens a second
+        # connection to gamescope (and the preview keeps working while live).
+        variant, libs, _node, width, fh, fps = self.helper.tap.ensure(for_stream=True)
+        self.preset = f"{height}p{fps}" if height else f"source ({fh}p) @{fps}"
+        if libs != MY_LIBS:
+            self.preset += f" (captured by {libs} GStreamer)"
+        caps = f"video/x-raw,format=I420,width={width},height={fh},framerate={fps}/1,pixel-aspect-ratio=1/1"
         desc = (
             f"webrtcbin name=send latency=0 bundle-policy=max-bundle "
-            f"{video}{scale} "
+            f'appsrc name=vsrc is-live=true do-timestamp=true format=time caps="{caps}"{appsrc_extra()} ! '
+            f"identity name=frames silent=true ! "
             f"queue max-size-buffers=2 leaky=downstream ! "
             f"vp8enc deadline=1 cpu-used=8 threads={max(2, min(8, (os.cpu_count() or 4) // 2))} "
             f"end-usage=cbr target-bitrate={bitrate} keyframe-max-dist={fps * 2} error-resilient=partitions lag-in-frames=0 ! "
@@ -535,10 +751,17 @@ class Session:
         self.pipe = Gst.parse_launch(desc)
         self.webrtc = self.pipe.get_by_name("send")
         self.webrtc.connect("on-ice-candidate", lambda _, idx, cand: self.send({"ice": {"candidate": cand, "sdpMLineIndex": idx}}))
-        # Count frames coming out of the source, for diagnostics and the stall warning.
+        # Count frames reaching the encoder, for diagnostics and the stall warning.
         self.pipe.get_by_name("frames").get_static_pad("src").add_probe(Gst.PadProbeType.BUFFER, self.on_frame)
         self.pipe.set_state(Gst.State.PLAYING)
+        self.vsrc = self.pipe.get_by_name("vsrc")
         self.loop.call_soon_threadsafe(lambda: self.loop.create_task(self.watch()))
+
+    def push(self, buf):
+        """Called from the tap's thread for every captured frame."""
+        vsrc = self.vsrc
+        if vsrc is not None:
+            vsrc.emit("push-buffer", detached(buf))
 
     def on_frame(self, pad, info):
         self.frames += 1
@@ -567,7 +790,7 @@ class Session:
                 continue
             stale = not self.last_frame or time.time() - self.last_frame > 5
             if stale and not warned:
-                msg = "no frames from gamescope for 5s (try the preview to re-detect the capture method)"
+                msg = "no frames from gamescope for 5s" + (f": {self.helper.tap.error}" if self.helper.tap.error else "")
                 log.warning(f"stream: {msg}")
                 self.helper.last_error = msg
                 self.send({"status": {"warning": msg}})
@@ -590,19 +813,8 @@ class Session:
         self.webrtc.emit("set-local-description", answer, Gst.Promise.new())
         self.send({"sdp": {"type": "answer", "sdp": answer.sdp.as_text()}})
 
-    def _feeder_log(self):
-        for raw in self.feeder.stderr:
-            line = raw.decode("utf-8", "replace").rstrip()
-            if line:
-                log.info(f"feeder: {line}")
-
     def close(self):
-        if self.feeder is not None:
-            try:
-                self.feeder.kill()
-            except Exception:
-                pass
-            self.feeder = None
+        self.vsrc = None
         if self.pipe is not None:
             pipe, self.pipe = self.pipe, None
             # Teardown off the event loop; a stuck source can block it.
@@ -664,6 +876,7 @@ def main():
     loop = asyncio.new_event_loop()  # explicit: newer Python won't create one implicitly
     asyncio.set_event_loop(loop)
     helper = Helper(loop)
+    loop.create_task(helper.housekeeping())
     app = web.Application()
     app.add_routes([
         web.get("/status", helper.status),
@@ -702,6 +915,7 @@ if __name__ == "__main__":
         # Logging must not touch stdout here: it carries the video.
         for h in logging.getLogger().handlers:
             h.setStream(sys.stderr)
+        die_with_parent()
         Gst.init(None)
         try:
             _v, _node, _w, _h, _fps = sys.argv[2], json.loads(sys.argv[3] or "null"), sys.argv[4], sys.argv[5], sys.argv[6]
@@ -710,9 +924,22 @@ if __name__ == "__main__":
                 f"{src} ! videoconvert ! videoscale add-borders=true ! videorate drop-only=true ! "
                 f"video/x-raw,format=I420,width={_w},height={_h},pixel-aspect-ratio=1/1,framerate={_fps}/1 ! "
                 f"fdsink fd=1 sync=false")
+            stopping = threading.Event()
+
+            def on_term(*_):
+                # Disconnect from PipeWire in an orderly way before exiting.
+                stopping.set()
+                threading.Thread(target=lambda: (pipe.set_state(Gst.State.NULL), os._exit(0)), daemon=True).start()
+                threading.Timer(2.5, lambda: os._exit(0)).start()
+
+            signal.signal(signal.SIGTERM, on_term)
             pipe.set_state(Gst.State.PLAYING)
             bus = pipe.get_bus()
-            msg = bus.timed_pop_filtered(Gst.CLOCK_TIME_NONE, Gst.MessageType.ERROR | Gst.MessageType.EOS)
+            msg = None
+            while not stopping.is_set() and msg is None:
+                msg = bus.timed_pop_filtered(200 * Gst.MSECOND, Gst.MessageType.ERROR | Gst.MessageType.EOS)
+            if stopping.is_set():
+                time.sleep(5)
             if msg and msg.type == Gst.MessageType.ERROR:
                 print(f"capture error: {msg.parse_error()[0].message}", file=sys.stderr, flush=True)
         except Exception as e:
