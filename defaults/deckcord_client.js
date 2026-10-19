@@ -392,13 +392,15 @@ window.Vencord.Plugins.plugins.Deckcord = {
                                     return
                             }
                         } catch (error) {
-                            result = { error: error }
+                            // Error objects serialize to {}, so send the message text.
+                            result = { error: String(error && error.message || error) }
                             if (data.increment == undefined) return;
                         }
                         const payload = {
                             type: "$deckcord_request",
                             increment: data.increment,
-                            result: result || {}
+                            // Keep null as null ("not in a voice channel"); only undefined becomes {}.
+                            result: result === undefined ? {} : result
                         };
                         console.debug(data, payload);
                         window.DECKCORD_WS.send(JSON.stringify(payload));

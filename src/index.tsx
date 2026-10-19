@@ -22,6 +22,7 @@ import { VoiceChannelView } from "./components/VoiceChatViews";
 import { ServersPanel, FriendsPanel } from "./components/BrowsePanels";
 import { UpdatePanel } from "./components/UpdatePanel";
 import { OverlayPanel } from "./components/OverlayPanel";
+import { SafeSection } from "./components/SafeSection";
 import { useState } from "react";
 import { UploadScreenshot } from "./components/UploadScreenshot";
 import { OpenDiscordButton } from "./components/buttons/OpenCloseDiscordButton";
@@ -130,32 +131,32 @@ const Content = () => {
       {ready && (
         <>
           <PanelSection title="Voice">
-            <VoiceChannelView />
-            <PushToTalkButton />
+            <SafeSection name="Voice"><VoiceChannelView /></SafeSection>
+            <SafeSection name="Push to talk"><PushToTalkButton /></SafeSection>
           </PanelSection>
           <PanelSection title="Overlay">
-            <OverlayPanel />
+            <SafeSection name="Overlay"><OverlayPanel /></SafeSection>
           </PanelSection>
           <Collapsible title="Servers">
-            <ServersPanel />
+            <SafeSection name="Servers"><ServersPanel /></SafeSection>
           </Collapsible>
           <Collapsible title="Friends">
-            <FriendsPanel />
+            <SafeSection name="Friends"><FriendsPanel /></SafeSection>
           </Collapsible>
           <PanelSection title="Stream">
-            <GoLivePanel />
+            <SafeSection name="Stream"><GoLivePanel /></SafeSection>
           </PanelSection>
           <PanelSection title="Screenshots">
             <PanelSectionRow>
-              <UploadScreenshot />
+              <SafeSection name="Screenshots"><UploadScreenshot /></SafeSection>
             </PanelSectionRow>
           </PanelSection>
         </>
       )}
       <PanelSection title="Updates">
-        <UpdatePanel />
+        <SafeSection name="Updates"><UpdatePanel /></SafeSection>
       </PanelSection>
-      <DiagnosticsPanel backend={state} />
+      <SafeSection name="Diagnostics"><DiagnosticsPanel backend={state} /></SafeSection>
     </>
   );
 };

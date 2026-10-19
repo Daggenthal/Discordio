@@ -21,6 +21,8 @@ export type VoiceInfo = {
   members: Member[];
 } | null;
 
+const isVoice = (v: any): v is NonNullable<VoiceInfo> => !!v && typeof v === "object" && !v.error && !!v.channel_id;
+
 // Polls the Discord page for the current call while the panel is visible.
 // The data comes straight from Discord's voice state store, so mute, deafen
 // and streaming flags are accurate for everyone in the channel.
@@ -32,7 +34,7 @@ export function useVoice(intervalMs = 2000) {
     let alive = true;
     const load = () =>
       call<[string], any>("discord_query", "voice")
-        .then((v) => alive && setVoice(v && !v.error ? v : null))
+        .then((v) => alive && setVoice(isVoice(v) ? { ...v, members: Array.isArray(v.members) ? v.members : [] } : null))
         .catch(() => {});
     load();
     const t = setInterval(load, intervalMs);
@@ -87,7 +89,7 @@ export function VoiceChannelView() {
         <div style={{ fontSize: "12px", opacity: 0.7, marginBottom: "6px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {voice.guild_name}
         </div>
-        {voice.members.map((m) => (
+        {(voice.members || []).map((m) => (
           <MemberRow key={m.id} m={m} />
         ))}
       </div>

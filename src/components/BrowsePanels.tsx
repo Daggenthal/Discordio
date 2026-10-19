@@ -12,8 +12,8 @@ const KEY_GUILD = "DISCORDIO_LAST_GUILD";
 const query = async <T,>(what: string, arg?: string): Promise<T | null> => {
   try {
     const res: any = await call("discord_query", what, arg ?? null);
-    if (res && res.error) {
-      console.warn("[Discordio] query", what, res.error);
+    if (!res || res.error) {
+      if (res?.error) console.warn("[Discordio] query", what, res.error);
       return null;
     }
     return res as T;
@@ -38,13 +38,15 @@ export function ServersPanel() {
   const [channels, setChannels] = useState<VoiceChannel[]>([]);
 
   useEffect(() => {
-    query<Guild[]>("guilds").then((g) => g && setGuilds(g));
+    query<Guild[]>("guilds").then((g) => Array.isArray(g) && setGuilds(g));
   }, []);
 
   useEffect(() => {
     if (!guild) return;
     let alive = true;
-    const load = () => query<VoiceChannel[]>("voice_channels", guild).then((c) => alive && c && setChannels(c));
+    const load = () => query<VoiceChannel[]>("voice_channels", guild).then(
+      (c) => alive && Array.isArray(c) && setChannels(c.map((ch) => ({ ...ch, members: Array.isArray(ch.members) ? ch.members : [] })))
+    );
     load();
     const t = setInterval(load, 3000);
     return () => {
@@ -111,7 +113,7 @@ export function FriendsPanel() {
 
   useEffect(() => {
     let alive = true;
-    const load = () => query<Friend[]>("friends").then((f) => alive && f && setFriends(f));
+    const load = () => query<Friend[]>("friends").then((f) => alive && Array.isArray(f) && setFriends(f));
     load();
     const t = setInterval(load, 10000);
     return () => {
