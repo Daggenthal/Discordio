@@ -5,7 +5,7 @@ import aiohttp # type: ignore
 from aiohttp import web # type: ignore
 from logging import getLogger
 from gi import require_version # type: ignore
-from asyncio import run_coroutine_threadsafe, get_event_loop
+from asyncio import run_coroutine_threadsafe, get_event_loop, to_thread
 from subprocess import getoutput
 import json
 import logging
@@ -25,7 +25,7 @@ from gi.repository import Gst, GstWebRTC, GstSdp # type: ignore
 # which added a pointless third party to a local connection.
 PIPELINE_DESC = """
   webrtcbin name=send latency=0 bundle-policy=max-bundle
-  pipewiresrc do-timestamp=true ! videoconvert ! {scale}
+  {source} ! videoconvert ! {scale}
   queue max-size-buffers=2 leaky=downstream !
   vp8enc deadline=1 cpu-used=8 threads={threads} end-usage=cbr target-bitrate={bitrate}
     keyframe-max-dist={keyint} error-resilient=partitions lag-in-frames=0 !
@@ -89,6 +89,7 @@ def build_pipeline(video_pt, audio_pt, monitor):
         scale = f"videorate drop-only=true ! video/x-raw,framerate={fps}/1 !"
     log.info(f"Capture preset {preset}: {width or 'source'}x{height or 'source'} @ {fps} fps, {bitrate // 1000} kbps")
     return PIPELINE_DESC.format(
+        source=VIDEO_SOURCE,
         scale=scale,
         threads=max(2, min(8, (os.cpu_count() or 4) // 2)),
         bitrate=bitrate,
@@ -140,13 +141,51 @@ def get_payload_types(sdpmsg, video_encoding, audio_encoding):
     return ret
 
 
+# The exact video source the stream uses, so the preview shows precisely what
+# viewers will get. DISCORDIO_TEST_SRC lets tests swap in a test pattern.
+VIDEO_SOURCE = os.environ.get("DISCORDIO_TEST_SRC", "pipewiresrc do-timestamp=true")
+
+
+def grab_preview_jpeg(width=640, height=360, timeout_s=4):
+    """One frame from the capture source, letterboxed to 16:9, as JPEG bytes."""
+    pipe = Gst.parse_launch(
+        f"{VIDEO_SOURCE} ! videoconvert ! videoscale add-borders=true ! "
+        f"video/x-raw,width={width},height={height},pixel-aspect-ratio=1/1 ! "
+        "jpegenc quality=80 ! appsink name=sink max-buffers=1 drop=true sync=false"
+    )
+    sink = pipe.get_by_name("sink")
+    try:
+        pipe.set_state(Gst.State.PLAYING)
+        sample = sink.emit("try-pull-sample", timeout_s * Gst.SECOND)
+        if sample is None:
+            bus = pipe.get_bus()
+            msg = bus.pop_filtered(Gst.MessageType.ERROR)
+            if msg:
+                err, _ = msg.parse_error()
+                raise RuntimeError(err.message)
+            raise RuntimeError("no frame from the capture source within %ds" % timeout_s)
+        buf = sample.get_buffer()
+        ok, info = buf.map(Gst.MapFlags.READ)
+        if not ok:
+            raise RuntimeError("could not read the captured frame")
+        try:
+            return bytes(info.data)
+        finally:
+            buf.unmap(info)
+    finally:
+        pipe.set_state(Gst.State.NULL)
+
+
 class WebRTCServer:
     def __init__(self, app = web.Application()) -> None:
         Gst.init(None)
 
         self.loop = get_event_loop()
         self.app = app
-        self.app.add_routes([web.get("/webrtc", self.websocket_handler)])
+        self.app.add_routes([
+            web.get("/webrtc", self.websocket_handler),
+            web.get("/preview", self.preview_handler),
+        ])
 
         self.webrtc = None
         self.remote_ws = None
@@ -200,6 +239,17 @@ class WebRTCServer:
         log.info("Sending answer:\n%s" % text)
         msg = {'sdp': {'type': 'answer', 'sdp': text}}
         run_coroutine_threadsafe(self.remote_ws.send_json(msg), self.loop)
+
+    async def preview_handler(self, request):
+        try:
+            jpeg = await to_thread(grab_preview_jpeg)
+        except Exception as e:
+            log.warning(f"Preview failed: {e}")
+            return web.Response(status=503, text=str(e), headers={"Access-Control-Allow-Origin": "*"})
+        return web.Response(body=jpeg, content_type="image/jpeg", headers={
+            "Cache-Control": "no-store",
+            "Access-Control-Allow-Origin": "*",
+        })
 
     async def websocket_handler(self, request):
         ws = web.WebSocketResponse()

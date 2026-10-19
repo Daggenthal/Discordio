@@ -1,7 +1,7 @@
 import { call } from "@decky/api";
 import { ButtonItem, PanelSectionRow } from "@decky/ui";
 import { GoLivePanel } from "./GoLivePanel";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { FaMicrophoneSlash, FaVolumeMute, FaVideo, FaPhoneSlash } from "react-icons/fa";
 import { useDeckcordState } from "../hooks/useDeckcordState";
 
@@ -76,6 +76,33 @@ export const MemberRow = ({ m }: { m: Member }) => (
 // Works the same for server voice channels and direct calls with friends.
 export function VoiceChannelView() {
   const voice = useVoice();
+  const anchor = useRef<HTMLDivElement>(null);
+  const lastChannel = useRef<string | null | undefined>(undefined);
+
+  // When you join a call (or switch to another), bring the Call section into
+  // view and put the controller focus on Go Live, so streaming is one press
+  // away instead of buried below the server list.
+  useEffect(() => {
+    const id = voice?.channel_id ?? null;
+    const prev = lastChannel.current;
+    lastChannel.current = id;
+    if (!id || prev === undefined || prev === id) return;
+    const t = setTimeout(() => {
+      const root = anchor.current;
+      if (!root) return;
+      try {
+        root.scrollIntoView({ behavior: "smooth", block: "start" });
+      } catch (_) {}
+      const target = [...root.querySelectorAll<HTMLElement>("button, [tabindex], .DialogButton")].find((el) =>
+        /go live/i.test(el.textContent || "")
+      );
+      try {
+        target?.focus();
+      } catch (_) {}
+    }, 150);
+    return () => clearTimeout(t);
+  }, [voice?.channel_id]);
+
   if (!voice) {
     return (
       <PanelSectionRow>
@@ -86,7 +113,7 @@ export function VoiceChannelView() {
     );
   }
   return (
-    <>
+    <div ref={anchor}>
       <PanelSectionRow>
         <div style={{ width: "100%", minWidth: 0 }}>
           <div style={{ fontWeight: 700, fontSize: "15px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -108,6 +135,6 @@ export function VoiceChannelView() {
           </span>
         </ButtonItem>
       </PanelSectionRow>
-    </>
+    </div>
   );
 }

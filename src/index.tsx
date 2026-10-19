@@ -25,6 +25,8 @@ import { UpdatePanel } from "./components/UpdatePanel";
 import { OverlayPanel } from "./components/OverlayPanel";
 import { SafeSection } from "./components/SafeSection";
 import { useUiSettings, setUiSetting } from "./lib/settings";
+import { openMic } from "./lib/audio";
+import { AudioDevicesPanel } from "./components/AudioDevicesPanel";
 import { useState } from "react";
 import { UploadScreenshot } from "./components/UploadScreenshot";
 import { OpenDiscordButton } from "./components/buttons/OpenCloseDiscordButton";
@@ -96,7 +98,7 @@ const Collapsible = ({ title, children, defaultOpen }: { title: string; children
 const SettingsPanel = () => {
   const ui = useUiSettings();
   return (
-    <PanelSection title="Settings">
+    <Collapsible title="Settings" defaultOpen={false}>
       <PanelSectionRow>
         <ToggleField
           label="Auto-open Servers"
@@ -113,7 +115,8 @@ const SettingsPanel = () => {
           onChange={(v) => setUiSetting("autoOpenFriends", v)}
         />
       </PanelSectionRow>
-    </PanelSection>
+      <SafeSection name="Audio devices"><AudioDevicesPanel /></SafeSection>
+    </Collapsible>
   );
 };
 
@@ -215,14 +218,14 @@ export default definePlugin(() => {
         const pc = new RTCPeerConnection();
         peerConnection = pc;
         window.DECKCORD.MIC_PEER_CONNECTION = pc;
-        const localStream = await navigator.mediaDevices.getUserMedia({
-          video: false,
-          audio: {
-            echoCancellation: false,
-            noiseSuppression: false,
-            autoGainControl: false,
-          },
-        });
+        let localStream: MediaStream;
+        try {
+          localStream = await openMic();
+        } catch (e) {
+          // The saved mic may be unplugged; fall back to the system default.
+          note("Saved microphone unavailable, using default", false, String(e));
+          localStream = await openMic("default");
+        }
         localStream.getTracks().forEach((track) => pc.addTrack(track, localStream));
         await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
         const answer = await pc.createAnswer();

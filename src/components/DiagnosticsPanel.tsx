@@ -1,13 +1,14 @@
-import { ButtonItem, DropdownItem, PanelSection, PanelSectionRow } from "@decky/ui";
+import { ButtonItem, PanelSection, PanelSectionRow } from "@decky/ui";
+import { ChoiceSlider } from "./ChoiceSlider";
 import { call } from "@decky/api";
 import { useEffect, useState } from "react";
 import { getDiag, subscribeDiag, DiagEntry } from "../lib/diag";
 import { BoundsMode, getBoundsMode, setBoundsMode } from "../lib/view";
 
-const BOUNDS_OPTIONS = [
-  { data: "auto", label: "Auto (window size)" },
-  { data: "device", label: "Device pixels" },
-  { data: "legacy", label: "Legacy (Steam Deck)" },
+const BOUNDS_OPTIONS: { value: BoundsMode; short: string; label: string }[] = [
+  { value: "auto", short: "Auto", label: "Auto (window size)" },
+  { value: "device", short: "Device", label: "Device pixels" },
+  { value: "legacy", short: "Deck", label: "Legacy (Steam Deck)" },
 ];
 
 export function DiagnosticsPanel({ backend }: { backend: any }) {
@@ -46,14 +47,14 @@ export function DiagnosticsPanel({ backend }: { backend: any }) {
             </div>
           </PanelSectionRow>
           <PanelSectionRow>
-            <DropdownItem
+            <ChoiceSlider
               label="Discord view sizing"
               description="Try another option if Discord shows a blank or gray screen"
-              rgOptions={BOUNDS_OPTIONS}
-              selectedOption={bounds}
-              onChange={(o) => {
-                setBounds(o.data);
-                setBoundsMode(o.data);
+              choices={BOUNDS_OPTIONS}
+              value={bounds}
+              onChange={(v) => {
+                setBounds(v);
+                setBoundsMode(v);
               }}
             />
           </PanelSectionRow>

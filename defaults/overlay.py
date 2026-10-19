@@ -86,10 +86,15 @@ def mark_as_gamescope_overlay(xid):
 # ---------------------------------------------------------------- avatars
 
 class Avatars:
-    def __init__(self):
+    def __init__(self, on_ready):
         os.makedirs(CACHE_DIR, exist_ok=True)
         self.pixbufs = {}
         self.pending = set()
+        self.failed = {}  # url -> time of last failure, for retry backoff
+        # Called when a download finishes. Without it, an avatar that arrived
+        # after the last state change stayed blank until something else
+        # (like leaving and rejoining) forced a redraw.
+        self.on_ready = on_ready
 
     def get(self, url, size):
         if not url:
@@ -99,6 +104,8 @@ class Avatars:
         key = (url, size)
         if key in self.pixbufs:
             return self.pixbufs[key]
+        if url in self.failed and time.monotonic() - self.failed[url] < 10:
+            return None
         if url not in self.pending:
             self.pending.add(url)
             threading.Thread(target=self._fetch, args=(url, size), daemon=True).start()
@@ -115,11 +122,19 @@ class Avatars:
             GLib.idle_add(self._store, url, size, pb)
         except Exception as e:
             log("avatar failed:", url, e)
+            self.failed[url] = time.monotonic()
+            try:
+                os.remove(path)  # don't keep a partial download
+            except OSError:
+                pass
+            GLib.idle_add(self.on_ready)  # redraw so the retry is attempted
         finally:
             self.pending.discard(url)
 
     def _store(self, url, size, pb):
         self.pixbufs[(url, size)] = pb
+        self.failed.pop(url, None)
+        self.on_ready()
         return False
 
 
@@ -155,7 +170,7 @@ class Overlay:
     def __init__(self):
         self.state = None
         self.members = {}
-        self.avatars = Avatars()
+        self.avatars = Avatars(self._avatar_ready)
         self.animating = False
         self.last_frame = time.monotonic()
         self.fetching = False
@@ -190,9 +205,16 @@ class Overlay:
 
         GLib.timeout_add(POLL_MS, self.poll)
 
+    def _avatar_ready(self):
+        if getattr(self, "win", None):
+            self.win.queue_draw()
+        return False
+
     # -- data
 
     def poll(self):
+        if self.avatars.failed:
+            self.win.queue_draw()  # lets failed avatar downloads retry
         if not self.fetching:
             self.fetching = True
             threading.Thread(target=self._fetch_state, daemon=True).start()

@@ -1,14 +1,15 @@
 import { call } from "@decky/api";
-import { DropdownItem, PanelSectionRow, ToggleField } from "@decky/ui";
+import { PanelSectionRow, ToggleField } from "@decky/ui";
+import { ChoiceSlider } from "./ChoiceSlider";
 import { useEffect, useState } from "react";
 
 type OverlaySettings = { enabled: boolean; position: string; status: string };
 
 const POSITIONS = [
-  { data: "top-left", label: "Top left" },
-  { data: "top-right", label: "Top right" },
-  { data: "bottom-left", label: "Bottom left" },
-  { data: "bottom-right", label: "Bottom right" },
+  { value: "top-left", short: "TL", label: "Top left" },
+  { value: "top-right", short: "TR", label: "Top right" },
+  { value: "bottom-left", short: "BL", label: "Bottom left" },
+  { value: "bottom-right", short: "BR", label: "Bottom right" },
 ];
 
 export function OverlayPanel() {
@@ -44,11 +45,11 @@ export function OverlayPanel() {
       </PanelSectionRow>
       {s.enabled && (
         <PanelSectionRow>
-          <DropdownItem
+          <ChoiceSlider
             label="Position"
-            rgOptions={POSITIONS}
-            selectedOption={s.position}
-            onChange={(o) => update(undefined, o.data)}
+            choices={POSITIONS}
+            value={s.position}
+            onChange={(v) => update(undefined, v)}
           />
         </PanelSectionRow>
       )}

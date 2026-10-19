@@ -1,4 +1,5 @@
-import { ButtonItem, DropdownItem, PanelSectionRow, Router } from "@decky/ui";
+import { ButtonItem, PanelSectionRow, Router } from "@decky/ui";
+import { ChoiceSlider } from "./ChoiceSlider";
 import { call, toaster } from "@decky/api";
 import { useEffect, useState } from "react";
 import { FaVideo, FaStop } from "react-icons/fa";
@@ -14,13 +15,13 @@ type Limits = {
   error?: string;
 };
 
-const RESOLUTIONS: { data: string; label: string; height: number | null }[] = [
-  { data: "480", label: "480p", height: 480 },
-  { data: "720", label: "720p", height: 720 },
-  { data: "1080", label: "1080p", height: 1080 },
-  { data: "1440", label: "1440p", height: 1440 },
-  { data: "2160", label: "4K (2160p)", height: 2160 },
-  { data: "source", label: "Source", height: null },
+const RESOLUTIONS: { data: string; label: string; short: string; height: number | null }[] = [
+  { data: "480", label: "480p", short: "480", height: 480 },
+  { data: "720", label: "720p", short: "720", height: 720 },
+  { data: "1080", label: "1080p", short: "1080", height: 1080 },
+  { data: "1440", label: "1440p", short: "1440", height: 1440 },
+  { data: "2160", label: "4K (2160p)", short: "4K", height: 2160 },
+  { data: "source", label: "Source", short: "Src", height: null },
 ];
 
 const FRAME_RATES = [5, 10, 15, 24, 30, 45, 60];
@@ -78,27 +79,30 @@ export function GoLivePanel({ inCall }: { inCall?: boolean } = {}) {
   return (
     <>
       <PanelSectionRow>
-        <DropdownItem
+        <ChoiceSlider
           label="Resolution"
-          rgOptions={RESOLUTIONS.map((r) => ({
-            data: r.data,
-            label: overRes(r.height, limits) ? `${r.label} (Nitro)` : r.label,
+          choices={RESOLUTIONS.map((r) => ({
+            value: r.data,
+            short: r.short,
+            label: overRes(r.height, limits) ? `${r.label} (needs Nitro)` : r.label,
           }))}
-          selectedOption={settings.resolution}
-          onChange={(o) => save(o.data, undefined)}
+          value={settings.resolution}
+          onChange={(v) => save(v, undefined)}
         />
       </PanelSectionRow>
       <PanelSectionRow>
-        <DropdownItem
+        <ChoiceSlider
           label="Frame rate"
-          rgOptions={FRAME_RATES.map((f) => ({
-            data: f,
-            label: overFps(f, limits) ? `${f} fps (Nitro)` : `${f} fps`,
+          choices={FRAME_RATES.map((f) => ({
+            value: f,
+            short: String(f),
+            label: overFps(f, limits) ? `${f} fps (needs Nitro)` : `${f} fps`,
           }))}
-          selectedOption={settings.fps}
-          onChange={(o) => save(undefined, o.data)}
+          value={settings.fps}
+          onChange={(v) => save(undefined, v)}
         />
       </PanelSectionRow>
+      {inVoice && <StreamPreview />}
       {limits && !limits.error && (
         <PanelSectionRow>
           <div style={{ fontSize: "12px", lineHeight: "16px", color: needsUpgrade ? "#f0b232" : undefined, opacity: needsUpgrade ? 1 : 0.75 }}>
@@ -122,5 +126,67 @@ export function GoLivePanel({ inCall }: { inCall?: boolean } = {}) {
         </ButtonItem>
       </PanelSectionRow>
     </>
+  );
+}
+
+// A snapshot of exactly what Go Live will send, taken from the same capture
+// source the stream uses. Refreshes every few seconds while visible.
+export function StreamPreview() {
+  const [url, setUrl] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [tick, setTick] = useState(0);
+
+  useEffect(() => {
+    let alive = true;
+    let objectUrl: string | null = null;
+    fetch(`http://127.0.0.1:65124/preview?t=${Date.now()}`, { cache: "no-store" })
+      .then(async (r) => {
+        if (!r.ok) throw new Error((await r.text()) || `HTTP ${r.status}`);
+        return r.blob();
+      })
+      .then((b) => {
+        if (!alive) return;
+        objectUrl = URL.createObjectURL(b);
+        setUrl((old) => {
+          if (old) URL.revokeObjectURL(old);
+          return objectUrl;
+        });
+        setError(null);
+      })
+      .catch((e) => alive && setError(e instanceof Error ? e.message : String(e)));
+    const t = setTimeout(() => alive && setTick((n) => n + 1), 4000);
+    return () => {
+      alive = false;
+      clearTimeout(t);
+    };
+  }, [tick]);
+
+  useEffect(() => () => {
+    setUrl((old) => {
+      if (old) URL.revokeObjectURL(old);
+      return null;
+    });
+  }, []);
+
+  return (
+    <PanelSectionRow>
+      <div style={{ width: "100%" }}>
+        <div style={{ fontSize: "12px", opacity: 0.75, marginBottom: "4px" }}>Stream preview (what viewers will see)</div>
+        {url ? (
+          <img src={url} style={{ width: "100%", borderRadius: "6px", display: "block", background: "#000" }} />
+        ) : (
+          <div
+            style={{
+              width: "100%", aspectRatio: "16 / 9", borderRadius: "6px", background: "#0e0f11",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: "11px", padding: "8px", boxSizing: "border-box", textAlign: "center",
+              color: error ? "#ff6b6b" : "#9aa0a6",
+            }}
+          >
+            {error ? `No preview: ${error}` : "Loading preview..."}
+          </div>
+        )}
+      </div>
+    </PanelSectionRow>
   );
 }

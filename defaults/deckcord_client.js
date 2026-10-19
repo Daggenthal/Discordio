@@ -367,6 +367,21 @@ window.Vencord.Plugins.plugins.Deckcord = {
             } catch (e) { console.warn("Discordio: could not set stream quality", e); }
         }
 
+        // ---- Audio output (speakers / headset) --------------------------------
+        // Output is Discord's own setting, so it is read from and written to
+        // Discord's media engine store.
+        function discordioAudioDevices() {
+            let outputs = [], current = null;
+            try {
+                const devs = MediaEngineStore.getOutputDevices() || {};
+                outputs = Object.values(devs).map(d => ({ id: d.id, name: d.name || "Output" }));
+                current = MediaEngineStore.getOutputDeviceId();
+            } catch (e) {
+                return { error: "Discord's audio settings are not available: " + e };
+            }
+            return { outputs, output: current };
+        }
+
         let MediaEngineStore, FluxDispatcher;
         console.log("Deckcord: Waiting for FluxDispatcher...");
         Vencord.Webpack.waitFor(["subscribe", "dispatch", "register"], fdm => {
@@ -446,6 +461,13 @@ window.Vencord.Plugins.plugins.Deckcord = {
                                 case "$golive":
                                     if (!data.stop && data.quality) applyStreamQuality(data.quality);
                                     result = await deckcordGoLive(!!data.stop);
+                                    break;
+                                case "$audio_devices":
+                                    result = discordioAudioDevices();
+                                    break;
+                                case "$set_audio_output":
+                                    FluxDispatcher.dispatch({ type: "AUDIO_SET_OUTPUT_DEVICE", id: data.id });
+                                    result = discordioAudioDevices();
                                     break;
                                 case "$stream_limits":
                                     result = discordioStreamLimits();

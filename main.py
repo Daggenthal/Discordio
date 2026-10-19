@@ -565,6 +565,20 @@ class Plugin:
         return await cls.get_stream_settings()
 
     @classmethod
+    async def get_audio_outputs(cls):
+        try:
+            return await cls.evt_handler.api._store_access_request("$audio_devices", timeout=5)
+        except Exception as e:
+            return {"error": str(e)}
+
+    @classmethod
+    async def set_audio_output(cls, device_id):
+        try:
+            return await cls.evt_handler.api._store_access_request("$set_audio_output", id=device_id, timeout=5)
+        except Exception as e:
+            return {"error": str(e)}
+
+    @classmethod
     async def get_stream_limits(cls):
         """What the logged-in account (and current server's boosts) allow."""
         try:
