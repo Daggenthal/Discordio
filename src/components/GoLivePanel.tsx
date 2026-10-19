@@ -40,6 +40,7 @@ export function GoLivePanel({ inCall }: { inCall?: boolean } = {}) {
   const [settings, setSettings] = useState<StreamSettings>({ resolution: "720", fps: 30 });
   const [limits, setLimits] = useState<Limits | null>(null);
   const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState<{ text: string; error?: boolean } | null>(null);
 
   useEffect(() => {
     call<[], StreamSettings>("get_stream_settings").then((s) => s && setSettings(s)).catch(() => {});
@@ -60,14 +61,22 @@ export function GoLivePanel({ inCall }: { inCall?: boolean } = {}) {
 
   const toggle = async () => {
     setBusy(true);
+    setStatus({ text: live ? "Stopping stream..." : "Starting stream... (can take up to 20 seconds)" });
     try {
       const res: any = await call(live ? "stop_go_live" : "go_live");
       if (res && res.ok === false) {
-        toaster.toast({ title: "Discordio", body: res.error || "Could not start the stream" });
+        const msg = res.error || "Could not start the stream";
+        setStatus({ text: msg, error: true });
+        toaster.toast({ title: "Discordio", body: msg });
       } else if (res?.method === "ui" && !live) {
+        setStatus({ text: "Opened Discord's own share button; finish there" });
         // Discord's own button was used; it may want a confirmation, so show it.
         Router.Navigate("/discord");
+      } else {
+        setStatus({ text: live ? "Stream stopped" : `Live (started via ${res?.method ?? "Discord"})` });
       }
+    } catch (e) {
+      setStatus({ text: String(e), error: true });
     } finally {
       setBusy(false);
     }
@@ -121,10 +130,17 @@ export function GoLivePanel({ inCall }: { inCall?: boolean } = {}) {
         >
           <span style={{ display: "inline-flex", alignItems: "center", gap: "8px" }}>
             {live ? <FaStop /> : <FaVideo />}
-            {live ? "Stop streaming" : "Go Live"}
+            {busy ? (live ? "Stopping..." : "Starting...") : live ? "Stop streaming" : "Go Live"}
           </span>
         </ButtonItem>
       </PanelSectionRow>
+      {status && (
+        <PanelSectionRow>
+          <div style={{ fontSize: "12px", color: status.error ? "#ff6b6b" : undefined, opacity: status.error ? 1 : 0.8, wordBreak: "break-word" }}>
+            {status.text}
+          </div>
+        </PanelSectionRow>
+      )}
     </>
   );
 }
@@ -138,8 +154,11 @@ export function StreamPreview() {
 
   useEffect(() => {
     let alive = true;
-    call<[], { image?: string; error?: string }>("get_stream_preview")
-      .then((res) => {
+    const timeout = new Promise<{ error: string }>((r) =>
+      setTimeout(() => r({ error: "the capture helper didn't answer within 12s" }), 12000)
+    );
+    Promise.race([call<[], { image?: string; error?: string }>("get_stream_preview"), timeout])
+      .then((res: { image?: string; error?: string }) => {
         if (!alive) return;
         if (res?.image) {
           setUrl(res.image);

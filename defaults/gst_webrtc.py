@@ -5,7 +5,8 @@ import aiohttp # type: ignore
 from aiohttp import web # type: ignore
 from logging import getLogger
 from gi import require_version # type: ignore
-from asyncio import run_coroutine_threadsafe, new_event_loop, set_event_loop, to_thread
+from asyncio import run_coroutine_threadsafe, new_event_loop, set_event_loop, to_thread, wait_for
+from asyncio import TimeoutError as AsyncTimeout
 from subprocess import getoutput
 import json
 import logging
@@ -89,7 +90,7 @@ def build_pipeline(video_pt, audio_pt, monitor):
         scale = f"videorate drop-only=true ! video/x-raw,framerate={fps}/1 !"
     log.info(f"Capture preset {preset}: {width or 'source'}x{height or 'source'} @ {fps} fps, {bitrate // 1000} kbps")
     return PIPELINE_DESC.format(
-        source=VIDEO_SOURCE,
+        source=video_source(),
         scale=scale,
         threads=max(2, min(8, (os.cpu_count() or 4) // 2)),
         bitrate=bitrate,
@@ -143,13 +144,87 @@ def get_payload_types(sdpmsg, video_encoding, audio_encoding):
 
 # The exact video source the stream uses, so the preview shows precisely what
 # viewers will get. DISCORDIO_TEST_SRC lets tests swap in a test pattern.
-VIDEO_SOURCE = os.environ.get("DISCORDIO_TEST_SRC", "pipewiresrc do-timestamp=true")
+TEST_SOURCE = os.environ.get("DISCORDIO_TEST_SRC")
+
+
+def find_capture_node():
+    """
+    Find gamescope's PipeWire video node (the composited game output Steam's
+    own recording uses). A bare pipewiresrc picks "some" default video source,
+    and when there isn't an obvious one it waits forever, which looked like
+    Go Live and the preview hanging with no information.
+    """
+    import subprocess
+    env = {k: v for k, v in os.environ.items() if k not in ("LD_LIBRARY_PATH", "GST_PLUGIN_PATH", "GI_TYPELIB_PATH")}
+    try:
+        out = subprocess.run(["pw-dump"], capture_output=True, text=True, timeout=5, env=env).stdout
+        objs = json.loads(out or "[]")
+    except Exception as e:
+        log.warning(f"pw-dump failed, using the default video source: {e}")
+        return None, []
+    nodes = []
+    for o in objs:
+        if o.get("type") != "PipeWire:Interface:Node":
+            continue
+        props = (o.get("info") or {}).get("props") or {}
+        cls = props.get("media.class", "")
+        if "Video" not in cls:
+            continue
+        nodes.append({
+            "id": o.get("id"),
+            "serial": props.get("object.serial"),
+            "name": props.get("node.name") or "",
+            "desc": props.get("node.description") or props.get("media.name") or "",
+            "class": cls,
+        })
+    pick = next((n for n in nodes if "gamescope" in (n["name"] + n["desc"]).lower()), None)
+    if pick is None:
+        pick = next((n for n in nodes if n["class"] in ("Video/Source", "Stream/Output/Video")), None)
+    return pick, nodes
+
+
+CAPTURE_NODE = None
+CAPTURE_NODES = []
+
+
+def video_source():
+    if TEST_SOURCE:
+        return TEST_SOURCE
+    global CAPTURE_NODE, CAPTURE_NODES
+    CAPTURE_NODE, CAPTURE_NODES = find_capture_node()
+    el = Gst.ElementFactory.make("pipewiresrc", None)
+    if el is None:
+        raise RuntimeError("GStreamer's pipewiresrc element is missing")
+    has = lambda prop: el.find_property(prop) is not None
+    src = "pipewiresrc do-timestamp=true"
+    # Only set properties this PipeWire version knows; an unknown one makes
+    # the whole pipeline fail to parse.
+    if has("keepalive-time"):
+        src += " keepalive-time=1000"  # keep frames flowing when the screen is static
+    if has("always-copy"):
+        src += " always-copy=true"
+    if CAPTURE_NODE:
+        if has("target-object"):
+            target = CAPTURE_NODE.get("serial") or CAPTURE_NODE["name"]
+            src += f' target-object="{target}"'
+        else:
+            src += f" path={CAPTURE_NODE['id']}"
+        log.info(f"Capture source: {CAPTURE_NODE['name'] or CAPTURE_NODE['desc']} (node {CAPTURE_NODE['id']}, {CAPTURE_NODE['class']})")
+    else:
+        names = ", ".join(f"{n['name']} [{n['class']}]" for n in CAPTURE_NODES) or "none"
+        log.warning(f"No gamescope video node found; video nodes seen: {names}")
+    return src
+
+
+def check_element(name):
+    if Gst.ElementFactory.find(name) is None:
+        raise RuntimeError(f"GStreamer element '{name}' is missing")
 
 
 def grab_preview_jpeg(width=640, height=360, timeout_s=4):
     """One frame from the capture source, letterboxed to 16:9, as JPEG bytes."""
     pipe = Gst.parse_launch(
-        f"{VIDEO_SOURCE} ! videoconvert ! videoscale add-borders=true ! "
+        f"{video_source()} ! videoconvert ! videoscale add-borders=true ! "
         f"video/x-raw,width={width},height={height},pixel-aspect-ratio=1/1 ! "
         "jpegenc quality=80 ! appsink name=sink max-buffers=1 drop=true sync=false"
     )
@@ -247,10 +322,15 @@ class WebRTCServer:
 
     async def preview_handler(self, request):
         try:
-            jpeg = await to_thread(grab_preview_jpeg)
+            # Hard cap, so a stuck capture source can't hang the request.
+            jpeg = await wait_for(to_thread(grab_preview_jpeg), 8)
+        except AsyncTimeout:
+            e = "the capture source didn't deliver a frame (is a game or Steam running in Game Mode?)"
+            log.warning(f"Preview failed: {e}")
+            return web.Response(status=504, text=e, headers={"Access-Control-Allow-Origin": "*"})
         except Exception as e:
             log.warning(f"Preview failed: {e}")
-            return web.Response(status=503, text=str(e), headers={"Access-Control-Allow-Origin": "*"})
+            return web.Response(status=503, text=f"Screen capture (PipeWire): {e}", headers={"Access-Control-Allow-Origin": "*"})
         return web.Response(body=jpeg, content_type="image/jpeg", headers={
             "Cache-Control": "no-store",
             "Access-Control-Allow-Origin": "*",
@@ -276,9 +356,14 @@ class WebRTCServer:
                             pts = get_payload_types(sdpmsg, video_encoding="VP8", audio_encoding="OPUS")
                             if pts.get("VP8") is None or pts.get("OPUS") is None:
                                 raise RuntimeError(f"Discord's offer has no VP8/Opus payload types: {pts}")
-                            self.start_pipeline(create_offer=False, video_pt=pts["VP8"], audio_pt=pts["OPUS"])
+                            # Off the event loop: a slow source can block in set_state.
+                            await wait_for(
+                                to_thread(self.start_pipeline, False, pts["OPUS"], pts["VP8"]), 10
+                            )
                         except Exception as e:
                             # Tell the page instead of leaving it waiting forever.
+                            if isinstance(e, AsyncTimeout):
+                                e = "the capture pipeline didn't start within 10s"
                             log.error(f"Could not start capture: {e}")
                             self.close_pipeline()
                             await ws.send_json({"error": f"Capture failed to start: {e}"})

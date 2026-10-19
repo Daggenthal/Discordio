@@ -20,6 +20,11 @@
                 settled = true;
                 pending = null;
                 console.error("Deckcord: screen capture failed:", reason);
+                // Let the plugin show why, instead of Go Live silently doing nothing.
+                try {
+                    if (window.DECKCORD_WS && window.DECKCORD_WS.readyState === 1)
+                        window.DECKCORD_WS.send(JSON.stringify({ type: "$capture_error", error: String(reason) }));
+                } catch (_) { }
                 try { ws.close(); } catch (_) { }
                 try { peerConnection.close(); } catch (_) { }
                 reject(new DOMException(String(reason), "NotReadableError"));

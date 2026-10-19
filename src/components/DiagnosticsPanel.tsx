@@ -58,6 +58,7 @@ export function DiagnosticsPanel({ backend }: { backend: any }) {
               }}
             />
           </PanelSectionRow>
+          <CaptureLog />
           <PanelSectionRow>
             <ButtonItem layout="below" onClick={() => call("restart_discord")}>
               Restart Discord tab
@@ -66,5 +67,28 @@ export function DiagnosticsPanel({ backend }: { backend: any }) {
         </>
       )}
     </PanelSection>
+  );
+}
+
+// Last lines from the screen-capture helper, so Go Live problems are visible
+// without a terminal.
+function CaptureLog() {
+  const [log, setLog] = useState<{ running: boolean; lines: string[] } | null>(null);
+  useEffect(() => {
+    const load = () => call<[], { running: boolean; lines: string[] }>("get_capture_log").then(setLog).catch(() => {});
+    load();
+    const t = setInterval(load, 2000);
+    return () => clearInterval(t);
+  }, []);
+  if (!log) return null;
+  return (
+    <PanelSectionRow>
+      <div style={{ fontSize: "11px", lineHeight: "14px", wordBreak: "break-word", fontFamily: "monospace" }}>
+        <div style={{ fontFamily: "inherit", fontWeight: 700, color: log.running ? undefined : "#ff6b6b" }}>
+          Capture helper: {log.running ? "running" : "not running"}
+        </div>
+        {log.lines.length === 0 ? <div style={{ opacity: 0.6 }}>(no output yet)</div> : log.lines.map((l, i) => <div key={i}>{l}</div>)}
+      </div>
+    </PanelSectionRow>
   );
 }

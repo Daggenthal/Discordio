@@ -656,6 +656,12 @@ class Plugin:
         return None
 
     @classmethod
+    async def get_capture_log(cls):
+        proc = getattr(cls, "webrtc_server", None)
+        running = proc is not None and proc.returncode is None
+        return {"running": running, "lines": CAPTURE_LOG[-12:]}
+
+    @classmethod
     async def get_stream_preview(cls):
         """
         One JPEG frame of what Go Live captures, as a data URL. Goes through the
@@ -738,6 +744,7 @@ class Plugin:
 
     @classmethod
     async def _go_live(cls, stop):
+        started = time.time()
         if not stop:
             error = await cls._ensure_capture_helper()
             if error:
@@ -752,6 +759,20 @@ class Plugin:
             return {"ok": False, "error": res["error"]}
         method = res.get("method") if isinstance(res, dict) else None
         logger.info(f"go_live(stop={stop}) via {method}")
+        if not stop:
+            # Discord starts the stream first and asks for the capture after,
+            # so watch briefly for the capture failing or the stream going live.
+            for _ in range(16):
+                await sleep(0.5)
+                err = cls.evt_handler.capture_error
+                if err and err[0] >= started:
+                    return {"ok": False, "error": f"Screen capture failed: {err[1]}"}
+                try:
+                    media = await cls.evt_handler.api.get_media()
+                    if media.get("live"):
+                        break
+                except Exception:
+                    pass
         try:
             await cls.evt_handler.toggle_mute()  # refreshes is_live in the state
         except Exception:

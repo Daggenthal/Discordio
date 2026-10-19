@@ -1,4 +1,5 @@
 from json import dumps, loads
+from time import time
 from asyncio import sleep, get_running_loop, Task, Event, Queue
 from aiohttp import WSMsgType # type: ignore
 from aiohttp.web import WebSocketResponse # type: ignore
@@ -39,6 +40,7 @@ class EventHandler:
 
         self.webrtc = None
         self.overlay_state = None
+        self.capture_error = None
     
     async def yield_new_state(self):
         while True:
@@ -105,6 +107,10 @@ class EventHandler:
 
     def _process_event(self, data):
         if data["type"] == "$ping":
+            return
+        if data["type"] == "$capture_error":
+            self.capture_error = (time(), data.get("error") or "unknown error")
+            logger.warning(f"Screen capture failed in Discord: {self.capture_error[1]}")
             return
         if data["type"] == "$overlay":
             self.overlay_state = data.get("state")
