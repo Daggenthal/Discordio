@@ -18,7 +18,7 @@ import { useDeckcordState, isLoaded, isLoggedIn } from "./hooks/useDeckcordState
 import { MuteButton } from "./components/buttons/MuteButton";
 import { DeafenButton } from "./components/buttons/DeafenButton";
 import { DisconnectButton } from "./components/buttons/DisconnectButton";
-import { PushToTalkButton, cleanupPtt } from "./components/buttons/PushToTalk";
+import { PushToTalkButton, cleanupPtt, startMicShortcut } from "./components/buttons/PushToTalk";
 import { VoiceChannelView } from "./components/VoiceChatViews";
 import { ServersPanel, FriendsPanel } from "./components/BrowsePanels";
 import { UpdatePanel } from "./components/UpdatePanel";
@@ -167,7 +167,7 @@ const Content = () => {
         <>
           <PanelSection title="Call">
             <SafeSection name="Voice"><VoiceChannelView /></SafeSection>
-            <SafeSection name="Push to talk"><PushToTalkButton /></SafeSection>
+            <SafeSection name="Mic button"><PushToTalkButton /></SafeSection>
           </PanelSection>
           <Collapsible title="Audio check" defaultOpen={false}>
             <SafeSection name="Audio check"><AudioCheckPanel /></SafeSection>
@@ -213,6 +213,7 @@ export default definePlugin(() => {
 
   // Microphone bridge: Discord's page asks for the mic, this side provides it.
   const stopMic = safe("Microphone bridge listener", () => startMicBridge());
+  safe("Controller mic button", () => startMicShortcut());
 
   // DMs and mentions: the overlay shows them as popups; when it can't, a Steam toast.
   const notificationListener = (m: any) => {
