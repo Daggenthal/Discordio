@@ -16,7 +16,7 @@ export const QUALITY_OPTIONS = [
   { data: "source", label: "Source (no scaling)" },
 ];
 
-export function GoLivePanel() {
+export function GoLivePanel({ inCall }: { inCall?: boolean } = {}) {
   const state = useDeckcordState();
   const [quality, setQuality] = useState<string>("720p30");
   const [busy, setBusy] = useState(false);
@@ -27,7 +27,7 @@ export function GoLivePanel() {
       .catch(() => {});
   }, []);
 
-  const inVoice = state?.vc && Object.keys(state.vc).length > 0;
+  const inVoice = inCall ?? (state?.vc && Object.keys(state.vc).length > 0);
   const live = !!state?.me?.is_live;
 
   const toggle = async () => {

@@ -11,6 +11,7 @@ const BTN = {
   BUMPER_RIGHT: 6,
   TRIGGER_LEFT: 7,
   TRIGGER_RIGHT: 8,
+  SELECT: 13,
   DIR_UP: 9,
   DIR_DOWN: 10,
   DIR_LEFT: 11,
@@ -50,6 +51,7 @@ const close = () => {
 //   Y               quick switcher (search servers, channels, DMs)
 //   X               toggle mute
 //   LB / RB         previous / next server  LT / RT  scroll up / down
+//   View / Select   show or hide the on-screen controls legend
 export const DiscordTab = () => {
   const shown = useRef(false);
 
@@ -112,6 +114,7 @@ export const DiscordTab = () => {
           case BTN.BUMPER_RIGHT: nav("next-server"); break;
           case BTN.TRIGGER_LEFT: nav("scroll-up"); break;
           case BTN.TRIGGER_RIGHT: nav("scroll-down"); break;
+          case BTN.SELECT: nav("toggle-legend"); break;
         }
       }}
       onOKActionDescription="Select"

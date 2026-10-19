@@ -201,10 +201,68 @@
         return true;
     };
 
+    // ---- On-screen controls legend ----------------------------------------
+    // A bar along the bottom listing what each controller button does while
+    // Discord is open. The View / Select button hides or shows it.
+    let legend = null;
+    let legendHidden = false;
+    try { legendHidden = localStorage.getItem("discordio-legend-hidden") === "1"; } catch (_) { }
+
+    const BADGE_COLORS = { A: "#3ba55d", B: "#ed4245", X: "#3b82f6", Y: "#f0b232" };
+    const LEGEND = [
+        ["✛", "Move"], ["A", "Select"], ["B", "Back / close"], ["Y", "Search"], ["X", "Mute"],
+        ["LB RB", "Server"], ["LT RT", "Scroll"], ["View", "Hide help"],
+    ];
+
+    const badge = (label) => {
+        const round = label.length === 1 && BADGE_COLORS[label];
+        const b = document.createElement("span");
+        b.textContent = label;
+        Object.assign(b.style, {
+            display: "inline-flex", alignItems: "center", justifyContent: "center",
+            minWidth: round ? "22px" : "auto", height: "22px", padding: round ? "0" : "0 7px",
+            borderRadius: round ? "50%" : "6px", marginRight: "6px",
+            background: round ? BADGE_COLORS[label] : "rgba(255,255,255,0.16)",
+            color: "white", fontWeight: "700", fontSize: "12px",
+        });
+        return b;
+    };
+
+    const ensureLegend = () => {
+        if (legend && document.body.contains(legend)) return legend;
+        legend = document.createElement("div");
+        legend.id = "discordio-legend";
+        Object.assign(legend.style, {
+            position: "fixed", left: "50%", bottom: "14px", transform: "translateX(-50%)",
+            zIndex: "2147483646", pointerEvents: "none", display: "none",
+            padding: "8px 14px", borderRadius: "12px", gap: "16px", alignItems: "center",
+            background: "rgba(17,18,20,0.88)", boxShadow: "0 4px 18px rgba(0,0,0,0.5)",
+            color: "#dbdee1", fontSize: "13px", fontFamily: "inherit", whiteSpace: "nowrap",
+        });
+        for (const [key, text] of LEGEND) {
+            const item = document.createElement("span");
+            Object.assign(item.style, { display: "inline-flex", alignItems: "center" });
+            item.appendChild(badge(key));
+            item.appendChild(document.createTextNode(text));
+            legend.appendChild(item);
+        }
+        document.body.appendChild(legend);
+        return legend;
+    };
+
+    const drawLegend = () => {
+        ensureLegend().style.display = enabled && !legendHidden ? "flex" : "none";
+    };
+
     window.DISCORDIO_NAV = (action) => {
         switch (action) {
-            case "show-highlight": enabled = true; if (!current) current = pickInitial(); draw(); return { handled: true };
-            case "hide-highlight": enabled = false; draw(); return { handled: true };
+            case "show-highlight": enabled = true; if (!current) current = pickInitial(); draw(); drawLegend(); return { handled: true };
+            case "hide-highlight": enabled = false; draw(); drawLegend(); return { handled: true };
+            case "toggle-legend":
+                legendHidden = !legendHidden;
+                try { localStorage.setItem("discordio-legend-hidden", legendHidden ? "1" : "0"); } catch (_) { }
+                drawLegend();
+                return { handled: true };
             case "up": case "down": case "left": case "right":
                 enabled = true; return { handled: move(action) };
             case "select": enabled = true; return { handled: select() };

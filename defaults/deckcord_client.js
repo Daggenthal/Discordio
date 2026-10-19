@@ -188,21 +188,48 @@ window.Vencord.Plugins.plugins.Deckcord = {
         function discordioQuery(what, arg) {
             const C = Vencord.Webpack.Common;
             if (what === "guilds") {
-                const sorted = store("SortedGuildStore");
+                // Several routes, because Discord renames these internals often.
+                const GS = C.GuildStore || store("GuildStore");
+                if (!GS) return { error: "Discord's guild store was not found" };
+                const tried = [];
                 let ids = [];
-                try { ids = sorted.getFlattenedGuildIds(); } catch (_) { }
-                if (!ids || !ids.length) ids = Object.keys(C.GuildStore.getGuilds());
-                return ids.map(id => C.GuildStore.getGuild(id)).filter(Boolean).map(g => ({
+                const sorted = store("SortedGuildStore");
+                try { ids = sorted.getFlattenedGuildIds() || []; } catch (e) { tried.push("flattened: " + e); }
+                if (!ids.length) {
+                    try { ids = (sorted.getGuildFolders() || []).flatMap(f => f.guildIds || []); } catch (e) { tried.push("folders: " + e); }
+                }
+                if (!ids.length) {
+                    try { ids = GS.getGuildIds ? GS.getGuildIds() : []; } catch (e) { tried.push("ids: " + e); }
+                }
+                if (!ids.length) {
+                    try {
+                        const all = GS.getGuilds();
+                        ids = all instanceof Map ? [...all.keys()] : Object.keys(all || {});
+                    } catch (e) { tried.push("all: " + e); }
+                }
+                const guilds = ids.map(id => { try { return GS.getGuild(id); } catch (_) { return null; } }).filter(Boolean).map(g => ({
                     id: g.id, name: g.name,
                     icon: g.icon ? `https://cdn.discordapp.com/icons/${g.id}/${g.icon}.webp?size=64` : null,
                 }));
+                if (!guilds.length && tried.length) return { error: "Could not list servers (" + tried.join("; ") + ")" };
+                return guilds;
             }
             if (what === "voice_channels") {
-                const GCS = store("GuildChannelStore");
-                const vocal = (GCS && GCS.getChannels(arg) && GCS.getChannels(arg).VOCAL) || [];
-                return vocal.map(v => v.channel).filter(Boolean).map(ch => ({
-                    id: ch.id, name: ch.name, members: voiceMembers(ch.id),
-                }));
+                let channels = [];
+                try {
+                    const GCS = store("GuildChannelStore");
+                    const vocal = GCS && GCS.getChannels(arg) && GCS.getChannels(arg).VOCAL;
+                    if (vocal) channels = vocal.map(v => v.channel || v).filter(Boolean);
+                } catch (_) { }
+                if (!channels.length) {
+                    // Fallback: every voice (2) and stage (13) channel in the server.
+                    try {
+                        const all = C.ChannelStore.getMutableGuildChannelsForGuild(arg) || {};
+                        channels = Object.values(all).filter(ch => ch.type === 2 || ch.type === 13)
+                            .sort((a, b) => (a.position || 0) - (b.position || 0));
+                    } catch (e) { return { error: "Could not list voice channels: " + e }; }
+                }
+                return channels.map(ch => ({ id: ch.id, name: ch.name, members: voiceMembers(ch.id) }));
             }
             if (what === "voice") {
                 const id = store("SelectedChannelStore").getVoiceChannelId();
@@ -381,6 +408,9 @@ window.Vencord.Plugins.plugins.Deckcord = {
                                     break;
                                 case "$query":
                                     result = discordioQuery(data.what, data.arg);
+                                    break;
+                                case "$disconnect_voice":
+                                    result = { ok: true, method: selectVoice(null, null) };
                                     break;
                                 case "$join_voice":
                                     result = await discordioJoinVoice(data.channel_id);

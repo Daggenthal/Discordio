@@ -474,6 +474,14 @@ class Plugin:
 
     @classmethod
     async def disconnect_vc(cls):
+        # Discord's own action first (works for server channels and DM calls),
+        # then the original raw event as a fallback.
+        try:
+            res = await cls.evt_handler.api._store_access_request("$disconnect_voice", timeout=5)
+            if not (isinstance(res, dict) and res.get("error")):
+                return res
+        except Exception as e:
+            logger.warning(f"disconnect via page: {e}")
         try:
             return await cls.evt_handler.disconnect_vc()
         except Exception as e:

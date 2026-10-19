@@ -1,7 +1,8 @@
 import { call } from "@decky/api";
-import { PanelSectionRow } from "@decky/ui";
+import { ButtonItem, PanelSectionRow } from "@decky/ui";
+import { GoLivePanel } from "./GoLivePanel";
 import { useEffect, useState } from "react";
-import { FaMicrophoneSlash, FaVolumeMute, FaVideo } from "react-icons/fa";
+import { FaMicrophoneSlash, FaVolumeMute, FaVideo, FaPhoneSlash } from "react-icons/fa";
 import { useDeckcordState } from "../hooks/useDeckcordState";
 
 export type Member = {
@@ -71,28 +72,42 @@ export const MemberRow = ({ m }: { m: Member }) => (
   </div>
 );
 
+// Everything about the call you're in: who's there, disconnect, and Go Live.
+// Works the same for server voice channels and direct calls with friends.
 export function VoiceChannelView() {
   const voice = useVoice();
   if (!voice) {
     return (
       <PanelSectionRow>
-        <div style={{ fontSize: "12px", opacity: 0.7 }}>Not in a voice channel</div>
+        <div style={{ fontSize: "12px", opacity: 0.7 }}>
+          Not in a call. Join a voice channel from Servers or call someone from Friends.
+        </div>
       </PanelSectionRow>
     );
   }
   return (
-    <PanelSectionRow>
-      <div style={{ width: "100%", minWidth: 0 }}>
-        <div style={{ fontWeight: 700, fontSize: "15px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          🔊 {voice.channel_name}
+    <>
+      <PanelSectionRow>
+        <div style={{ width: "100%", minWidth: 0 }}>
+          <div style={{ fontWeight: 700, fontSize: "15px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            🔊 {voice.channel_name}
+          </div>
+          <div style={{ fontSize: "12px", opacity: 0.7, marginBottom: "6px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {voice.guild_name} · {voice.members.length} in call
+          </div>
+          {voice.members.map((m) => (
+            <MemberRow key={m.id} m={m} />
+          ))}
         </div>
-        <div style={{ fontSize: "12px", opacity: 0.7, marginBottom: "6px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {voice.guild_name}
-        </div>
-        {(voice.members || []).map((m) => (
-          <MemberRow key={m.id} m={m} />
-        ))}
-      </div>
-    </PanelSectionRow>
+      </PanelSectionRow>
+      <GoLivePanel inCall />
+      <PanelSectionRow>
+        <ButtonItem layout="below" onClick={() => call("disconnect_vc")}>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: "8px", color: "#ff6b6b" }}>
+            <FaPhoneSlash /> Disconnect
+          </span>
+        </ButtonItem>
+      </PanelSectionRow>
+    </>
   );
 }

@@ -26,7 +26,6 @@ import { SafeSection } from "./components/SafeSection";
 import { useState } from "react";
 import { UploadScreenshot } from "./components/UploadScreenshot";
 import { OpenDiscordButton } from "./components/buttons/OpenCloseDiscordButton";
-import { GoLivePanel } from "./components/GoLivePanel";
 import { DiagnosticsPanel } from "./components/DiagnosticsPanel";
 import { safe, safeAsync, note } from "./lib/diag";
 import { applyBounds } from "./lib/view";
@@ -130,7 +129,7 @@ const Content = () => {
       </PanelSection>
       {ready && (
         <>
-          <PanelSection title="Voice">
+          <PanelSection title="Call">
             <SafeSection name="Voice"><VoiceChannelView /></SafeSection>
             <SafeSection name="Push to talk"><PushToTalkButton /></SafeSection>
           </PanelSection>
@@ -143,9 +142,6 @@ const Content = () => {
           <Collapsible title="Friends">
             <SafeSection name="Friends"><FriendsPanel /></SafeSection>
           </Collapsible>
-          <PanelSection title="Stream">
-            <SafeSection name="Stream"><GoLivePanel /></SafeSection>
-          </PanelSection>
           <PanelSection title="Screenshots">
             <PanelSectionRow>
               <SafeSection name="Screenshots"><UploadScreenshot /></SafeSection>
