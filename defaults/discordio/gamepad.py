@@ -49,41 +49,58 @@ def _eviocgabs(code):
     return (2 << 30) | (ABSINFO.size << 16) | (ord("E") << 8) | (0x40 + code)
 
 
-def find_gamepads():
-    """[(event path, name)] for physical game controllers."""
+def list_input_devices():
+    """Every input device: name, event node, vendor, virtual or not, gamepad or not."""
     out = []
     try:
         text = open("/proc/bus/input/devices").read()
     except Exception:
         return out
     for block in text.strip().split("\n\n"):
-        name = sysfs = handlers = keys = ""
+        d = {"name": "", "sysfs": "", "handlers": "", "keys": "", "vendor": "", "product": ""}
         for line in block.splitlines():
-            if line.startswith("N: Name="):
-                name = line.split("=", 1)[1].strip().strip('"')
+            if line.startswith("I: "):
+                for part in line[3:].split():
+                    k, _, v = part.partition("=")
+                    if k == "Vendor":
+                        d["vendor"] = v.lower()
+                    elif k == "Product":
+                        d["product"] = v.lower()
+            elif line.startswith("N: Name="):
+                d["name"] = line.split("=", 1)[1].strip().strip('"')
             elif line.startswith("S: Sysfs="):
-                sysfs = line.split("=", 1)[1].strip()
+                d["sysfs"] = line.split("=", 1)[1].strip()
             elif line.startswith("H: Handlers="):
-                handlers = line.split("=", 1)[1]
+                d["handlers"] = line.split("=", 1)[1]
             elif line.startswith("B: KEY="):
-                keys = line.split("=", 1)[1].strip()
-        event = next((h for h in handlers.split() if h.startswith("event")), None)
-        if not event or not keys:
-            continue
-        # KEY bitmap: hex words, most significant first, each 64 bits.
-        words = keys.split()
+                d["keys"] = line.split("=", 1)[1].strip()
+        event = next((h for h in d["handlers"].split() if h.startswith("event")), None)
         bits = 0
-        for i, w in enumerate(reversed(words)):
+        for i, w in enumerate(reversed(d["keys"].split())):
             bits |= int(w, 16) << (64 * i)
-        if not (bits >> BTN_GAMEPAD) & 1:
-            continue
-        # Steam's own virtual pads (uinput) would double every press.
-        if sysfs.startswith("/devices/virtual/"):
-            continue
-        if any(x in name for x in ("Motion Sensors", "Touchpad")):
-            continue
-        out.append((f"/dev/input/{event}", name))
+        out.append({
+            "name": d["name"], "event": event, "vendor": d["vendor"], "product": d["product"],
+            "virtual": d["sysfs"].startswith("/devices/virtual/"),
+            "gamepad": bool((bits >> BTN_GAMEPAD) & 1),
+        })
     return out
+
+
+def find_gamepads():
+    """
+    [(event path, name)] for game controllers.
+
+    Some SteamOS setups hand the real controller to an input service that
+    hides it and re-creates it as a virtual device, so virtual gamepads count
+    too, except Steam's own virtual pads (vendor 28de), which follow each
+    game's Steam Input layout.
+    """
+    pads = [d for d in list_input_devices()
+            if d["gamepad"] and d["event"] and not any(x in d["name"] for x in ("Motion Sensors", "Touchpad"))]
+    # Both a physical pad and its re-created virtual copy may be read (one of
+    # them can be grabbed and silent); the QAM ignores a duplicate press.
+    chosen = [d for d in pads if not (d["virtual"] and d["vendor"] == "28de")]
+    return [(f"/dev/input/{d['event']}", d["name"]) for d in chosen]
 
 
 class Pad:
@@ -197,7 +214,10 @@ class Gamepads:
 
     def info(self):
         return {"running": self.running, "error": self.error,
-                "controllers": [{"name": p.name, "path": p.path, "events": p.events} for p in self.pads.values()]}
+                "controllers": [{"name": p.name, "path": p.path, "events": p.events} for p in self.pads.values()],
+                # Everything the system sees, for reports when a controller isn't picked up.
+                "input_devices": [d for d in list_input_devices() if d["gamepad"] or "pad" in d["name"].lower()
+                                  or "controller" in d["name"].lower() or "dualsense" in d["name"].lower()]}
 
     def _attach(self, path, name):
         try:

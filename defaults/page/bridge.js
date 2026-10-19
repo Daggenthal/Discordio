@@ -279,11 +279,41 @@
     }
     const dialogs = () => [...document.querySelectorAll("[role=dialog], [class*=modal]")];
 
-    async function startViaUi(tried) {
+    // Open the call's own page, where Discord draws the full call controls.
+    function openCallPage(vc) {
+        try {
+            const ch = C().ChannelStore.getChannel(vc);
+            const path = `/channels/${(ch && ch.guild_id) || "@me"}/${vc}`;
+            if (location.pathname === path) return false;
+            const nav = (C().NavigationRouter) || props("transitionTo", "replaceWith");
+            if (nav && nav.transitionTo) { nav.transitionTo(path); return true; }
+            window.history.pushState({}, "", path);
+            dispatchEvent(new PopStateEvent("popstate"));
+            return true;
+        } catch (e) { warn("open call page", e); return false; }
+    }
+
+    function pageInfo() {
+        const buttons = document.querySelectorAll("button, [role=button]").length;
+        const labels = [...document.querySelectorAll("[aria-label]")].map((e) => e.getAttribute("aria-label")).filter(Boolean);
+        return `page ${location.pathname}, ${document.visibilityState}, ${innerWidth}x${innerHeight}, ` +
+            `${buttons} buttons, labels: ${[...new Set(labels)].slice(0, 25).join(" | ")}`;
+    }
+
+    const SHARE = /^(share (your )?screen|go live|screen ?share)/i;
+    async function startViaUi(tried, vc) {
         const before = window.DISCORDIO.captureRequests || 0;
         const captured = () => (window.DISCORDIO.captureRequests || 0) !== before;
-        const share = findButton(/^(share (your )?screen|go live)/i);
-        if (!share) { tried.push(`ui: Share Screen button not found (similar buttons: ${similarButtons()})`); return null; }
+        let share = findButton(SHARE);
+        if (!share && vc && openCallPage(vc)) {
+            log("Go Live: opened the call page to reach Share Screen");
+            share = await waitFor(() => findButton(SHARE), 3000);
+        }
+        if (!share) {
+            tried.push(`ui: Share Screen button not found (similar buttons: ${similarButtons()})`);
+            log("Go Live: no Share Screen button; " + pageInfo());
+            return null;
+        }
         log(`Go Live: pressing "${share.getAttribute("aria-label") || share.textContent.trim()}"`);
         share.click();
         if (await waitFor(captured, 2500)) return { method: "ui" };
@@ -325,16 +355,18 @@
         return "dispatch";
     }
 
-    async function goLive(stop, quality) {
+    async function goLive(stop, quality, uiOnly) {
         const vc = voiceChannelId();
         if (!stop && !vc) throw new Error("Join a voice channel or call first");
         if (!stop && quality) applyStreamQuality(quality);
         const tried = [];
         if (!stop) {
             try {
-                const r = await startViaUi(tried);
+                const r = await startViaUi(tried, vc);
                 if (r) return r;
             } catch (e) { tried.push("ui: " + e); }
+            // The backend retries with the Discord view shown before falling back.
+            if (uiOnly) throw new Error("NO_SHARE_BUTTON: " + tried.join("; "));
             // Fallback: Discord's stream function, only kept if Discord then
             // actually asks for the screen.
             try {
@@ -574,6 +606,12 @@
                 callLogs++;
                 log(`call event ${e.type}: channel ${cid}, ringing ${ringing.length ? (ringing.includes(u.id) ? "you" : ringing.length + " others") : "nobody"}`);
             }
+            // On this Discord, CALL_CREATE / CALL_UPDATE arrive with an empty
+            // ringing list even while you're being rung, so an empty list
+            // means "unknown", not "stopped". Rings end on CALL_DELETE,
+            // joining, answer / decline, someone else being rung instead, or
+            // Discord's ring timeout.
+            if (e.type !== "CALL_DELETE" && !ringing.length && incoming && incoming.channel_id === cid) return;
             const ringingMe = e.type !== "CALL_DELETE" && ringing.includes(String(u.id)) && voiceChannelId() !== cid;
             if (ringingMe && (!incoming || incoming.channel_id !== cid)) {
                 const ch = C().ChannelStore.getChannel(cid);
@@ -677,7 +715,8 @@
     m("history", ({ channelId, limit }) => history(channelId, limit));
     m("sendMessage", ({ channelId, userId, content }) =>
         (channelId ? Promise.resolve(channelId) : dmChannel(userId)).then((id) => sendMessage(id, content)));
-    m("goLive", ({ quality }) => goLive(false, quality));
+    m("goLive", ({ quality, uiOnly }) => goLive(false, quality, !!uiOnly));
+    m("pageVisible", () => ({ visible: document.visibilityState === "visible", info: pageInfo() }));
     m("stopLive", () => goLive(true));
     m("streamLimits", () => streamLimits());
     m("audioDevices", () => audioDevices());
@@ -845,7 +884,10 @@
                 for (const c of calls || []) {
                     const cid = c.channelId || c.channel_id;
                     const ringing = (c.ringing || []).map(String);
-                    if (ringing.includes(String(u.id))) ringingIds.add(cid);
+                    if (ringing.includes(String(u.id))) {
+                        ringingIds.add(cid);
+                        if (incoming && incoming.channel_id === cid) incoming.seenInStore = true;
+                    }
                     if (ringing.includes(String(u.id)) && (!incoming || incoming.channel_id !== cid)) onCall({ type: "POLL", channelId: cid, ringing });
                 }
                 // Drop the ring once Discord says it stopped (only when its call
@@ -853,7 +895,8 @@
                 if (incoming && !ringingIds.has(incoming.channel_id)) {
                     const age = Date.now() - incoming.since;
                     let stopped = age > 65000;
-                    if (!stopped && CS.getCalls && CS.getCall && age > 4000) {
+                    // Trust Discord's call list only if it has shown us ringing.
+                    if (!stopped && incoming.seenInStore && CS.getCall && age > 4000) {
                         const c = CS.getCall(incoming.channel_id);
                         stopped = !c || (Array.isArray(c.ringing) && !c.ringing.map(String).includes(String(u.id)));
                     }

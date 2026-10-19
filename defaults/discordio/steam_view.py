@@ -206,6 +206,12 @@ class DiscordView:
                 diag.set("discord_view", diag.WARN, "the Discord view went away, recreating")
                 return
 
+    async def set_visible(self, visible):
+        """Show or hide the Discord view (without giving it focus)."""
+        js = ("(() => { const v = window.DISCORDIO_VIEW; if (!v || !v.m_browserView) return false; "
+              f"v.m_browserView.SetVisible({'true' if visible else 'false'}); return true; }})()")
+        return await (await self.shared_context()).evaluate(js, timeout=5)
+
     async def unlock_audio(self):
         """
         Let the Discord page play sound (ringing, joins, notifications).

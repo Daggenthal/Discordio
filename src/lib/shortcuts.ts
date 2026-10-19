@@ -139,6 +139,16 @@ async function callAction(what: "answer_call" | "decline_call") {
   }
 }
 
+// The same press can arrive from two devices (a controller and a virtual
+// copy of it): one action per 250 ms.
+const lastFired: Record<string, number> = {};
+function once(key: string) {
+  const t = Date.now();
+  if (t - (lastFired[key] || 0) < 250) return false;
+  lastFired[key] = t;
+  return true;
+}
+
 function edge(now: bigint, before: bigint, mask: string) {
   const want = BigInt(mask || "0");
   if (!want) return 0;
@@ -179,11 +189,11 @@ function processMask(device: string, now: bigint) {
     // Calls first: while ringing, their combos win over the mic button.
     if (ringing) {
       if (bindings.answer.enabled && edge(now, before, bindings.answer.mask) === 1) {
-        callAction("answer_call");
+        if (once("answer")) callAction("answer_call");
         return;
       }
       if (bindings.decline.enabled && edge(now, before, bindings.decline.mask) === 1) {
-        callAction("decline_call");
+        if (once("decline")) callAction("decline_call");
         return;
       }
     }
@@ -191,7 +201,7 @@ function processMask(device: string, now: bigint) {
       const e = edge(now, before, bindings.mic.mask);
       if (!e) return;
       if (bindings.mic.mode === "mute") {
-        if (e === 1) call("toggle_mute").catch(() => {});
+        if (e === 1 && once("mute")) call("toggle_mute").catch(() => {});
       } else if ((e === 1) !== pttHeld) {
         pttHeld = e === 1;
         call("set_ptt", pttHeld).catch(() => {});

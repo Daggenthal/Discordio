@@ -679,7 +679,32 @@ class Plugin:
         if not cls.capture.running:
             return {"ok": False, "error": "the capture helper isn't running yet (see Diagnostics)"}
         started = time.time()
-        res = await cls._req("goLive", {"quality": await cls.get_stream_settings()}, timeout=35)
+        quality = await cls.get_stream_settings()
+        # 1. Discord's own Share Screen button, in the hidden view.
+        res = await cls._req("goLive", {"quality": quality, "uiOnly": True}, timeout=25)
+        if isinstance(res, dict) and "NO_SHARE_BUTTON" in str(res.get("error", "")):
+            # 2. Discord may not draw its call controls while the view is
+            #    hidden: show it for a moment, press the button, hide it.
+            shown = False
+            try:
+                vis = await cls._req("pageVisible", timeout=5)
+                if isinstance(vis, dict) and not vis.get("visible"):
+                    shown = bool(await cls.view.set_visible(True))
+                    log.info("Go Live: showing the Discord view briefly to reach Share Screen")
+                    await asyncio.sleep(1.2)
+                res = await cls._req("goLive", {"quality": quality, "uiOnly": True}, timeout=25)
+            except Exception as e:
+                log.warning(f"Go Live with the view shown failed: {e}")
+            finally:
+                if shown:
+                    await asyncio.sleep(0.5)
+                    try:
+                        await cls.view.set_visible(False)
+                    except Exception:
+                        pass
+        if isinstance(res, dict) and "NO_SHARE_BUTTON" in str(res.get("error", "")):
+            # 3. Last resort: Discord's stream function plus a stream source.
+            res = await cls._req("goLive", {"quality": quality}, timeout=35)
         if isinstance(res, dict) and res.get("error"):
             return {"ok": False, "error": res["error"]}
         method = res.get("method") if isinstance(res, dict) else None
