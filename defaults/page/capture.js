@@ -57,6 +57,7 @@
     }
 
     function getCapture(constraints) {
+        D.captureRequests = (D.captureRequests || 0) + 1;
         if (active) return Promise.resolve(active.stream);
         if (pending) return pending;
         pending = new Promise((resolve, reject) => {
@@ -134,7 +135,9 @@
         return pending;
     }
 
-    navigator.mediaDevices.getDisplayMedia = (constraints) => getCapture(constraints);
+    const discordioDisplayMedia = function getDisplayMedia(constraints) { return getCapture(constraints); };
+    if (D.media && D.media.pin) D.media.pin("getDisplayMedia", discordioDisplayMedia);
+    else navigator.mediaDevices.getDisplayMedia = discordioDisplayMedia;
 
     D.method("captureStatus", () => ({
         active: !!active,

@@ -254,10 +254,20 @@
                     /STREAM_START|streamType/.test(m.toString()) && /analyticsLocation|appContext/.test(m.toString()), { isIndirect: true });
                 if (fn) {
                     const ch = C().ChannelStore.getChannel(vc);
+                    const before = window.DISCORDIO.captureRequests || 0;
                     await fn((ch && ch.guild_id) || null, vc, "Activity Panel");
-                    return { method: "action" };
+                    // The stream only gets video if Discord then asks for the
+                    // screen (getDisplayMedia). If it doesn't, fall through
+                    // to Discord's own Share Screen button below.
+                    for (let i = 0; i < 25 && (window.DISCORDIO.captureRequests || 0) === before; i++) {
+                        await new Promise((r) => setTimeout(r, 200));
+                    }
+                    if ((window.DISCORDIO.captureRequests || 0) !== before) return { method: "action" };
+                    warn("the stream started without asking for the screen; trying Discord's Share Screen button");
+                    tried.push("action: started without capture");
+                } else {
+                    tried.push("action: not found");
                 }
-                tried.push("action: not found");
             } catch (e) { tried.push("action: " + e); }
         }
         try {

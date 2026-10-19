@@ -283,5 +283,33 @@
     D.method("micTest", (p) => startMicTest(p || {}));
     D.method("micTestStop", () => { if (micTest) micTest.stop(); return { ok: true }; });
 
-    D.media = { keepFlowing, status, rtcStats };
+    // ------------------------------------------------------------------ 5.
+    // Keep Discordio's microphone / screen capture hooks in place. Vencord's
+    // web build has a WebScreenShare plugin (on by default) that swaps
+    // getDisplayMedia for its own picker window when it starts; in the
+    // hidden Discord view nobody could answer that picker, so Go Live waited
+    // forever with no video. Assignments are ignored (and logged) instead.
+    function pin(name, fn) {
+        const md = navigator.mediaDevices;
+        if (!md) return;
+        const replaced = new Set();
+        const accessor = {
+            configurable: true,
+            get: () => fn,
+            set: (other) => {
+                const who = (other && other.name) || "another script";
+                if (!replaced.has(who)) {
+                    replaced.add(who);
+                    D.log(`kept Discordio's ${name} (${who} tried to replace it)`);
+                }
+            },
+        };
+        try { Object.defineProperty(md, name, accessor); } catch (e) { md[name] = fn; }
+        try {
+            const proto = Object.getPrototypeOf(md);
+            if (proto && name in proto) Object.defineProperty(proto, name, { configurable: true, writable: true, value: fn });
+        } catch (_) { }
+    }
+
+    D.media = { keepFlowing, status, rtcStats, pin };
 })();

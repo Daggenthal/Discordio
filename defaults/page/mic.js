@@ -84,7 +84,7 @@
         return track;
     }
 
-    navigator.mediaDevices.getUserMedia = async (constraints) => {
+    const discordioUserMedia = async function getUserMedia(constraints) {
         if (constraints && constraints.audio && !constraints.video) {
             const s = await micStream();
             // Clones, so Discord stopping its copy doesn't end the bridge.
@@ -92,6 +92,8 @@
         }
         return realGetUserMedia(constraints);
     };
+    if (D.media && D.media.pin) D.media.pin("getUserMedia", discordioUserMedia);
+    else navigator.mediaDevices.getUserMedia = discordioUserMedia;
 
     D.method("micStatus", () => ({
         connection: pc ? pc.connectionState : "none",
