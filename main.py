@@ -642,7 +642,7 @@ class Plugin:
         if not cls.capture.running:
             return {"ok": False, "error": "the capture helper isn't running yet (see Diagnostics)"}
         started = time.time()
-        res = await cls._req("goLive", {"quality": await cls.get_stream_settings()}, timeout=20)
+        res = await cls._req("goLive", {"quality": await cls.get_stream_settings()}, timeout=35)
         if isinstance(res, dict) and res.get("error"):
             return {"ok": False, "error": res["error"]}
         method = res.get("method") if isinstance(res, dict) else None

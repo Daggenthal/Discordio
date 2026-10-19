@@ -243,6 +243,56 @@
         } catch (e) { warn("stream quality", e); }
     }
 
+    // Go Live the way you would in Discord: press its Share Screen button
+    // (and Go Live in its dialog if one opens). That path asks for the
+    // screen (getDisplayMedia, answered with the game) and wires it to the
+    // stream. Calling Discord's stream function directly registered a
+    // stream with no video attached: viewers got error 2015 until the
+    // stream was changed from inside Discord.
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    async function waitFor(cond, ms) {
+        const end = Date.now() + ms;
+        while (Date.now() < end) {
+            const v = cond();
+            if (v) return v;
+            await sleep(150);
+        }
+        return null;
+    }
+    const visible = (el) => !!(el && (el.offsetParent !== null || el.getClientRects().length));
+    function findButton(pattern, root) {
+        const els = [...(root || document).querySelectorAll("button, [role=button]")];
+        return els.find((el) => {
+            const label = el.getAttribute("aria-label") || el.textContent || "";
+            return pattern.test(label.trim()) && !el.disabled && el.getAttribute("aria-disabled") !== "true" && visible(el);
+        }) || null;
+    }
+    const dialogs = () => [...document.querySelectorAll("[role=dialog], [class*=modal]")];
+
+    async function startViaUi(tried) {
+        const before = window.DISCORDIO.captureRequests || 0;
+        const captured = () => (window.DISCORDIO.captureRequests || 0) !== before;
+        const share = findButton(/^(share (your )?screen|go live)/i);
+        if (!share) { tried.push("ui: Share Screen button not found"); return null; }
+        log(`Go Live: pressing "${share.getAttribute("aria-label") || share.textContent.trim()}"`);
+        share.click();
+        if (await waitFor(captured, 2500)) return { method: "ui" };
+        // Discord's Go Live dialog (quality / source): press its Go Live.
+        const go = await waitFor(() => {
+            for (const d of dialogs()) {
+                const b = findButton(/^go live$/i, d);
+                if (b) return b;
+            }
+            return null;
+        }, 4000);
+        if (!go) { tried.push("ui: no Go Live button in Discord's dialog"); return null; }
+        log("Go Live: confirming in Discord's dialog");
+        go.click();
+        if (await waitFor(captured, 8000)) return { method: "ui+dialog" };
+        tried.push("ui: Discord didn't ask for the screen after Go Live");
+        return null;
+    }
+
     async function goLive(stop, quality) {
         const vc = voiceChannelId();
         if (!stop && !vc) throw new Error("Join a voice channel or call first");
@@ -250,44 +300,43 @@
         const tried = [];
         if (!stop) {
             try {
+                const r = await startViaUi(tried);
+                if (r) return r;
+            } catch (e) { tried.push("ui: " + e); }
+            // Fallback: Discord's stream function, only kept if Discord then
+            // actually asks for the screen.
+            try {
                 const fn = W().find((m) => typeof m === "function" && m.length >= 2 &&
                     /STREAM_START|streamType/.test(m.toString()) && /analyticsLocation|appContext/.test(m.toString()), { isIndirect: true });
                 if (fn) {
                     const ch = C().ChannelStore.getChannel(vc);
                     const before = window.DISCORDIO.captureRequests || 0;
                     await fn((ch && ch.guild_id) || null, vc, "Activity Panel");
-                    // The stream only gets video if Discord then asks for the
-                    // screen (getDisplayMedia). If it doesn't, fall through
-                    // to Discord's own Share Screen button below.
-                    for (let i = 0; i < 25 && (window.DISCORDIO.captureRequests || 0) === before; i++) {
-                        await new Promise((r) => setTimeout(r, 200));
-                    }
-                    if ((window.DISCORDIO.captureRequests || 0) !== before) return { method: "action" };
-                    warn("the stream started without asking for the screen; trying Discord's Share Screen button");
-                    tried.push("action: started without capture");
+                    if (await waitFor(() => (window.DISCORDIO.captureRequests || 0) !== before, 5000)) return { method: "action" };
+                    tried.push("action: started a stream without video");
+                    // Don't leave a stream with no video up: viewers get error 2015.
+                    await goLive(true).catch(() => { });
                 } else {
                     tried.push("action: not found");
                 }
             } catch (e) { tried.push("action: " + e); }
+            warn("Go Live failed:", tried.join("; "));
+            throw new Error(`Couldn't start the stream (${tried.join("; ")}). Starting it from inside Discord works as a fallback.`);
         }
         try {
-            const pattern = stop ? /stop streaming/i : /share your screen|^stream /i;
-            const b = [...document.querySelectorAll("button[aria-label], [role=button][aria-label]")]
-                .find((el) => pattern.test(el.getAttribute("aria-label")));
+            const b = findButton(/^stop (streaming|sharing)/i);
             if (b) { b.click(); return { method: "ui" }; }
             tried.push("ui: button not found");
         } catch (e) { tried.push("ui: " + e); }
-        if (stop) {
-            try {
-                const s = store("ApplicationStreamingStore");
-                const a = s && s.getCurrentUserActiveStream && s.getCurrentUserActiveStream();
-                if (!a) return { method: "none" };
-                const key = [a.streamType, a.guildId, a.channelId, a.ownerId].filter(Boolean).join(":");
-                dispatch({ type: "STREAM_STOP", streamKey: key, appContext: "APP" });
-                return { method: "dispatch" };
-            } catch (e) { tried.push("dispatch: " + e); }
-        }
-        throw new Error(`Couldn't ${stop ? "stop" : "start"} the stream (${tried.join("; ")})`);
+        try {
+            const s = store("ApplicationStreamingStore");
+            const a = s && s.getCurrentUserActiveStream && s.getCurrentUserActiveStream();
+            if (!a) return { method: "none" };
+            const key = [a.streamType, a.guildId, a.channelId, a.ownerId].filter(Boolean).join(":");
+            dispatch({ type: "STREAM_STOP", streamKey: key, appContext: "APP" });
+            return { method: "dispatch" };
+        } catch (e) { tried.push("dispatch: " + e); }
+        throw new Error(`Couldn't stop the stream (${tried.join("; ")})`);
     }
 
     // ----------------------------------------------------------- screenshots
