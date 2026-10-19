@@ -192,8 +192,10 @@
             const pc = ref.deref();
             if (!pc) { peers.delete(ref); continue; }
             if (pc.connectionState === "closed") continue;
+            let tracks = [];
+            try { tracks = pc.getSenders().filter((x) => x.track).map((x) => `${x.track.kind}:${x.track.readyState}${x.track.muted ? ":muted" : ""}`); } catch (_) { }
             const info = {
-                who: pc.__discordio || "discord",
+                who: pc.__discordio || "discord", tracks,
                 state: pc.connectionState, ice: pc.iceConnectionState,
                 sent: {}, received: {}, path: null,
             };
@@ -206,11 +208,22 @@
                     if (r.type === "outbound-rtp") {
                         const k = info.sent[kind] = info.sent[kind] || { bytes: 0, packets: 0 };
                         k.bytes += r.bytesSent || 0; k.packets += r.packetsSent || 0;
-                        if (kind === "video") { k.frames = (k.frames || 0) + (r.framesEncoded || 0); k.size = r.frameWidth ? `${r.frameWidth}x${r.frameHeight}` : k.size; }
+                        if (kind === "video") {
+                            k.frames = (k.frames || 0) + (r.framesEncoded || 0);
+                            k.size = r.frameWidth ? `${r.frameWidth}x${r.frameHeight}` : k.size;
+                            k.fps = r.framesPerSecond != null ? r.framesPerSecond : k.fps;
+                            k.encoder = r.encoderImplementation || k.encoder;
+                            k.limit = r.qualityLimitationReason || k.limit;
+                            k.keyframeRequests = (k.keyframeRequests || 0) + (r.pliCount || 0) + (r.firCount || 0);
+                            k.active = r.active !== false;
+                            const codec = r.codecId && byId[r.codecId];
+                            if (codec) k.codec = codec.mimeType;
+                        }
                     } else if (r.type === "inbound-rtp") {
                         const k = info.received[kind] = info.received[kind] || { bytes: 0, packets: 0 };
                         k.bytes += r.bytesReceived || 0; k.packets += r.packetsReceived || 0;
                         if (kind === "audio" && r.audioLevel != null) k.level = Math.max(k.level || 0, +r.audioLevel.toFixed(3));
+                        if (kind === "video") { k.frames = (k.frames || 0) + (r.framesDecoded || 0); const codec = r.codecId && byId[r.codecId]; if (codec) k.codec = codec.mimeType; }
                     } else if (r.type === "media-source" && kind === "audio" && r.audioLevel != null) {
                         info.sent.micLevel = Math.max(info.sent.micLevel || 0, +r.audioLevel.toFixed(3));
                     } else if (r.type === "candidate-pair" && (r.nominated || r.selected) && r.state === "succeeded") {

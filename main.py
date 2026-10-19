@@ -237,12 +237,17 @@ class Plugin:
         bits.append(f"mic level {now['mic_level']:.2f}")
         if media.get("live"):
             # Discord holds back stream video until someone watches it.
+            vids = [((p.get("sent") or {}).get("video") or {}) for p in now["peers"]]
+            vid = next((v for v in vids if v.get("frames")), vids[0] if vids else {})
+            detail = ", ".join(x for x in (vid.get("codec", "").replace("video/", ""), vid.get("size"),
+                                            f"{vid.get('fps')} fps" if vid.get("fps") is not None else "",
+                                            vid.get("encoder")) if x)
             if now["video_out"] > prev["video_out"]:
-                bits.append("sending video")
+                bits.append("sending video" + (f" ({detail})" if detail else ""))
             elif others == 0:
                 bits.append("stream waiting for a viewer")
             else:
-                bits.append("no video sent yet (sent once someone watches)")
+                bits.append("no video sent yet (sent once someone watches)" + (f" [{detail}]" if detail else ""))
         diag.set("call", diag.WARN if problems else diag.OK, "; ".join(bits))
 
     @classmethod
@@ -813,7 +818,8 @@ class Plugin:
         lines += ["", "== Capture", "  " + json.dumps(d["capture"], default=str)]
         lines += ["", "== Overlay", "  " + json.dumps(d["overlay"])]
         lines += ["", "== Mic events", "  " + json.dumps(d["mic_events"])]
-        for title, method in (("Call connections", "rtcStats"), ("Sounds", "soundStatus"), ("Microphone (page)", "micStatus")):
+        for title, method in (("Call connections", "rtcStats"), ("Go Live capture (page)", "captureStatus"),
+                              ("Sounds", "soundStatus"), ("Microphone (page)", "micStatus")):
             try:
                 value = await cls.bridge.request(method, timeout=5)
             except Exception as e:
