@@ -82,6 +82,7 @@ class Plugin:
     tasks = []
     state = None          # last state from the Discord page
     ready = False         # page bridge said hello
+    incoming = None       # a call ringing us right now
     capture_events = []   # recent screen-capture events from the page
     mic_events = []
     port = None
@@ -106,6 +107,8 @@ class Plugin:
         cls.bridge.on("capture", cls._on_capture)
         cls.bridge.on("sound_blocked", cls._on_sound_blocked)
         cls.bridge.on("rtc", cls._on_rtc)
+        cls.bridge.on("call_incoming", cls._on_call_incoming)
+        cls.bridge.on("call_ended", cls._on_call_ended)
         cls.bridge.on("mic_level", cls._on_mic_level)
         diag.set("call", diag.OFF, "not in a call")
 
@@ -251,6 +254,63 @@ class Plugin:
         diag.set("call", diag.WARN if problems else diag.OK, "; ".join(bits))
 
     @classmethod
+    async def _on_call_incoming(cls, data):
+        cls.incoming = {**(data or {}), "received": time.time()}
+        caller = (data or {}).get("caller") or {}
+        log.info(f"Incoming call from {caller.get('name')}")
+        try:
+            await decky.emit("call", {"ringing": True, **cls.incoming})
+        except Exception:
+            pass
+
+    @classmethod
+    async def _on_call_ended(cls, data):
+        if cls.incoming and cls.incoming.get("channel_id") == (data or {}).get("channel_id"):
+            cls.incoming = None
+        log.info("Call " + ("answered" if (data or {}).get("answered") else "stopped ringing"))
+        try:
+            await decky.emit("call", {"ringing": False, **(data or {})})
+        except Exception:
+            pass
+
+    @classmethod
+    def _call_popup(cls):
+        """The ringing call as an overlay card that stays up until it's answered or ends."""
+        c = cls.incoming
+        if not c:
+            return []
+        if time.time() - c.get("received", 0) > 120:  # never stuck on screen
+            cls.incoming = None
+            return []
+        caller = c.get("caller") or {}
+        return [{
+            "id": f"call-{c.get('channel_id')}", "kind": "call", "sticky": True,
+            "name": caller.get("name") or "Someone", "avatar": caller.get("avatar"),
+            "context": c.get("group") or "",
+            "text": "is calling you",
+            "hint": "Answer or decline in Discordio (Quick Access Menu)",
+            "age": 1.0,
+        }]
+
+    @classmethod
+    async def get_incoming_call(cls):
+        return cls.incoming
+
+    @classmethod
+    async def answer_call(cls, channel_id=None):
+        res = await cls._req("answerCall", {"channelId": channel_id or (cls.incoming or {}).get("channel_id")}, timeout=10)
+        if isinstance(res, dict) and not res.get("error"):
+            cls.incoming = None
+        return res
+
+    @classmethod
+    async def decline_call(cls, channel_id=None):
+        res = await cls._req("declineCall", {"channelId": channel_id or (cls.incoming or {}).get("channel_id")}, timeout=10)
+        if isinstance(res, dict) and not res.get("error"):
+            cls.incoming = None
+        return res
+
+    @classmethod
     async def _on_rtc(cls, data):
         log.info(f"Discord voice connection: {(data or {}).get('state')}")
 
@@ -371,7 +431,7 @@ class Plugin:
         me_id = ((cls.state or {}).get("user") or {}).get("id")
         mine = next((m for m in (voice or {}).get("members", []) if m["id"] == me_id), None)
         return json_response({
-            "messages": cls.messages.active_popups(),
+            "messages": cls._call_popup() + cls.messages.active_popups(),
             "voice": voice,
             "me": {"live": bool(media.get("live")), "muted": bool(mine and mine["muted"]),
                    "deafened": bool(mine and mine["deafened"])},

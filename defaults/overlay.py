@@ -384,7 +384,7 @@ class Overlay:
 
             age = float(m.get("age", 0)) + (time.monotonic() - self.state_time)
             fade_in = min(1.0, age / 0.25)
-            fade_out = min(1.0, max(0.0, (ttl - age) / 0.4))
+            fade_out = 1.0 if m.get("sticky") else min(1.0, max(0.0, (ttl - age) / 0.4))
             a = max(0.0, min(fade_in, fade_out))
             slide = (1 - fade_in) * -8 * s
             if a <= 0:
@@ -395,7 +395,11 @@ class Overlay:
             cr.set_source_rgba(0.07, 0.07, 0.08, 0.82 * a)
             cr.fill()
             cr.rectangle(x, yy + 6 * s, 3 * s, h - 12 * s)
-            cr.set_source_rgba(0.345, 0.396, 0.949, a)
+            if m.get("kind") == "call":
+                pulse = 0.55 + 0.45 * abs(math.sin(time.monotonic() * 3))  # ringing
+                cr.set_source_rgba(0.137, 0.647, 0.353, a * pulse)
+            else:
+                cr.set_source_rgba(0.345, 0.396, 0.949, a)
             cr.fill()
 
             size = int(36 * s)
@@ -434,7 +438,7 @@ class Overlay:
             ty += 15 * s
             cr.set_font_size(10 * s)
             cr.set_source_rgba(1, 1, 1, 0.5 * a)
-            self.text(cr, "Reply from Discordio in the Quick Access Menu", text_x, ty, text_w)
+            self.text(cr, m.get("hint") or "Reply from Discordio in the Quick Access Menu", text_x, ty, text_w)
 
     def member_row(self, cr, m, x, y, w, off, alpha, s):
         size = int(AVATAR * s)

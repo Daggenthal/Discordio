@@ -46,6 +46,8 @@
         background: rgba(18,18,20,0.82); box-shadow: 0 4px 16px rgba(0,0,0,.4); border-left: 3px solid #5865f2;
         animation: dio-in .25s ease-out; transition: opacity .4s, transform .4s; }
       #discordio-messages .dio-msg.leaving { opacity: 0; transform: translateX(-12px); }
+      #discordio-messages .dio-msg.dio-call { border-left-color: #23a55a; animation: dio-in .25s ease-out, dio-ring 1s ease-in-out infinite; }
+      @keyframes dio-ring { 0%, 100% { box-shadow: 0 4px 16px rgba(0,0,0,.4); } 50% { box-shadow: 0 0 0 3px rgba(35,165,90,.55), 0 4px 16px rgba(0,0,0,.4); } }
       @keyframes dio-in { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
       #discordio-messages .dio-msg img { width: 36px; height: 36px; border-radius: 50%; flex-shrink: 0; background: #5865f2; object-fit: cover; }
       #discordio-messages .dio-msg-body { min-width: 0; flex: 1; }
@@ -96,12 +98,12 @@
             seen.add(m.id);
             if (cards.has(m.id)) continue;
             const card = document.createElement("div");
-            card.className = "dio-msg";
+            card.className = "dio-msg" + (m.kind === "call" ? " dio-call" : "");
             card.innerHTML = `${m.avatar ? `<img src="${esc(m.avatar)}">` : "<img>"}<div class="dio-msg-body">` +
                 `<div class="dio-msg-name">${esc(m.name)}</div>` +
                 (m.context ? `<div class="dio-msg-ctx">${esc(m.context)}</div>` : "") +
                 `<div class="dio-msg-text">${esc(m.text)}</div>` +
-                `<div class="dio-msg-hint">Reply from Discordio in the Quick Access Menu</div></div>`;
+                `<div class="dio-msg-hint">${esc(m.hint || "Reply from Discordio in the Quick Access Menu")}</div></div>`;
             msgRoot.prepend(card);
             cards.set(m.id, card);
         }

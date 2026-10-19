@@ -448,6 +448,76 @@
         return { ok: true, method };
     }
 
+    // ------------------------------------------------------- incoming calls
+    // Discord announces a call with CALL_CREATE / CALL_UPDATE, whose
+    // "ringing" list holds the users being rung, and ends it with
+    // CALL_DELETE (or an update that no longer rings us).
+    let incoming = null; // { channel_id, caller, ... } while we're being rung
+
+    function callerFor(ch, ringerId) {
+        const u = me();
+        const id = ringerId || ((ch && ch.recipients) || []).find((r) => !u || r !== u.id);
+        const user = id ? C().UserStore.getUser(id) : null;
+        return { id: id || null, name: user ? userName(user) : channelLabel(ch) || "Someone", avatar: avatarUrl(user) };
+    }
+
+    function onCall(e) {
+        try {
+            const u = me();
+            if (!u) return;
+            const cid = e.channelId || e.channel_id;
+            if (!cid) return;
+            const ringing = (e.ringing || []).map((x) => (x && x.id) || x);
+            const ringingMe = e.type !== "CALL_DELETE" && ringing.includes(u.id) && voiceChannelId() !== cid;
+            if (ringingMe && (!incoming || incoming.channel_id !== cid)) {
+                const ch = C().ChannelStore.getChannel(cid);
+                const isGroup = ch && (ch.recipients || []).length > 1;
+                incoming = {
+                    channel_id: cid,
+                    caller: callerFor(ch, e.ringer || null),
+                    group: isGroup ? channelLabel(ch) : null,
+                    since: Date.now(),
+                };
+                log(`incoming call from ${incoming.caller.name}`);
+                emit("call_incoming", incoming);
+            } else if (!ringingMe && incoming && incoming.channel_id === cid) {
+                const answered = voiceChannelId() === cid;
+                incoming = null;
+                emit("call_ended", { channel_id: cid, answered });
+            }
+        } catch (err) { warn("call event", err); }
+    }
+
+    function answerCall(channelId) {
+        const cid = channelId || (incoming && incoming.channel_id);
+        if (!cid) throw new Error("No call is ringing");
+        const method = selectVoice(null, cid);
+        if (incoming && incoming.channel_id === cid) {
+            incoming = null;
+            emit("call_ended", { channel_id: cid, answered: true });
+        }
+        return { ok: true, method };
+    }
+
+    async function declineCall(channelId) {
+        const cid = channelId || (incoming && incoming.channel_id);
+        if (!cid) throw new Error("No call is ringing");
+        const u = me();
+        // Same as Discord's Decline button: stop ringing just for us.
+        try {
+            const a = props("stopRinging", "ring");
+            if (a && a.stopRinging) await a.stopRinging(cid, [u.id]);
+            else throw new Error("no action");
+        } catch (_) {
+            await C().RestAPI.post({ url: `/channels/${cid}/call/stop-ringing`, body: { recipients: [u.id] } });
+        }
+        if (incoming && incoming.channel_id === cid) {
+            incoming = null;
+            emit("call_ended", { channel_id: cid, answered: false });
+        }
+        return { ok: true };
+    }
+
     // ------------------------------------------------------------------ audio
     function audioDevices() {
         const M = store("MediaEngineStore");
@@ -469,6 +539,9 @@
         return { ok: true, method: selectVoice(ch.guild_id || null, channelId) };
     });
     m("callFriend", ({ userId }) => callFriend(userId));
+    m("incomingCall", () => incoming);
+    m("answerCall", ({ channelId }) => answerCall(channelId));
+    m("declineCall", ({ channelId }) => declineCall(channelId));
     m("guilds", () => guilds());
     m("voiceChannels", ({ guildId }) => voiceChannels(guildId));
     m("friends", () => friends());
@@ -640,6 +713,19 @@
             pushState();
         });
         f.subscribe("MESSAGE_CREATE", onMessage);
+        for (const t of ["CALL_CREATE", "CALL_UPDATE", "CALL_DELETE"]) f.subscribe(t, (e) => onCall({ ...e, type: t }));
+        // Joining the call any other way (in Discord itself) also ends the ringing.
+        f.subscribe("VOICE_CHANNEL_SELECT", () => {
+            if (incoming && voiceChannelId() === incoming.channel_id) onCall({ type: "CALL_DELETE", channelId: incoming.channel_id });
+        });
+        // A call that was already ringing when Discordio loaded.
+        try {
+            const CS = store("CallStore");
+            const u = me();
+            const calls = CS && (CS.getCalls ? CS.getCalls() : Object.values(CS.getState ? CS.getState().calls || {} : {}));
+            for (const c of calls || []) onCall({ type: "CALL_UPDATE", channelId: c.channelId || c.channel_id, ringing: c.ringing || [] });
+            void u;
+        } catch (_) { }
         setInterval(() => pushState(), 2000);
         ready = true;
         log("bridge ready", VERSION);

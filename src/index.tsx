@@ -29,6 +29,7 @@ import { useUiSettings, setUiSetting } from "./lib/settings";
 import { startMicBridge } from "./lib/mic";
 import { AudioDevicesPanel } from "./components/AudioDevicesPanel";
 import { AudioCheckPanel } from "./components/AudioCheckPanel";
+import { IncomingCallBanner, startCallNotifications } from "./components/IncomingCall";
 import { useEffect, useState } from "react";
 import { on } from "./lib/events";
 import { UploadScreenshot } from "./components/UploadScreenshot";
@@ -131,6 +132,7 @@ const Content = () => {
 
   return (
     <>
+      {ready && <SafeSection name="Incoming call"><IncomingCallBanner /></SafeSection>}
       <PanelSection>
         <PanelSectionRow>
           <OpenDiscordButton />
@@ -214,6 +216,7 @@ export default definePlugin(() => {
   // Microphone bridge: Discord's page asks for the mic, this side provides it.
   const stopMic = safe("Microphone bridge listener", () => startMicBridge());
   safe("Controller mic button", () => startMicShortcut());
+  const stopCallNotifications = safe("Incoming call notifications", () => startCallNotifications());
 
   // DMs and mentions: the overlay shows them as popups; when it can't, a Steam toast.
   const notificationListener = (m: any) => {
@@ -277,7 +280,7 @@ export default definePlugin(() => {
     onDismount() {
       disposed = true;
       removeEventListener("message", notificationListener);
-      for (const fn of [unpatchMenu, appLifetimeUnregister, settingsChangeUnregister, cleanupPtt, stopMic]) {
+      for (const fn of [unpatchMenu, appLifetimeUnregister, settingsChangeUnregister, cleanupPtt, stopMic, stopCallNotifications]) {
         try {
           fn?.();
         } catch (_) {}
