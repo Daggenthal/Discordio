@@ -503,21 +503,39 @@
     // CALL_DELETE (or an update that no longer rings us).
     let incoming = null; // { channel_id, caller, ... } while we're being rung
 
+    // The name you know them by: your friend nickname for them if you set
+    // one, else their display name.
+    function friendName(user) {
+        if (!user) return null;
+        try {
+            const R = store("RelationshipStore");
+            const nick = R && R.getNickname && R.getNickname(user.id);
+            if (nick) return nick;
+        } catch (_) { }
+        return userName(user);
+    }
+
     function callerFor(ch, ringerId) {
         const u = me();
         const id = ringerId || ((ch && ch.recipients) || []).find((r) => !u || r !== u.id);
         const user = id ? C().UserStore.getUser(id) : null;
-        return { id: id || null, name: user ? userName(user) : channelLabel(ch) || "Someone", avatar: avatarUrl(user) };
+        return { id: id || null, name: friendName(user) || channelLabel(ch) || "Someone", avatar: avatarUrl(user) };
     }
 
+    let callLogs = 0;
     function onCall(e) {
         try {
             const u = me();
             if (!u) return;
-            const cid = e.channelId || e.channel_id;
+            const call = e.call || e;
+            const cid = call.channelId || call.channel_id || e.channelId || e.channel_id;
             if (!cid) return;
-            const ringing = (e.ringing || []).map((x) => (x && x.id) || x);
-            const ringingMe = e.type !== "CALL_DELETE" && ringing.includes(u.id) && voiceChannelId() !== cid;
+            const ringing = (call.ringing || e.ringing || []).map((x) => String((x && (x.id || x.userId)) || x));
+            if (callLogs < 20 && e.type !== "POLL") {
+                callLogs++;
+                log(`call event ${e.type}: channel ${cid}, ringing ${ringing.length ? (ringing.includes(u.id) ? "you" : ringing.length + " others") : "nobody"}`);
+            }
+            const ringingMe = e.type !== "CALL_DELETE" && ringing.includes(String(u.id)) && voiceChannelId() !== cid;
             if (ringingMe && (!incoming || incoming.channel_id !== cid)) {
                 const ch = C().ChannelStore.getChannel(cid);
                 const isGroup = ch && (ch.recipients || []).length > 1;
@@ -680,7 +698,7 @@
         const u = C().UserStore.getUser(a.id) || a;
         return {
             id: msg.id, channel_id: msg.channel_id,
-            author: { id: a.id, name: userName(u), avatar: avatarUrl(u) },
+            author: { id: a.id, name: friendName(u) || userName(u), avatar: avatarUrl(u) },
             text: messageText(msg),
             time: msgTime(msg.timestamp),
             mine: !!(me() && a.id === me().id),
@@ -692,6 +710,14 @@
             const msg = e.message;
             const u = me();
             if (!msg || !u || !msg.author || msg.author.id === u.id || e.optimistic) return;
+            if (msg.type === 3) {
+                // Discord's "started a call" message: a ring, not a message.
+                const ended = msg.call && msg.call.ended_timestamp;
+                if (!ended && voiceChannelId() !== msg.channel_id) {
+                    onCall({ type: "CALL_MESSAGE", channelId: msg.channel_id, ringing: [u.id], ringer: msg.author.id });
+                }
+                return;
+            }
             const ch = C().ChannelStore.getChannel(msg.channel_id);
             const isDM = ch && !ch.guild_id;
             const mentioned = (msg.mentions || []).some((x) => (x.id || x) === u.id) || !!msg.mention_everyone;
@@ -767,6 +793,35 @@
         f.subscribe("VOICE_CHANNEL_SELECT", () => {
             if (incoming && voiceChannelId() === incoming.channel_id) onCall({ type: "CALL_DELETE", channelId: incoming.channel_id });
         });
+        // Backup: Discord's call list, checked every second (catches rings the
+        // events above miss, and notices when ringing stops).
+        setInterval(() => {
+            try {
+                if (incoming && Date.now() - incoming.since > 65000) onCall({ type: "CALL_DELETE", channelId: incoming.channel_id });
+                const CS = store("CallStore");
+                const u = me();
+                if (!CS || !u) return;
+                const calls = CS.getCalls ? CS.getCalls() : [];
+                const ringingIds = new Set();
+                for (const c of calls || []) {
+                    const cid = c.channelId || c.channel_id;
+                    const ringing = (c.ringing || []).map(String);
+                    if (ringing.includes(String(u.id))) ringingIds.add(cid);
+                    if (ringing.includes(String(u.id)) && (!incoming || incoming.channel_id !== cid)) onCall({ type: "POLL", channelId: cid, ringing });
+                }
+                // Drop the ring once Discord says it stopped (only when its call
+                // list can actually be read), or after Discord's ring time.
+                if (incoming && !ringingIds.has(incoming.channel_id)) {
+                    const age = Date.now() - incoming.since;
+                    let stopped = age > 65000;
+                    if (!stopped && CS.getCalls && CS.getCall && age > 4000) {
+                        const c = CS.getCall(incoming.channel_id);
+                        stopped = !c || (Array.isArray(c.ringing) && !c.ringing.map(String).includes(String(u.id)));
+                    }
+                    if (stopped) onCall({ type: "CALL_DELETE", channelId: incoming.channel_id });
+                }
+            } catch (_) { }
+        }, 1000);
         // A call that was already ringing when Discordio loaded.
         try {
             const CS = store("CallStore");

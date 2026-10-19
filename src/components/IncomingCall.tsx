@@ -3,6 +3,7 @@ import { DialogButton, Focusable, Navigation, PanelSection, PanelSectionRow } fr
 import { useEffect, useRef, useState } from "react";
 import { FaPhone, FaPhoneSlash } from "react-icons/fa";
 import { Avatar } from "./VoiceChatViews";
+import { callHint, setRinging } from "../lib/shortcuts";
 
 type Incoming = {
   channel_id: string;
@@ -14,11 +15,13 @@ type Incoming = {
 // panel, where the Answer / Decline buttons are. Registered once at load.
 export function startCallNotifications() {
   const onCall = (c: any) => {
+    // The controller shortcuts only act while this is set.
+    setRinging(c?.ringing ? c.channel_id : null);
     if (!c?.ringing) return;
     const caller = c.caller || {};
     toaster.toast({
-      title: `${caller.name || "Someone"} is calling`,
-      body: c.group ? `${c.group}: open Discordio to answer` : "Open Discordio in the Quick Access Menu to answer",
+      title: `${caller.name || "Someone"} is calling${c.group ? ` (${c.group})` : ""}`,
+      body: callHint(),
       logo: caller.avatar ? <img src={caller.avatar} style={{ borderRadius: "50%", width: "100%" }} /> : undefined,
       duration: 12000,
       onClick: () => {
@@ -29,7 +32,12 @@ export function startCallNotifications() {
     } as any);
   };
   addEventListener("call", onCall);
-  return () => removeEventListener("call", onCall);
+  // A call already ringing when the plugin loaded.
+  call<[], any>("get_incoming_call").then((c) => c && setRinging(c.channel_id)).catch(() => {});
+  return () => {
+    setRinging(null);
+    removeEventListener("call", onCall);
+  };
 }
 
 // Banner at the top of Discordio while a call is ringing.
@@ -84,6 +92,7 @@ export function IncomingCallBanner() {
               {incoming.caller?.name || "Someone"}
             </div>
             <div style={{ fontSize: 12, opacity: 0.7 }}>{incoming.group ? `Group call · ${incoming.group}` : "is calling you"}</div>
+            <div style={{ fontSize: 11, opacity: 0.6, marginTop: 2 }}>{callHint()}</div>
           </div>
         </div>
       </PanelSectionRow>

@@ -83,6 +83,7 @@ class Plugin:
     state = None          # last state from the Discord page
     ready = False         # page bridge said hello
     incoming = None       # a call ringing us right now
+    call_hint = "Answer or decline in Discordio (Quick Access Menu)"
     capture_events = []   # recent screen-capture events from the page
     mic_events = []
     port = None
@@ -288,9 +289,15 @@ class Plugin:
             "name": caller.get("name") or "Someone", "avatar": caller.get("avatar"),
             "context": c.get("group") or "",
             "text": "is calling you",
-            "hint": "Answer or decline in Discordio (Quick Access Menu)",
+            "hint": cls.call_hint,
             "age": 1.0,
         }]
+
+    @classmethod
+    async def set_call_hint(cls, text):
+        """How to answer, from the QAM's controller shortcut settings (shown on the overlay card)."""
+        cls.call_hint = str(text or "")[:120] or cls.call_hint
+        return True
 
     @classmethod
     async def get_incoming_call(cls):

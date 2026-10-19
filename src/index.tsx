@@ -18,7 +18,7 @@ import { useDeckcordState, isLoaded, isLoggedIn } from "./hooks/useDeckcordState
 import { MuteButton } from "./components/buttons/MuteButton";
 import { DeafenButton } from "./components/buttons/DeafenButton";
 import { DisconnectButton } from "./components/buttons/DisconnectButton";
-import { PushToTalkButton, cleanupPtt, startMicShortcut } from "./components/buttons/PushToTalk";
+import { PushToTalkButton, CallShortcutsPanel, cleanupPtt, startMicShortcut } from "./components/buttons/PushToTalk";
 import { VoiceChannelView } from "./components/VoiceChatViews";
 import { ServersPanel, FriendsPanel } from "./components/BrowsePanels";
 import { UpdatePanel } from "./components/UpdatePanel";
@@ -121,6 +121,7 @@ const SettingsPanel = () => {
       </PanelSectionRow>
       <SafeSection name="Message popups"><MessageSettingsPanel /></SafeSection>
       <SafeSection name="Audio devices"><AudioDevicesPanel /></SafeSection>
+      <SafeSection name="Call shortcuts"><CallShortcutsPanel /></SafeSection>
     </Collapsible>
   );
 };
