@@ -432,7 +432,17 @@ class Overlay:
         return x
 
 
+def die_with_parent():
+    """Exit when the plugin backend exits, so no orphan keeps gamescope's overlay slot."""
+    try:
+        import signal
+        ctypes.CDLL("libc.so.6").prctl(1, signal.SIGTERM)  # PR_SET_PDEATHSIG
+    except Exception:
+        pass
+
+
 def main():
+    die_with_parent()
     try:
         Overlay()
     except Exception as e:

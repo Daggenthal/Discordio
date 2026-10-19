@@ -1,0 +1,100 @@
+"""
+Diagnostics registry.
+
+Every part of the plugin reports its health here (ok / warn / error / off,
+with a short detail), problems go into a ring buffer of recent errors, and a
+log handler keeps the last few hundred log lines. The QAM's Diagnostics
+section and the exported report both read from this one place.
+"""
+
+import logging
+import time
+from collections import deque
+
+OK, WARN, ERROR, OFF, PENDING = "ok", "warn", "error", "off", "pending"
+
+# Display order in the QAM.
+COMPONENTS = [
+    ("steam_ui", "Steam UI connection"),
+    ("discord_view", "Discord view"),
+    ("vencord", "Vencord"),
+    ("bridge", "Discord bridge"),
+    ("account", "Discord account"),
+    ("mic", "Microphone bridge"),
+    ("capture", "Screen capture"),
+    ("overlay", "In-game overlay"),
+    ("updates", "Updates"),
+]
+
+_status = {}
+_errors = deque(maxlen=60)
+_log = deque(maxlen=400)
+_listeners = []
+
+
+def set(component, state, detail="", **extra):
+    """Report a component's health. Errors also land in the recent-errors list."""
+    prev = _status.get(component)
+    entry = {"state": state, "detail": detail, "since": time.time(), **extra}
+    if prev and prev["state"] == state and prev["detail"] == detail:
+        entry["since"] = prev["since"]
+    _status[component] = entry
+    if state == ERROR and (not prev or prev["state"] != ERROR or prev["detail"] != detail):
+        error(component, detail)
+    if not prev or prev["state"] != state or prev["detail"] != detail:
+        for fn in list(_listeners):
+            try:
+                fn()
+            except Exception:
+                pass
+
+
+def get(component):
+    return _status.get(component)
+
+
+def error(component, message):
+    _errors.append({"time": time.time(), "component": component, "message": str(message)[:500]})
+
+
+def on_change(fn):
+    _listeners.append(fn)
+
+
+def snapshot():
+    names = dict(COMPONENTS)
+    comps = []
+    for key, label in COMPONENTS:
+        s = _status.get(key) or {"state": PENDING, "detail": "not started yet", "since": time.time()}
+        comps.append({"key": key, "label": label, **s})
+    for key, s in _status.items():
+        if key not in names:
+            comps.append({"key": key, "label": key, **s})
+    return {
+        "components": comps,
+        "errors": list(_errors)[-20:][::-1],
+    }
+
+
+def log_lines(n=200):
+    return list(_log)[-n:]
+
+
+class _RingHandler(logging.Handler):
+    def emit(self, record):
+        try:
+            _log.append(f"{time.strftime('%H:%M:%S', time.localtime(record.created))} "
+                        f"{record.levelname[0]} {self.format(record)}")
+        except Exception:
+            pass
+
+
+def install_log_handler(logger):
+    h = _RingHandler()
+    h.setFormatter(logging.Formatter("%(message)s"))
+    logger.addHandler(h)
+
+
+def log_external(prefix, line):
+    """Lines from child processes (capture helper, overlay)."""
+    _log.append(f"{time.strftime('%H:%M:%S')} {prefix} {line}")

@@ -41,7 +41,7 @@ export const computeBounds = (mode: BoundsMode = getBoundsMode()) => {
 };
 
 export const applyBounds = () => {
-  const tab = (window as any).DISCORD_TAB;
+  const tab = (window as any).DISCORDIO_VIEW || (window as any).DISCORD_TAB;
   if (!tab?.m_browserView) return;
   const mode = getBoundsMode();
   const { width, height } = computeBounds(mode);
@@ -56,7 +56,7 @@ export const applyBounds = () => {
 };
 
 export const showDiscord = (visible: boolean) => {
-  const tab = (window as any).DISCORD_TAB;
+  const tab = (window as any).DISCORDIO_VIEW || (window as any).DISCORD_TAB;
   if (!tab?.m_browserView) return false;
   if (visible) applyBounds();
   try {

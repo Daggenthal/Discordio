@@ -43,9 +43,8 @@ jobs:
 
       - name: Check Python and injected JS
         run: |
-          python3 -m py_compile main.py defaults/*.py defaults/*/*.py
-          node --check defaults/deckcord_client.js
-          node --check defaults/webrtc_client.js
+          python3 -m py_compile main.py defaults/*.py defaults/discordio/*.py
+          for f in defaults/page/*.js defaults/overlay_web.js; do node --check "$f"; done
 
       - name: Download Decky Plugin CLI
         run: |
@@ -59,6 +58,12 @@ jobs:
         run: |
           $(pwd)/cli/decky plugin build $(pwd)
           unzip out/*.zip -d out/unzipped
+
+      - name: Check the release zip has every part
+        run: |
+          for f in main.py capture.py overlay.py overlay_web.js page/bridge.js page/mic.js page/capture.js page/nav.js discordio/bridge.py dist/index.js plugin.json; do
+            test -f "out/unzipped/Discordio/$f" || { echo "missing $f in the plugin zip"; exit 1; }
+          done
 
       - name: Upload plugin
         uses: actions/upload-artifact@v4
@@ -78,3 +83,4 @@ jobs:
             --title "Build ${{ github.run_number }}" \
             --notes "$(git log -1 --pretty=%s)" \
             --target "${{ github.sha }}"
+

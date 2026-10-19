@@ -25,13 +25,13 @@ import { UpdatePanel } from "./components/UpdatePanel";
 import { OverlayPanel } from "./components/OverlayPanel";
 import { SafeSection } from "./components/SafeSection";
 import { useUiSettings, setUiSetting } from "./lib/settings";
-import { openMic } from "./lib/audio";
+import { startMicBridge } from "./lib/mic";
 import { AudioDevicesPanel } from "./components/AudioDevicesPanel";
 import { useState } from "react";
 import { UploadScreenshot } from "./components/UploadScreenshot";
 import { OpenDiscordButton } from "./components/buttons/OpenCloseDiscordButton";
 import { DiagnosticsPanel } from "./components/DiagnosticsPanel";
-import { safe, safeAsync, note } from "./lib/diag";
+import { safe, note } from "./lib/diag";
 import { applyBounds } from "./lib/view";
 import {
   call,
@@ -44,11 +44,9 @@ import {
 declare global {
   interface Window {
     DISCORD_TAB: any;
+    DISCORDIO_VIEW: any;
+    DISCORDIO_ROUTER: any;
     DECKCORD_ROUTER: any;
-    DECKCORD: {
-      dispatchNotification: any;
-      MIC_PEER_CONNECTION: any;
-    };
   }
 }
 
@@ -175,9 +173,7 @@ const Content = () => {
             <SafeSection name="Friends"><FriendsPanel /></SafeSection>
           </Collapsible>
           <PanelSection title="Screenshots">
-            <PanelSectionRow>
-              <SafeSection name="Screenshots"><UploadScreenshot /></SafeSection>
-            </PanelSectionRow>
+            <SafeSection name="Screenshots"><UploadScreenshot /></SafeSection>
           </PanelSection>
         </>
       )}
@@ -185,7 +181,7 @@ const Content = () => {
       <PanelSection title="Updates">
         <SafeSection name="Updates"><UpdatePanel /></SafeSection>
       </PanelSection>
-      <SafeSection name="Diagnostics"><DiagnosticsPanel backend={state} /></SafeSection>
+      <SafeSection name="Diagnostics"><DiagnosticsPanel /></SafeSection>
     </>
   );
 };
@@ -198,54 +194,19 @@ export default definePlugin(() => {
   // Hand the backend a Router reference. The old code relied on window.DFL,
   // which newer Decky builds do not always expose.
   safe("Expose Steam router", () => {
+    // The backend creates the Discord view through Steam's router.
+    window.DISCORDIO_ROUTER = Router;
     window.DECKCORD_ROUTER = Router;
   });
 
-  window.DECKCORD = {
-    dispatchNotification: (payload: { title: string; body: string }) => {
-      safe("Show notification", () => toaster.toast(payload));
-    },
-    MIC_PEER_CONNECTION: undefined,
-  };
+  // Microphone bridge: Discord's page asks for the mic, this side provides it.
+  const stopMic = safe("Microphone bridge listener", () => startMicBridge());
 
-  let peerConnection: RTCPeerConnection | undefined;
-  const webrtcEventListener = async (data: any) => {
-    if (!data?.webrtc) return;
-    data = data.webrtc;
-    if (data.offer) {
-      await safeAsync("Microphone bridge", async () => {
-        if (peerConnection) peerConnection.close();
-        const pc = new RTCPeerConnection();
-        peerConnection = pc;
-        window.DECKCORD.MIC_PEER_CONNECTION = pc;
-        let localStream: MediaStream;
-        try {
-          localStream = await openMic();
-        } catch (e) {
-          // The saved mic may be unplugged; fall back to the system default.
-          note("Saved microphone unavailable, using default", false, String(e));
-          localStream = await openMic("default");
-        }
-        localStream.getTracks().forEach((track) => pc.addTrack(track, localStream));
-        await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
-        const answer = await pc.createAnswer();
-        await pc.setLocalDescription(answer);
-        await call("mic_webrtc_answer", answer);
-      });
-    } else if (data.ice && peerConnection) {
-      try {
-        let waited = 0;
-        while (peerConnection.remoteDescription == null && waited < 5000) {
-          await sleep(10);
-          waited += 10;
-        }
-        await peerConnection.addIceCandidate(data.ice);
-      } catch (e) {
-        console.error("Deckcord: Error adding received ice candidate", e);
-      }
-    }
+  // DMs and mentions while Discord is closed.
+  const notificationListener = (n: { title: string; body: string }) => {
+    safe("Show notification", () => toaster.toast({ title: n.title, body: n.body || "" }));
   };
-  addEventListener("state", webrtcEventListener);
+  addEventListener("notification", notificationListener);
 
   const setPlaying = () => {
     safe("Report current game", () => {
@@ -295,8 +256,8 @@ export default definePlugin(() => {
     icon: <FaDiscord />,
     onDismount() {
       disposed = true;
-      removeEventListener("state", webrtcEventListener);
-      for (const fn of [unpatchMenu, appLifetimeUnregister, settingsChangeUnregister, cleanupPtt]) {
+      removeEventListener("notification", notificationListener);
+      for (const fn of [unpatchMenu, appLifetimeUnregister, settingsChangeUnregister, cleanupPtt, stopMic]) {
         try {
           fn?.();
         } catch (_) {}

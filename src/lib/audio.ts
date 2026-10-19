@@ -7,6 +7,12 @@
 
 const KEY = "DISCORDIO_MIC_DEVICE";
 
+// The live mic bridge connection (set by lib/mic.ts), for switching devices mid-call.
+let micPc: RTCPeerConnection | null = null;
+export const setMicConnection = (pc: RTCPeerConnection | null) => {
+  micPc = pc;
+};
+
 export type Device = { id: string; label: string };
 
 export const getMicId = (): string => {
@@ -40,7 +46,7 @@ export const setMic = async (id: string) => {
     localStorage.setItem(KEY, id);
   } catch (_) {}
   // Swap the track on the live connection, if Discord is already using the mic.
-  const pc: RTCPeerConnection | undefined = (window as any).DECKCORD?.MIC_PEER_CONNECTION;
+  const pc = micPc;
   if (!pc || pc.connectionState === "closed") return;
   const stream = await openMic(id);
   const track = stream.getAudioTracks()[0];

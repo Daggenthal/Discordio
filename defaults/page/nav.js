@@ -147,7 +147,7 @@
         return false;
     };
 
-    const openKeyboard = () => fetch("http://127.0.0.1:65123/openkb", { mode: "no-cors" }).catch(() => { });
+    const openKeyboard = () => { try { window.DISCORDIO.emit("keyboard", null); } catch (_) { } };
 
     const isTextField = (el) =>
         el.matches("input:not([type=checkbox]):not([type=radio]):not([type=button]), textarea, [role=textbox], [contenteditable=true]");
