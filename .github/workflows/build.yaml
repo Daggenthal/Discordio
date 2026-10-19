@@ -1,0 +1,55 @@
+name: build
+run-name: Build Discordio
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-plugin:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: '9.4.0'
+
+      - name: Build frontend
+        run: |
+          pnpm i --frozen-lockfile
+          pnpm run build
+
+      - name: Check Python and injected JS
+        run: |
+          python3 -m py_compile main.py defaults/*.py defaults/*/*.py
+          node --check defaults/deckcord_client.js
+          node --check defaults/webrtc_client.js
+
+      - name: Download Decky Plugin CLI
+        run: |
+          mkdir $(pwd)/cli
+          curl -L -o $(pwd)/cli/decky "https://github.com/SteamDeckHomebrew/cli/releases/latest/download/decky-linux-x86_64"
+          chmod +x $(pwd)/cli/decky
+
+      # The Decky CLI also builds backend/ in Docker, which bundles the
+      # GStreamer libraries Go Live needs into bin/.
+      - name: Build plugin
+        run: |
+          $(pwd)/cli/decky plugin build $(pwd)
+          unzip out/*.zip -d out/unzipped
+
+      - name: Upload plugin
+        uses: actions/upload-artifact@v4
+        with:
+          name: Discordio
+          path: out/unzipped/*

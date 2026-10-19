@@ -1,0 +1,14 @@
+{
+  "name": "Discordio",
+  "author": "Daggenthal",
+  "api_version": 1,
+  "flags": [],
+  "publish": {
+    "tags": [
+      "discord",
+      "chat"
+    ],
+    "description": "Discord in Game Mode: voice controls, chat, and Go Live with selectable quality",
+    "image": "https://opengraph.githubassets.com/1/SteamDeckHomebrew/PluginLoader"
+  }
+}
