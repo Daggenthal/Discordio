@@ -30,6 +30,7 @@ import { startMicBridge } from "./lib/mic";
 import { AudioDevicesPanel } from "./components/AudioDevicesPanel";
 import { AudioCheckPanel } from "./components/AudioCheckPanel";
 import { StreamQualityPanel } from "./components/GoLivePanel";
+import { AccountPanel } from "./components/AccountPanel";
 import { IncomingCallBanner, startCallNotifications } from "./components/IncomingCall";
 import { CaptchaBanner, startCaptchaNotifications } from "./components/CaptchaBanner";
 import { useEffect, useState } from "react";
@@ -130,6 +131,7 @@ const SettingsPanel = () => {
       <SafeSection name="Stream quality"><StreamQualityPanel /></SafeSection>
       <SafeSection name="Audio devices"><AudioDevicesPanel /></SafeSection>
       <SafeSection name="Call shortcuts"><CallShortcutsPanel /></SafeSection>
+      <SafeSection name="Account"><AccountPanel /></SafeSection>
     </Collapsible>
   );
 };

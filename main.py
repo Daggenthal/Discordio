@@ -646,6 +646,41 @@ class Plugin:
         cls.messages.mark_read(channel_id)
         return await cls._req("history", {"channelId": channel_id, "limit": 30}, timeout=15)
 
+    # -- people in your call
+
+    @classmethod
+    async def set_local_mute(cls, user_id, muted):
+        """Mute someone for you only (they don't know)."""
+        return await cls._req("setLocalMute", {"userId": user_id, "muted": bool(muted)})
+
+    @classmethod
+    async def set_user_volume(cls, user_id, volume):
+        """Someone's volume for you only, 0 to 200 (%)."""
+        return await cls._req("setUserVolume", {"userId": user_id, "volume": volume})
+
+    @classmethod
+    async def moderate(cls, user_id, action, value=None):
+        """Server mute / deafen / disconnect someone (needs the permission)."""
+        res = await cls._req("moderate", {"userId": user_id, "action": action, "value": value}, timeout=15)
+        log.info(f"Moderation {action}={value} on {user_id}: {res}")
+        return res
+
+    # -- account
+
+    @classmethod
+    async def get_accounts(cls):
+        return await cls._req("accounts")
+
+    @classmethod
+    async def switch_account(cls, user_id):
+        log.info("Switching Discord account")
+        return await cls._req("switchAccount", {"userId": user_id}, timeout=20)
+
+    @classmethod
+    async def logout(cls):
+        log.info("Logging out of Discord")
+        return await cls._req("logout", timeout=15)
+
     @classmethod
     async def open_dm(cls, user_id):
         """The DM channel with a friend (created if there's none yet)."""

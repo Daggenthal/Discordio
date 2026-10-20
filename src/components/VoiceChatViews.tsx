@@ -1,5 +1,7 @@
 import { call } from "@decky/api";
-import { ButtonItem, PanelSectionRow } from "@decky/ui";
+import { ButtonItem, PanelSectionRow, ToggleField, Focusable } from "@decky/ui";
+import { toaster } from "@decky/api";
+import { ChoiceSlider } from "./ChoiceSlider";
 import { GoLivePanel } from "./GoLivePanel";
 import { useEffect, useRef, useState } from "react";
 import { FaMicrophoneSlash, FaVolumeMute, FaVideo, FaPhoneSlash } from "react-icons/fa";
@@ -13,10 +15,17 @@ export type Member = {
   deafened: boolean;
   live: boolean;
   video?: boolean;
+  server_muted?: boolean;
+  server_deafened?: boolean;
+  local_muted?: boolean;
+  volume?: number;
 };
 
 export type VoiceInfo = {
   channel_id: string;
+  can?: { mute: boolean; deafen: boolean; move: boolean };
+  me?: string | null;
+  guild_id?: string | null;
   channel_name: string;
   guild_name: string;
   members: Member[];
@@ -77,6 +86,7 @@ export const MemberRow = ({ m }: { m: Member }) => (
 export function VoiceChannelView() {
   const voice = useVoice();
   const anchor = useRef<HTMLDivElement>(null);
+  const [openId, setOpenId] = useState<string | null>(null);
   const lastChannel = useRef<string | null | undefined>(undefined);
 
   // When you join a call (or switch to another), bring the Call section into
@@ -122,11 +132,19 @@ export function VoiceChannelView() {
           <div style={{ fontSize: "12px", opacity: 0.7, marginBottom: "6px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {voice.guild_name} · {voice.members.length} in call
           </div>
-          {voice.members.map((m) => (
-            <MemberRow key={m.id} m={m} />
-          ))}
         </div>
       </PanelSectionRow>
+      {voice.members.map((m) => (
+        <MemberItem
+          key={m.id}
+          m={m}
+          isMe={m.id === voice.me}
+          can={voice.can}
+          inServer={!!voice.guild_id}
+          open={openId === m.id}
+          onToggle={() => setOpenId(openId === m.id ? null : m.id)}
+        />
+      ))}
       <CallHealth />
       <GoLivePanel inCall />
       <PanelSectionRow>
@@ -156,5 +174,118 @@ function CallHealth() {
     <PanelSectionRow>
       <div style={{ fontSize: "11px", color, wordBreak: "break-word" }}>{h.detail}</div>
     </PanelSectionRow>
+  );
+}
+
+const VOLUMES = Array.from({ length: 21 }, (_, i) => i * 10).map((v) => ({
+  value: v,
+  short: v === 0 || v === 100 || v === 200 ? `${v}%` : "",
+  label: `${v}%`,
+}));
+
+// Someone in your call: select (A) for their controls.
+function MemberItem({
+  m,
+  isMe,
+  can,
+  inServer,
+  open,
+  onToggle,
+}: {
+  m: Member;
+  isMe: boolean;
+  inServer: boolean;
+  can?: { mute: boolean; deafen: boolean; move: boolean };
+  open: boolean;
+  onToggle: () => void;
+}) {
+  const [confirmKick, setConfirmKick] = useState(false);
+  useEffect(() => {
+    if (!confirmKick) return;
+    const t = setTimeout(() => setConfirmKick(false), 4000);
+    return () => clearTimeout(t);
+  }, [confirmKick]);
+
+  const run = async (method: string, ...args: any[]) => {
+    const res: any = await call(method as any, ...args);
+    if (res?.error) toaster.toast({ title: "Discordio", body: res.error });
+    return res;
+  };
+
+  return (
+    <>
+      <PanelSectionRow>
+        <ButtonItem layout="below" onClick={onToggle} disabled={isMe}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0, textAlign: "left" }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <MemberRow m={m} />
+            </div>
+            {m.local_muted && <span style={{ fontSize: 10, opacity: 0.7 }}>muted for you</span>}
+            {!isMe && m.volume !== undefined && m.volume !== 100 && <span style={{ fontSize: 10, opacity: 0.7 }}>{m.volume}%</span>}
+            {!isMe && <span style={{ opacity: 0.5 }}>{open ? "▾" : "▸"}</span>}
+          </div>
+        </ButtonItem>
+      </PanelSectionRow>
+      {open && !isMe && (
+        <Focusable style={{ paddingLeft: 12, borderLeft: "2px solid rgba(255,255,255,0.15)", marginLeft: 4 }}>
+          <PanelSectionRow>
+            <ToggleField
+              label="Mute for me"
+              description="Only you stop hearing them"
+              checked={!!m.local_muted}
+              onChange={(v) => run("set_local_mute", m.id, v)}
+            />
+          </PanelSectionRow>
+          <PanelSectionRow>
+            <ChoiceSlider
+              label="Volume for me"
+              choices={VOLUMES}
+              value={Math.round((m.volume ?? 100) / 10) * 10}
+              onChange={(v) => run("set_user_volume", m.id, v)}
+            />
+          </PanelSectionRow>
+          {can?.mute && (
+            <PanelSectionRow>
+              <ToggleField
+                label="Server mute"
+                description="Nobody in the server hears them"
+                checked={!!m.server_muted}
+                onChange={(v) => run("moderate", m.id, "mute", v)}
+              />
+            </PanelSectionRow>
+          )}
+          {can?.deafen && (
+            <PanelSectionRow>
+              <ToggleField
+                label="Server deafen"
+                description="They can't hear anyone in the server"
+                checked={!!m.server_deafened}
+                onChange={(v) => run("moderate", m.id, "deafen", v)}
+              />
+            </PanelSectionRow>
+          )}
+          {can?.move && (
+            <PanelSectionRow>
+              <ButtonItem
+                layout="below"
+                onClick={async () => {
+                  if (!confirmKick) return setConfirmKick(true);
+                  setConfirmKick(false);
+                  const res = await run("moderate", m.id, "disconnect");
+                  if (!res?.error) toaster.toast({ title: "Discordio", body: `Disconnected ${m.name}` });
+                }}
+              >
+                <span style={{ color: "#ff6b6b" }}>{confirmKick ? `Press again to disconnect ${m.name}` : "Disconnect from voice"}</span>
+              </ButtonItem>
+            </PanelSectionRow>
+          )}
+          {inServer && !can?.mute && !can?.deafen && !can?.move && (
+            <PanelSectionRow>
+              <div style={{ fontSize: 11, opacity: 0.6 }}>Server mute, deafen and disconnect need moderator permissions here.</div>
+            </PanelSectionRow>
+          )}
+        </Focusable>
+      )}
+    </>
   );
 }

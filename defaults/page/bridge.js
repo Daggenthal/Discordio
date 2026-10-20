@@ -124,11 +124,17 @@
         if (!VS) return [];
         let states = {};
         try { states = VS.getVoiceStatesForChannel(channelId) || {}; } catch (_) { }
+        const M = store("MediaEngineStore");
         return Object.values(states).map((s) => {
             const u = C().UserStore.getUser(s.userId);
+            let localMuted = false, volume = 100;
+            try { localMuted = !!(M && M.isLocalMute && M.isLocalMute(s.userId, "default")); } catch (_) { }
+            try { if (M && M.getLocalVolume) volume = Math.round(M.getLocalVolume(s.userId, "default")); } catch (_) { }
             return {
-                id: s.userId, name: userName(u), avatar: avatarUrl(u),
+                id: s.userId, name: friendName(u) || userName(u), avatar: avatarUrl(u),
                 muted: !!(s.selfMute || s.mute), deafened: !!(s.selfDeaf || s.deaf),
+                server_muted: !!s.mute, server_deafened: !!s.deaf,
+                local_muted: localMuted, volume,
                 live: !!s.selfStream, video: !!s.selfVideo, speaking: speaking.has(s.userId),
             };
         });
@@ -144,6 +150,8 @@
             : null;
         return {
             channel_id: id,
+            can: modPermissions(ch),
+            me: (me() || {}).id || null,
             channel_name: dmName || (ch && ch.name) || "Voice",
             guild_id: (ch && ch.guild_id) || null,
             guild_name: guild ? guild.name : "Direct call",
@@ -605,6 +613,99 @@
         if (document.body) start(); else addEventListener("DOMContentLoaded", start);
     }
 
+    // ------------------------------------------------ people in your call
+    // Moderation needs the matching permission in that channel; DM calls
+    // have none of these.
+    function modPermissions(ch) {
+        const out = { mute: false, deafen: false, move: false };
+        if (!ch || !ch.guild_id) return out;
+        try {
+            const P = C().PermissionStore || store("PermissionStore");
+            const B = C().PermissionsBits || {};
+            const can = (bit, fallback) => !!(P && P.can && P.can(bit !== undefined ? bit : fallback, ch));
+            out.mute = can(B.MUTE_MEMBERS, 1n << 22n);
+            out.deafen = can(B.DEAFEN_MEMBERS, 1n << 23n);
+            out.move = can(B.MOVE_MEMBERS, 1n << 24n);
+        } catch (e) { warn("permissions", e); }
+        return out;
+    }
+
+    function setLocalMute(userId, muted) {
+        const M = store("MediaEngineStore");
+        const now = !!(M && M.isLocalMute && M.isLocalMute(userId, "default"));
+        if (now === !!muted) return { ok: true };
+        const a = props("toggleLocalMute");
+        if (a && a.toggleLocalMute) a.toggleLocalMute(userId, "default");
+        else dispatch({ type: "AUDIO_TOGGLE_LOCAL_MUTE", context: "default", userId });
+        return { ok: true };
+    }
+
+    function setUserVolume(userId, volume) {
+        const v = Math.max(0, Math.min(200, Number(volume) || 0));
+        const a = props("setLocalVolume");
+        if (a && a.setLocalVolume) a.setLocalVolume(userId, v, "default");
+        else dispatch({ type: "AUDIO_SET_LOCAL_VOLUME", context: "default", userId, volume: v });
+        return { ok: true, volume: v };
+    }
+
+    // Server mute / deafen / disconnect: the same request Discord's own
+    // right-click menu sends. Discord refuses it without the permission.
+    async function moderate(userId, action, value) {
+        const vc = voiceChannelId();
+        const ch = vc && C().ChannelStore.getChannel(vc);
+        if (!ch || !ch.guild_id) throw new Error("That only works in a server voice channel");
+        const body = action === "mute" ? { mute: !!value }
+            : action === "deafen" ? { deaf: !!value }
+            : action === "disconnect" ? { channel_id: null }
+            : null;
+        if (!body) throw new Error("Unknown action " + action);
+        try {
+            await C().RestAPI.patch({ url: `/guilds/${ch.guild_id}/members/${userId}`, body });
+        } catch (e) {
+            const status = e && (e.status || (e.body && e.body.code));
+            if (e && e.status === 403) throw new Error("You don't have permission to do that in this server");
+            throw new Error((e && e.body && e.body.message) || `Discord refused (${status || e})`);
+        }
+        return { ok: true };
+    }
+
+    // ------------------------------------------------------------- account
+    function accounts() {
+        const u = me();
+        let saved = [];
+        try {
+            const MA = store("MultiAccountStore");
+            saved = ((MA && MA.getUsers && MA.getUsers()) || []).map((a) => ({
+                id: a.id, name: a.globalName || a.global_name || a.username,
+                avatar: a.avatar ? `https://cdn.discordapp.com/avatars/${a.id}/${a.avatar}.webp?size=64` : null,
+                current: !!(u && a.id === u.id), valid: a.tokenStatus !== 2,
+            }));
+        } catch (_) { }
+        return {
+            me: u ? { id: u.id, name: userName(u), avatar: avatarUrl(u) } : null,
+            saved,
+            canSwitch: !!props("switchAccount"),
+        };
+    }
+
+    async function switchAccount(userId) {
+        const a = props("switchAccount");
+        if (!a || !a.switchAccount) throw new Error("Discord's account switcher wasn't found; switch accounts inside Discord");
+        await a.switchAccount(userId);
+        return { ok: true };
+    }
+
+    async function logout() {
+        const a = props("logout", "login");
+        try {
+            if (a && a.logout) { await a.logout(); return { ok: true, method: "action" }; }
+        } catch (e) { warn("logout action", e); }
+        try { await C().RestAPI.post({ url: "/auth/logout", body: { provider: null, voip_provider: null } }); } catch (_) { }
+        try { dispatch({ type: "LOGOUT" }); } catch (_) { }
+        setTimeout(() => { location.href = "/login"; }, 300);
+        return { ok: true, method: "rest" };
+    }
+
     // ------------------------------------------------------- incoming calls
     // Discord announces a call with CALL_CREATE / CALL_UPDATE, whose
     // "ringing" list holds the users being rung, and ends it with
@@ -721,6 +822,12 @@
     });
     m("callFriend", ({ userId }) => callFriend(userId));
     m("incomingCall", () => incoming);
+    m("setLocalMute", ({ userId, muted }) => setLocalMute(userId, muted));
+    m("setUserVolume", ({ userId, volume }) => setUserVolume(userId, volume));
+    m("moderate", ({ userId, action, value }) => moderate(userId, action, value));
+    m("accounts", () => accounts());
+    m("switchAccount", ({ userId }) => switchAccount(userId));
+    m("logout", () => logout());
     m("openDm", async ({ userId }) => {
         const id = await dmChannel(userId);
         const ch = C().ChannelStore.getChannel(id);
