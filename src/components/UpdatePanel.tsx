@@ -1,5 +1,7 @@
 import { call, toaster } from "@decky/api";
-import { ButtonItem, PanelSectionRow } from "@decky/ui";
+import { ButtonItem, PanelSection, PanelSectionRow } from "@decky/ui";
+import { FaDownload } from "react-icons/fa";
+import { ColorButton } from "./ColorButton";
 import { useEffect, useState } from "react";
 import { note } from "../lib/diag";
 
@@ -19,8 +21,76 @@ type UpdateInfo = {
 const INSTALL_TYPE_UPDATE = 2;
 const INSTALL_TYPE_OVERWRITE = 4;
 
-// Checked once per Steam session unless the user asks again.
+// Checked once per Steam session (and every 30 minutes) unless the user
+// asks again. Shared by the banner at the top and the panel at the bottom.
 let cached: UpdateInfo | null = null;
+let checking: Promise<UpdateInfo> | null = null;
+const subscribers = new Set<(i: UpdateInfo) => void>();
+let lastCheck = 0;
+
+const checkNow = async (): Promise<UpdateInfo> => {
+  if (checking) return checking;
+  checking = call<[], UpdateInfo>("get_update_info")
+    .then((res) => {
+      cached = res;
+      lastCheck = Date.now();
+      note("Update check", !res.error, res.error ?? (res.available ? `build ${res.latest_build} available` : "up to date"));
+      subscribers.forEach((fn) => fn(res));
+      return res;
+    })
+    .finally(() => {
+      checking = null;
+    });
+  return checking;
+};
+
+function useUpdateInfo() {
+  const [info, setInfo] = useState<UpdateInfo | null>(cached);
+  useEffect(() => {
+    subscribers.add(setInfo);
+    if (!cached || Date.now() - lastCheck > 30 * 60 * 1000) checkNow().catch(() => {});
+    return () => {
+      subscribers.delete(setInfo);
+    };
+  }, []);
+  return info;
+}
+
+// Across the top of Discordio when a newer build is out.
+export function UpdateBanner() {
+  const info = useUpdateInfo();
+  const [busy, setBusy] = useState(false);
+  if (!info?.available) return null;
+  const current = info.current_build ? `build ${info.current_build}` : info.current || "local build";
+  return (
+    <PanelSection title="Update available">
+      <PanelSectionRow>
+        <div style={{ fontSize: 12, lineHeight: "16px" }}>
+          <b>{info.latest}</b> is out (you have {current}).
+          {info.notes && <div style={{ opacity: 0.75, marginTop: 2 }}>{info.notes.split("\n")[0]}</div>}
+        </div>
+      </PanelSectionRow>
+      <PanelSectionRow>
+        <ColorButton
+          color="#5865f2"
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true);
+            try {
+              await install(info);
+            } catch (e) {
+              toaster.toast({ title: "Discordio", body: `Update failed: ${e}` });
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          <FaDownload /> {busy ? "Updating..." : "Update now"}
+        </ColorButton>
+      </PanelSectionRow>
+    </PanelSection>
+  );
+}
 
 const install = async (info: UpdateInfo) => {
   const backend = (window as any).DeckyBackend;
@@ -42,24 +112,17 @@ const install = async (info: UpdateInfo) => {
 };
 
 export function UpdatePanel() {
-  const [info, setInfo] = useState<UpdateInfo | null>(cached);
+  const info = useUpdateInfo();
   const [busy, setBusy] = useState(false);
 
   const check = async () => {
     setBusy(true);
     try {
-      const res = await call<[], UpdateInfo>("get_update_info");
-      cached = res;
-      setInfo(res);
-      note("Update check", !res.error, res.error ?? (res.available ? `build ${res.latest_build} available` : "up to date"));
+      await checkNow();
     } finally {
       setBusy(false);
     }
   };
-
-  useEffect(() => {
-    if (!cached) check();
-  }, []);
 
   const current = info?.current_build ? `build ${info.current_build}` : info?.current || "local build";
 

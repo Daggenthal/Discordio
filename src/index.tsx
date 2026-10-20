@@ -31,6 +31,8 @@ import { AudioDevicesPanel } from "./components/AudioDevicesPanel";
 import { AudioCheckPanel } from "./components/AudioCheckPanel";
 import { StreamQualityPanel } from "./components/GoLivePanel";
 import { AccountPanel } from "./components/AccountPanel";
+import { UpdateBanner } from "./components/UpdatePanel";
+import { startLoginHandoff } from "./lib/loginHandoff";
 import { IncomingCallBanner, startCallNotifications } from "./components/IncomingCall";
 import { CaptchaBanner, startCaptchaNotifications } from "./components/CaptchaBanner";
 import { useEffect, useState } from "react";
@@ -143,6 +145,7 @@ const Content = () => {
 
   return (
     <>
+      <SafeSection name="Update banner"><UpdateBanner /></SafeSection>
       {ready && <SafeSection name="Incoming call"><IncomingCallBanner /></SafeSection>}
       {ready && <SafeSection name="Human check"><CaptchaBanner /></SafeSection>}
       <PanelSection>
@@ -230,6 +233,7 @@ export default definePlugin(() => {
   safe("Controller mic button", () => startMicShortcut());
   const stopCallNotifications = safe("Incoming call notifications", () => startCallNotifications());
   const stopCaptchaNotifications = safe("Human check notifications", () => startCaptchaNotifications());
+  const stopLoginHandoff = safe("Login hand-off", () => startLoginHandoff());
 
   // DMs and mentions: the overlay shows them as popups; when it can't, a Steam toast.
   const notificationListener = (m: any) => {
@@ -293,7 +297,7 @@ export default definePlugin(() => {
     onDismount() {
       disposed = true;
       removeEventListener("message", notificationListener);
-      for (const fn of [unpatchMenu, appLifetimeUnregister, settingsChangeUnregister, cleanupPtt, stopMic, stopCallNotifications, stopCaptchaNotifications]) {
+      for (const fn of [unpatchMenu, appLifetimeUnregister, settingsChangeUnregister, cleanupPtt, stopMic, stopCallNotifications, stopCaptchaNotifications, stopLoginHandoff]) {
         try {
           fn?.();
         } catch (_) {}
