@@ -33,6 +33,7 @@ import { StreamQualityPanel } from "./components/GoLivePanel";
 import { AccountPanel } from "./components/AccountPanel";
 import { UpdateBanner } from "./components/UpdatePanel";
 import { startLoginHandoff } from "./lib/loginHandoff";
+import { reopenAfterUpdate } from "./lib/reopen";
 import { IncomingCallBanner, startCallNotifications } from "./components/IncomingCall";
 import { CaptchaBanner, startCaptchaNotifications } from "./components/CaptchaBanner";
 import { useEffect, useState } from "react";
@@ -234,6 +235,9 @@ export default definePlugin(() => {
   const stopCallNotifications = safe("Incoming call notifications", () => startCallNotifications());
   const stopCaptchaNotifications = safe("Human check notifications", () => startCaptchaNotifications());
   const stopLoginHandoff = safe("Login hand-off", () => startLoginHandoff());
+  safe("Reopen after update", () =>
+    call<[], any>("get_update_info").then((i) => reopenAfterUpdate(i?.current_build ? `build ${i.current_build}` : "")).catch(() => reopenAfterUpdate(""))
+  );
 
   // DMs and mentions: the overlay shows them as popups; when it can't, a Steam toast.
   const notificationListener = (m: any) => {

@@ -4,6 +4,8 @@ import { FaDownload } from "react-icons/fa";
 import { ColorButton } from "./ColorButton";
 import { useEffect, useState } from "react";
 import { note } from "../lib/diag";
+import { clearUpdating, markUpdating } from "../lib/reopen";
+import { Navigation } from "@decky/ui";
 
 type UpdateInfo = {
   current: string;
@@ -98,10 +100,22 @@ const install = async (info: UpdateInfo) => {
     toaster.toast({ title: "Discordio", body: "This Decky version can't install updates from plugins" });
     return;
   }
+  // Discordio reloads after installing: say so, and leave a note so the new
+  // build reopens itself (see lib/reopen.ts).
+  toaster.toast({
+    title: "Updating Discordio",
+    body: "It will close for a moment while it installs, then reopen by itself",
+    duration: 6000,
+  } as any);
+  markUpdating(info.current_build, info.latest);
   // Same call Decky's "Install plugin from URL" uses. Decky shows its own
   // confirmation dialog, downloads the zip, swaps the files and reloads the
   // plugin, with no Desktop Mode trip or Decky restart.
-  await backend.call(
+  try {
+    try {
+      Navigation.CloseSideMenus();
+    } catch (_) {}
+    await backend.call(
     "utilities/install_plugin",
     info.url,
     "Discordio",
@@ -109,6 +123,10 @@ const install = async (info: UpdateInfo) => {
     false,
     info.current_build ? INSTALL_TYPE_UPDATE : INSTALL_TYPE_OVERWRITE
   );
+  } catch (e) {
+    clearUpdating(); // no reload is coming
+    throw e;
+  }
 };
 
 export function UpdatePanel() {
