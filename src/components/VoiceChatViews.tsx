@@ -177,6 +177,9 @@ function CallHealth() {
   );
 }
 
+// The red Discord uses for moderator actions in its menus.
+const ADMIN = "#f23f43";
+
 const VOLUMES = Array.from({ length: 21 }, (_, i) => i * 10).map((v) => ({
   value: v,
   short: v === 0 || v === 100 || v === 200 ? `${v}%` : "",
@@ -220,7 +223,7 @@ function MemberItem({
             <div style={{ flex: 1, minWidth: 0 }}>
               <MemberRow m={m} />
             </div>
-            {m.local_muted && <span style={{ fontSize: 10, opacity: 0.7 }}>muted for you</span>}
+            {m.local_muted && <span style={{ fontSize: 10, opacity: 0.7 }}>locally muted</span>}
             {!isMe && m.volume !== undefined && m.volume !== 100 && <span style={{ fontSize: 10, opacity: 0.7 }}>{m.volume}%</span>}
             {!isMe && <span style={{ opacity: 0.5 }}>{open ? "▾" : "▸"}</span>}
           </div>
@@ -230,7 +233,7 @@ function MemberItem({
         <Focusable style={{ paddingLeft: 12, borderLeft: "2px solid rgba(255,255,255,0.15)", marginLeft: 4 }}>
           <PanelSectionRow>
             <ToggleField
-              label="Mute for me"
+              label="Local Mute"
               description="Only you stop hearing them"
               checked={!!m.local_muted}
               onChange={(v) => run("set_local_mute", m.id, v)}
@@ -238,7 +241,7 @@ function MemberItem({
           </PanelSectionRow>
           <PanelSectionRow>
             <ChoiceSlider
-              label="Volume for me"
+              label="Voice Volume"
               choices={VOLUMES}
               value={Math.round((m.volume ?? 100) / 10) * 10}
               onChange={(v) => run("set_user_volume", m.id, v)}
@@ -247,7 +250,7 @@ function MemberItem({
           {can?.mute && (
             <PanelSectionRow>
               <ToggleField
-                label="Server mute"
+                label={<span style={{ color: ADMIN }}>Server Mute</span>}
                 description="Nobody in the server hears them"
                 checked={!!m.server_muted}
                 onChange={(v) => run("moderate", m.id, "mute", v)}
@@ -257,7 +260,7 @@ function MemberItem({
           {can?.deafen && (
             <PanelSectionRow>
               <ToggleField
-                label="Server deafen"
+                label={<span style={{ color: ADMIN }}>Server Deafen</span>}
                 description="They can't hear anyone in the server"
                 checked={!!m.server_deafened}
                 onChange={(v) => run("moderate", m.id, "deafen", v)}
@@ -275,7 +278,7 @@ function MemberItem({
                   if (!res?.error) toaster.toast({ title: "Discordio", body: `Disconnected ${m.name}` });
                 }}
               >
-                <span style={{ color: "#ff6b6b" }}>{confirmKick ? `Press again to disconnect ${m.name}` : "Disconnect from voice"}</span>
+                <span style={{ color: ADMIN }}>{confirmKick ? `Press again to disconnect ${m.name}` : "Server Disconnect"}</span>
               </ButtonItem>
             </PanelSectionRow>
           )}

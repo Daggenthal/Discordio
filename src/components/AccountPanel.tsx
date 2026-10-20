@@ -63,7 +63,7 @@ export function AccountPanel() {
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <Avatar src={a.me.avatar} size={28} />
             <span>
-              Logged in as <b>{a.me.name}</b>
+              Current Account: <b>{a.me.name}</b>
             </span>
           </div>
         </PanelSectionRow>
@@ -77,7 +77,7 @@ export function AccountPanel() {
           >
             <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
               <Avatar src={x.avatar} size={24} />
-              Switch to {x.name}
+              Switch Account: {x.name}
               {!x.valid && <span style={{ fontSize: 10, opacity: 0.7 }}>(needs logging in again)</span>}
             </span>
           </ButtonItem>
@@ -89,7 +89,7 @@ export function AccountPanel() {
           description="Opens Discord: select your avatar (bottom left), then Switch Accounts and Add an Account"
           onClick={() => Router.Navigate("/discord")}
         >
-          Add an account
+          Add Another Account
         </ButtonItem>
       </PanelSectionRow>
       <PanelSectionRow>
@@ -102,7 +102,7 @@ export function AccountPanel() {
             act(() => call("logout"), "Logged out. Open Discord to log in again");
           }}
         >
-          <span style={{ color: "#ff6b6b" }}>{confirm ? "Press again to log out" : "Log out"}</span>
+          <span style={{ color: "#ff6b6b" }}>{confirm ? "Press again to logout" : "Logout"}</span>
         </ButtonItem>
       </PanelSectionRow>
     </>
