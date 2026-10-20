@@ -67,6 +67,9 @@ export function AudioCheckPanel() {
   return (
     <>
       <PanelSectionRow>
+        <div style={{ fontWeight: 700, fontSize: "13px", marginTop: "6px" }}>Test</div>
+      </PanelSectionRow>
+      <PanelSectionRow>
         <ToggleField
           label="Hear yourself"
           description="Plays your microphone back through your speakers or headset during the test"

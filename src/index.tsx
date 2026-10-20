@@ -137,8 +137,6 @@ const SettingsPanel = () => {
         <div style={{ fontWeight: 700, fontSize: "13px", marginTop: "6px" }}>Stream quality</div>
       </PanelSectionRow>
       <SafeSection name="Stream quality"><StreamQualityPanel /></SafeSection>
-      <SafeSection name="Audio devices"><AudioDevicesPanel /></SafeSection>
-      <SafeSection name="Call shortcuts"><CallShortcutsPanel /></SafeSection>
       <SafeSection name="Account"><AccountPanel /></SafeSection>
     </Collapsible>
   );
@@ -197,8 +195,10 @@ const Content = () => {
             </PanelSection>
           )}
           <Collapsible title="Voice & Sound" defaultOpen={false}>
+            <SafeSection name="Audio devices"><AudioDevicesPanel /></SafeSection>
             <SafeSection name="Audio check"><AudioCheckPanel /></SafeSection>
             <SafeSection name="Mic button"><PushToTalkButton /></SafeSection>
+            <SafeSection name="Call shortcuts"><CallShortcutsPanel /></SafeSection>
           </Collapsible>
           <Collapsible title="Messages" defaultOpen={true}>
             <SafeSection name="Messages"><MessagesPanel /></SafeSection>
