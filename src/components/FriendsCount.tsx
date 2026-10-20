@@ -22,7 +22,7 @@ export function FriendsCount() {
   }, []);
   if (!counts) return null;
   return (
-    <div style={{ fontSize: 12, opacity: 0.8, display: "flex", alignItems: "center", gap: 6 }}>
+    <div style={{ fontSize: 12, opacity: 0.8, display: "flex", alignItems: "center", gap: 6, marginTop: 12, marginBottom: 8 }}>
       <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#23a55a", display: "inline-block" }} />
       {counts.online} online · {counts.total} friends
     </div>
