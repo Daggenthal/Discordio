@@ -32,6 +32,7 @@ import { AudioCheckPanel } from "./components/AudioCheckPanel";
 import { StreamQualityPanel } from "./components/GoLivePanel";
 import { AccountPanel } from "./components/AccountPanel";
 import { UpdateBanner } from "./components/UpdatePanel";
+import { FriendsCount } from "./components/FriendsCount";
 import { startLoginHandoff } from "./lib/loginHandoff";
 import { reopenAfterUpdate } from "./lib/reopen";
 import { IncomingCallBanner, startCallNotifications } from "./components/IncomingCall";
@@ -127,6 +128,10 @@ const SettingsPanel = () => {
           onChange={(v) => setUiSetting("autoOpenFriends", v)}
         />
       </PanelSectionRow>
+      <PanelSectionRow>
+        <div style={{ fontWeight: 700, fontSize: "13px", marginTop: "6px" }}>In-game overlay</div>
+      </PanelSectionRow>
+      <SafeSection name="Overlay"><OverlayPanel /></SafeSection>
       <SafeSection name="Message popups"><MessageSettingsPanel /></SafeSection>
       <PanelSectionRow>
         <div style={{ fontWeight: 700, fontSize: "13px", marginTop: "6px" }}>Stream quality</div>
@@ -157,11 +162,14 @@ const Content = () => {
         {ready && (
           <>
             <PanelSectionRow>
-              <Focusable style={{ display: "flex", justifyContent: "center", gap: "4px" }}>
+              <Focusable style={{ display: "flex", justifyContent: "center", gap: "4px", marginTop: "10px" }}>
                 <MuteButton />
                 <DeafenButton />
-                <DisconnectButton />
+                {state?.vc && Object.keys(state.vc).length > 0 && <DisconnectButton />}
               </Focusable>
+            </PanelSectionRow>
+            <PanelSectionRow>
+              <SafeSection name="Friends count"><FriendsCount /></SafeSection>
             </PanelSectionRow>
             <PanelSectionRow>
               <span style={{ display: "inline-flex", alignItems: "center", gap: "8px", minWidth: 0 }}>
@@ -199,12 +207,9 @@ const Content = () => {
           <Collapsible title="Friends" defaultOpen={ui.autoOpenFriends}>
             <SafeSection name="Friends"><FriendsPanel /></SafeSection>
           </Collapsible>
-          <PanelSection title="Overlay">
-            <SafeSection name="Overlay"><OverlayPanel /></SafeSection>
-          </PanelSection>
-          <PanelSection title="Screenshots">
+          <Collapsible title="Screenshots" defaultOpen={false}>
             <SafeSection name="Screenshots"><UploadScreenshot /></SafeSection>
-          </PanelSection>
+          </Collapsible>
         </>
       )}
       <SafeSection name="Settings"><SettingsPanel /></SafeSection>
