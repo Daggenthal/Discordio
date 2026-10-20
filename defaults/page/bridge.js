@@ -545,7 +545,7 @@
         const rank = { online: 0, idle: 1, dnd: 2, offline: 3 };
         return ids.map((id) => {
             const u = C().UserStore.getUser(id);
-            return { id, name: userName(u), avatar: avatarUrl(u), status: (PS && PS.getStatus(id)) || "offline" };
+            return { id, name: friendName(u) || userName(u), avatar: avatarUrl(u), status: (PS && PS.getStatus(id)) || "offline" };
         }).sort((a, b) => (rank[a.status] ?? 3) - (rank[b.status] ?? 3) || a.name.localeCompare(b.name));
     }
 

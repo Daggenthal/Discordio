@@ -1,5 +1,5 @@
 import { call, toaster } from "@decky/api";
-import { ButtonItem, DialogButton, Focusable, PanelSectionRow, ToggleField } from "@decky/ui";
+import { ButtonItem, DialogButton, Focusable, PanelSectionRow, TextField, ToggleField } from "@decky/ui";
 import { FaComment, FaPhone } from "react-icons/fa";
 import { openConversationWith } from "./MessagesPanel";
 import { useEffect, useState } from "react";
@@ -165,10 +165,14 @@ const STATUS_COLOR: Record<string, string> = {
   offline: "#80848e",
 };
 
+const PAGE = 25;
+
 export function FriendsPanel() {
   const [friends, setFriends] = useState<Friend[] | null>(null);
   const [showOffline, setShowOffline] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [shown, setShown] = useState(PAGE);
 
   useEffect(() => {
     let alive = true;
@@ -181,6 +185,7 @@ export function FriendsPanel() {
       clearInterval(t);
     };
   }, []);
+  useEffect(() => setShown(PAGE), [search, showOffline]);
 
   if (!friends) {
     return (
@@ -190,21 +195,49 @@ export function FriendsPanel() {
     );
   }
 
-  const list = friends.filter((f) => showOffline || f.status !== "offline").slice(0, 60);
+  const q = search.trim().toLowerCase();
+  // Searching looks through everyone, offline included.
+  const matching = friends.filter((f) => (q ? f.name.toLowerCase().includes(q) : showOffline || f.status !== "offline"));
+  const list = matching.slice(0, shown);
+  const online = friends.filter((f) => f.status !== "offline").length;
 
   return (
     <>
       <PanelSectionRow>
-        <ToggleField label="Show offline friends" checked={showOffline} onChange={setShowOffline} />
+        <div style={{ fontSize: 12, opacity: 0.7 }}>
+          {online} online · {friends.length} friends
+        </div>
       </PanelSectionRow>
-      {list.length === 0 && (
+      <PanelSectionRow>
+        {/* Selecting the field with A opens Steam's keyboard. */}
+        <TextField label="Find a friend" value={search} onChange={(e) => setSearch(e.target.value)} />
+      </PanelSectionRow>
+      {!q && (
         <PanelSectionRow>
-          <div style={{ fontSize: "12px", opacity: 0.7 }}>Nobody online right now</div>
+          <ToggleField label="Show offline friends" checked={showOffline} onChange={setShowOffline} />
         </PanelSectionRow>
       )}
-      {list.map((f) => (
-        <FriendRow key={f.id} f={f} open={openId === f.id} onToggle={() => setOpenId(openId === f.id ? null : f.id)} />
-      ))}
+      {list.length === 0 && (
+        <PanelSectionRow>
+          <div style={{ fontSize: "12px", opacity: 0.7 }}>{q ? `Nobody matching "${search}"` : "Nobody online right now"}</div>
+        </PanelSectionRow>
+      )}
+      {/* Its own scrolling area, so a long list doesn't push everything else
+          down; moving through it with the controller scrolls it. */}
+      <div style={{ maxHeight: 420, overflowY: "auto", overflowX: "hidden" }}>
+        <Focusable>
+          {list.map((f) => (
+            <FriendRow key={f.id} f={f} open={openId === f.id} onToggle={() => setOpenId(openId === f.id ? null : f.id)} />
+          ))}
+          {matching.length > list.length && (
+            <PanelSectionRow>
+              <ButtonItem layout="below" onClick={() => setShown(shown + PAGE)}>
+                Show more ({matching.length - list.length} more)
+              </ButtonItem>
+            </PanelSectionRow>
+          )}
+        </Focusable>
+      </div>
     </>
   );
 }
