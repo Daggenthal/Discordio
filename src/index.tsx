@@ -191,12 +191,14 @@ const Content = () => {
       </PanelSection>
       {ready && (
         <>
-          <PanelSection title="Call">
-            <SafeSection name="Voice"><VoiceChannelView /></SafeSection>
-            <SafeSection name="Mic button"><PushToTalkButton /></SafeSection>
-          </PanelSection>
-          <Collapsible title="Audio check" defaultOpen={false}>
+          {state?.vc && Object.keys(state.vc).length > 0 && (
+            <PanelSection title="Call">
+              <SafeSection name="Voice"><VoiceChannelView /></SafeSection>
+            </PanelSection>
+          )}
+          <Collapsible title="Voice & Sound" defaultOpen={false}>
             <SafeSection name="Audio check"><AudioCheckPanel /></SafeSection>
+            <SafeSection name="Mic button"><PushToTalkButton /></SafeSection>
           </Collapsible>
           <Collapsible title="Messages" defaultOpen={true}>
             <SafeSection name="Messages"><MessagesPanel /></SafeSection>

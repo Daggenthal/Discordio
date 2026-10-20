@@ -83,20 +83,24 @@ export const MemberRow = ({ m }: { m: Member }) => (
 
 // Everything about the call you're in: who's there, disconnect, and Go Live.
 // Works the same for server voice channels and direct calls with friends.
+let lastSeenCall: string | null = null;
+
 export function VoiceChannelView() {
   const voice = useVoice();
   const anchor = useRef<HTMLDivElement>(null);
   const [openId, setOpenId] = useState<string | null>(null);
-  const lastChannel = useRef<string | null | undefined>(undefined);
+
 
   // When you join a call (or switch to another), bring the Call section into
   // view and put the controller focus on Go Live, so streaming is one press
   // away instead of buried below the server list.
   useEffect(() => {
+    // The Call section only exists while you're in a call, so this view
+    // mounts when you join; remember the last call across mounts so
+    // reopening the menu in the same call doesn't jump again.
     const id = voice?.channel_id ?? null;
-    const prev = lastChannel.current;
-    lastChannel.current = id;
-    if (!id || prev === undefined || prev === id) return;
+    if (!id || lastSeenCall === id) return;
+    lastSeenCall = id;
     const t = setTimeout(() => {
       const root = anchor.current;
       if (!root) return;
