@@ -70,7 +70,7 @@ export function UpdateBanner() {
   return (
     <PanelSection title="Update available">
       <PanelSectionRow>
-        <div style={{ fontSize: 12, lineHeight: "16px" }}>
+        <div style={{ fontSize: 12, lineHeight: "16px", marginBottom: 10 }}>
           <b>{info.latest}</b> is out (you have {current}).
           {info.notes && <div style={{ opacity: 0.75, marginTop: 2 }}>{info.notes.split("\n")[0]}</div>}
         </div>
