@@ -107,7 +107,7 @@ const install = async (info: UpdateInfo) => {
   // build reopens itself (see lib/reopen.ts).
   toaster.toast({
     title: "Updating Discordio",
-    body: "It will close for a moment while it installs, then reopen by itself",
+    body: "Discordio will reopen itself after updating",
     duration: 6000,
   } as any);
   markUpdating(info.current_build, info.latest);
