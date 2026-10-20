@@ -232,7 +232,7 @@ function FriendPicker({ onPick, disabled }: { onPick: (f: Friend) => void; disab
       {!all && items.length > online.length && (
         <PanelSectionRow>
           <ButtonItem layout="below" onClick={() => setAll(true)}>
-            Show offline friends too
+            Show Offline Friends Too
           </ButtonItem>
         </PanelSectionRow>
       )}

@@ -90,7 +90,17 @@ const Status = ({ state }: { state: any }) => {
 
 // Starts expanded or collapsed according to the "auto-open" setting each time
 // the QAM is opened; the button toggles it for the current view.
-const Collapsible = ({ title, children, defaultOpen }: { title: string; children: any; defaultOpen: boolean }) => {
+const Collapsible = ({
+  title,
+  label,
+  children,
+  defaultOpen,
+}: {
+  title: string;
+  label?: string; // what the Show / Collapse button names (defaults to the title)
+  children: any;
+  defaultOpen: boolean;
+}) => {
   const [open, setOpen] = useState(defaultOpen);
   // e.g. joining a voice channel collapses Servers, so Call / Go Live is in view.
   useEffect(() => on(`collapse:${title}`, () => setOpen(false)), [title]);
@@ -100,7 +110,7 @@ const Collapsible = ({ title, children, defaultOpen }: { title: string; children
     <PanelSection title={title}>
       <PanelSectionRow>
         <ButtonItem layout="below" onClick={() => setOpen(!open)}>
-          {open ? `Collapse ${title.toLowerCase()}` : `Show ${title.toLowerCase()}`}
+          {open ? `Collapse ${label ?? title}` : `Show ${label ?? title}`}
         </ButtonItem>
       </PanelSectionRow>
       {open && children}
@@ -194,13 +204,13 @@ const Content = () => {
               <SafeSection name="Voice"><VoiceChannelView /></SafeSection>
             </PanelSection>
           )}
-          <Collapsible title="Voice & Sound" defaultOpen={false}>
+          <Collapsible title="Audio Settings" defaultOpen={false}>
             <SafeSection name="Audio devices"><AudioDevicesPanel /></SafeSection>
             <SafeSection name="Audio check"><AudioCheckPanel /></SafeSection>
             <SafeSection name="Mic button"><PushToTalkButton /></SafeSection>
             <SafeSection name="Call shortcuts"><CallShortcutsPanel /></SafeSection>
           </Collapsible>
-          <Collapsible title="Messages" defaultOpen={true}>
+          <Collapsible title="Messages" label="Recent Messages" defaultOpen={false}>
             <SafeSection name="Messages"><MessagesPanel /></SafeSection>
           </Collapsible>
           <Collapsible title="Servers" defaultOpen={ui.autoOpenServers}>

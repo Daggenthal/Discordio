@@ -113,7 +113,7 @@ export function DiagnosticsPanel() {
       </PanelSectionRow>
       <PanelSectionRow>
         <ButtonItem layout="below" onClick={() => setOpen(!open)}>
-          {open ? "Hide diagnostics" : "Show diagnostics"}
+          {open ? "Hide Diagnostics" : "Show Diagnostics"}
         </ButtonItem>
       </PanelSectionRow>
 

@@ -214,7 +214,7 @@ export function FriendsPanel() {
       </PanelSectionRow>
       {!q && (
         <PanelSectionRow>
-          <ToggleField label="Show offline friends" checked={showOffline} onChange={setShowOffline} />
+          <ToggleField label="Show Offline Friends" checked={showOffline} onChange={setShowOffline} />
         </PanelSectionRow>
       )}
       {list.length === 0 && (
