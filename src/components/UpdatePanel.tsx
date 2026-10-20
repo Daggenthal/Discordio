@@ -23,8 +23,9 @@ type UpdateInfo = {
 const INSTALL_TYPE_UPDATE = 2;
 const INSTALL_TYPE_OVERWRITE = 4;
 
-// Checked once per Steam session (and every 30 minutes) unless the user
-// asks again. Shared by the banner at the top and the panel at the bottom.
+// Checked whenever Discordio is opened (at most every 2 minutes), never in
+// the background. Shared by the banner at the top and the panel at the
+// bottom; when an update shows up, both refresh on their own.
 let cached: UpdateInfo | null = null;
 let checking: Promise<UpdateInfo> | null = null;
 const subscribers = new Set<(i: UpdateInfo) => void>();
@@ -50,7 +51,9 @@ function useUpdateInfo() {
   const [info, setInfo] = useState<UpdateInfo | null>(cached);
   useEffect(() => {
     subscribers.add(setInfo);
-    if (!cached || Date.now() - lastCheck > 30 * 60 * 1000) checkNow().catch(() => {});
+    // Every time Discordio is opened, but not more than once per 2 minutes
+    // (one small request; GitHub also limits how often it can be asked).
+    if (!cached || Date.now() - lastCheck > 2 * 60 * 1000) checkNow().catch(() => {});
     return () => {
       subscribers.delete(setInfo);
     };
