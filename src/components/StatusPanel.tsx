@@ -61,6 +61,7 @@ export function StatusPanel({ status }: { status?: { status: string; custom: str
       if (!res?.error && text !== null) {
         setEmoji(undefined);
         setPicking(false);
+        setOpen(false); // done: back to the rest of Discordio
       }
       toaster.toast({ title: "Discordio", body: res?.error ? `Couldn't change status: ${res.error}` : done });
     } finally {
@@ -158,6 +159,7 @@ export function StatusPanel({ status }: { status?: { status: string; custom: str
                   try {
                     const res: any = await call("set_status", null, "", "none", 0);
                     toaster.toast({ title: "Discordio", body: res?.error ? `Couldn't clear it: ${res.error}` : "Custom status cleared" });
+                    if (!res?.error) setOpen(false);
                   } finally {
                     setBusy(false);
                     setEmoji(undefined);

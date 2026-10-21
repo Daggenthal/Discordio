@@ -266,17 +266,26 @@
             else if (emoji && (emoji.id || emoji.name)) { emojiId = emoji.id ? String(emoji.id) : null; emojiName = emoji.name || null; }
             else if (prev) { emojiId = prev.emojiId && prev.emojiId !== "0" ? String(prev.emojiId) : null; emojiName = prev.emojiName || null; }
             const empty = !text && !emojiId && !emojiName;
+            // Discord's own setting updates this client right away; the request
+            // makes sure Discord's servers (and your other devices) have it too,
+            // which the setting alone didn't always do.
             if (set && set.updateSetting) {
-                await set.updateSetting(empty ? undefined : {
-                    text, expiresAtMs: String(expires || 0),
-                    ...(emojiId ? { emojiId } : {}), ...(emojiName ? { emojiName } : {}),
-                });
-                out.custom = "setting";
-            } else {
+                try {
+                    await set.updateSetting(empty ? undefined : {
+                        text, expiresAtMs: String(expires || 0),
+                        ...(emojiId ? { emojiId } : {}), ...(emojiName ? { emojiName } : {}),
+                    });
+                    out.custom = "setting";
+                } catch (e) { warn("custom status setting", e); }
+            }
+            try {
                 await C().RestAPI.patch({ url: "/users/@me/settings", body: { custom_status: empty ? null : {
                     text, emoji_id: emojiId, emoji_name: emojiName, expires_at: expires ? new Date(expires).toISOString() : null,
                 } } });
-                out.custom = "rest";
+                out.custom = out.custom ? out.custom + "+rest" : "rest";
+            } catch (e) {
+                warn("custom status request", e);
+                if (!out.custom) throw new Error("Discord didn't accept the custom status");
             }
         }
         setTimeout(() => pushState(true), 500);
