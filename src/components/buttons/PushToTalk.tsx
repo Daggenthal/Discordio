@@ -8,7 +8,6 @@ import {
   describe,
   getBindings,
   learning,
-  reset,
   startLearning,
   startShortcuts,
   stopShortcuts,
@@ -28,10 +27,37 @@ function useShortcuts() {
 
 const LABEL: Record<Action, string> = { mic: "mic button", answer: "answer shortcut", decline: "decline shortcut" };
 
+// Blank: "Set Keybind" (press the buttons). Set: the keybind shows under the
+// shortcut's name, and "Reset Keybind" (press twice) clears it again.
 function LearnButton({ action, hint }: { action: Action; hint: string }) {
   const l = learning();
   const mine = !!l && l.action === action;
   const b = getBindings()[action];
+  const has = BigInt(b.mask || "0") !== 0n;
+  const [confirm, setConfirm] = useState(false);
+  useEffect(() => {
+    if (!confirm) return;
+    const t = setTimeout(() => setConfirm(false), 4000);
+    return () => clearTimeout(t);
+  }, [confirm]);
+
+  if (has && !mine) {
+    return (
+      <PanelSectionRow>
+        <ButtonItem
+          layout="below"
+          onClick={() => {
+            if (!confirm) return setConfirm(true);
+            setConfirm(false);
+            update(action, { mask: "0", enabled: false });
+            toaster.toast({ title: "Discordio", body: `${LABEL[action][0].toUpperCase() + LABEL[action].slice(1)} cleared` });
+          }}
+        >
+          <span style={{ color: confirm ? "#fff" : "#ff6b6b" }}>{confirm ? "Press Again to Reset" : "Reset Keybind"}</span>
+        </ButtonItem>
+      </PanelSectionRow>
+    );
+  }
   return (
     <PanelSectionRow>
       <ButtonItem
@@ -47,13 +73,7 @@ function LearnButton({ action, hint }: { action: Action; hint: string }) {
           )
         }
       >
-        {mine
-          ? l!.union
-            ? `Got: ${describe(l!.union.toString())}`
-            : "Waiting for buttons..."
-          : BigInt(b.mask || "0")
-          ? `Change (${describe(b.mask)})`
-          : "Choose buttons"}
+        {mine ? (l!.union ? `Got: ${describe(l!.union.toString())}` : "Waiting for buttons...") : "Set Keybind"}
       </ButtonItem>
     </PanelSectionRow>
   );
@@ -73,7 +93,7 @@ export function PushToTalkButton() {
       <PanelSectionRow>
         <ToggleField
           label="Mic button"
-          description={has ? `${describe(b.mask)}: ${b.mode === "mute" ? "press to mute / unmute" : "hold to talk"}` : "Choose a controller button first"}
+          description={has ? `${describe(b.mask)}: ${b.mode === "mute" ? "press to mute / unmute" : "hold to talk"}` : "No keybind set"}
           checked={b.enabled && has}
           disabled={!has}
           onChange={(v) => update("mic", { enabled: v })}
@@ -100,24 +120,23 @@ export function CallShortcutsPanel() {
           Only active while someone is calling you. They read the physical buttons, so they work with any controller layout.
         </div>
       </PanelSectionRow>
-      {(["answer", "decline"] as const).map((a) => (
-        <div key={a}>
-          <PanelSectionRow>
-            <ToggleField
-              label={a === "answer" ? "Answer" : "Decline"}
-              description={describe(s[a].mask)}
-              checked={s[a].enabled}
-              onChange={(v) => update(a, { enabled: v })}
-            />
-          </PanelSectionRow>
-          <LearnButton action={a} hint={`Hold the first button, then tap the last (default: Options/Start + ${a === "answer" ? "R2" : "L2"})`} />
-          <PanelSectionRow>
-            <ButtonItem layout="below" onClick={() => reset(a)}>
-              Reset to Options/Start + {a === "answer" ? "R2" : "L2"}
-            </ButtonItem>
-          </PanelSectionRow>
-        </div>
-      ))}
+      {(["answer", "decline"] as const).map((a) => {
+        const has = BigInt(s[a].mask || "0") !== 0n;
+        return (
+          <div key={a}>
+            <PanelSectionRow>
+              <ToggleField
+                label={a === "answer" ? "Answer" : "Decline"}
+                description={has ? describe(s[a].mask) : "No keybind set"}
+                checked={s[a].enabled && has}
+                disabled={!has}
+                onChange={(v) => update(a, { enabled: v })}
+              />
+            </PanelSectionRow>
+            <LearnButton action={a} hint={`For example: hold Options/Start, then tap ${a === "answer" ? "R2" : "L2"}`} />
+          </div>
+        );
+      })}
     </>
   );
 }

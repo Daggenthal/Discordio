@@ -3,6 +3,7 @@ import { ButtonItem, DialogButton, Focusable, PanelSectionRow, TextField } from 
 import { useEffect, useState } from "react";
 import { Emoji, EmojiPicker } from "./EmojiPicker";
 import { ChoiceSlider } from "./ChoiceSlider";
+import { fire } from "../lib/events";
 
 type StatusEmoji = { url?: string; text?: string; name?: string } | null;
 
@@ -61,7 +62,8 @@ export function StatusPanel({ status }: { status?: { status: string; custom: str
       if (!res?.error && text !== null) {
         setEmoji(undefined);
         setPicking(false);
-        setOpen(false); // done: back to the rest of Discordio
+        setOpen(false); // done: back to the top of Discordio
+        setTimeout(() => fire("jump:top"), 60);
       }
       toaster.toast({ title: "Discordio", body: res?.error ? `Couldn't change status: ${res.error}` : done });
     } finally {
@@ -159,7 +161,10 @@ export function StatusPanel({ status }: { status?: { status: string; custom: str
                   try {
                     const res: any = await call("set_status", null, "", "none", 0);
                     toaster.toast({ title: "Discordio", body: res?.error ? `Couldn't clear it: ${res.error}` : "Custom status cleared" });
-                    if (!res?.error) setOpen(false);
+                    if (!res?.error) {
+                      setOpen(false);
+                      setTimeout(() => fire("jump:top"), 60);
+                    }
                   } finally {
                     setBusy(false);
                     setEmoji(undefined);
