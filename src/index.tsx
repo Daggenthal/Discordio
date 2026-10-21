@@ -104,11 +104,13 @@ const Collapsible = ({
   label,
   children,
   defaultOpen,
+  bottomCollapse = true,
 }: {
   title: string;
   label?: string; // what the Show / Collapse button names (defaults to the title)
   children: any;
   defaultOpen: boolean;
+  bottomCollapse?: boolean;
 }) => {
   const [open, setOpenRaw] = useState(() => restored<boolean>(`section:${title}`) ?? (takeExpand(title) || defaultOpen));
   const setOpen = (v: boolean) => {
@@ -134,6 +136,29 @@ const Collapsible = ({
         </div>
       </PanelSectionRow>
       {open && children}
+      {/* Long sections: close from the bottom too, landing back on the
+          section's own button. */}
+      {open && bottomCollapse && (
+        <PanelSectionRow>
+          <div style={{ height: 8 }} />
+          <ButtonItem
+            layout="below"
+            onClick={() => {
+              setOpen(false);
+              setTimeout(() => {
+                try {
+                  const el = document.querySelector<HTMLElement>(`[data-dio-key="section:${title}"]`);
+                  const btn = el?.querySelector<HTMLElement>("button, .DialogButton, [tabindex]") || el;
+                  btn?.focus();
+                  btn?.scrollIntoView({ block: "center" });
+                } catch (_) {}
+              }, 60);
+            }}
+          >
+            Collapse {label ?? title}
+          </ButtonItem>
+        </PanelSectionRow>
+      )}
     </PanelSection>
   );
 };
@@ -351,7 +376,7 @@ const Content = () => {
             <SafeSection name="Mic button"><PushToTalkButton /></SafeSection>
             <SafeSection name="Call shortcuts"><CallShortcutsPanel /></SafeSection>
           </Collapsible>
-          <Collapsible title="Messages" label={unread > 0 ? `Recent Messages (${unread})` : "Recent Messages"} defaultOpen={false}>
+          <Collapsible title="Messages" label={unread > 0 ? `Recent Messages (${unread})` : "Recent Messages"} defaultOpen={false} bottomCollapse={false}>
             <SafeSection name="Messages"><MessagesPanel /></SafeSection>
           </Collapsible>
           <Collapsible title="Servers" defaultOpen={ui.autoOpenServers}>
