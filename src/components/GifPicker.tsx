@@ -48,11 +48,11 @@ function GifGrid({ list, onPick }: { list: Gif[]; onPick: (g: Gif) => void }) {
     <>
       {rows.map((row, r) => (
         <PanelSectionRow key={r}>
-          <Focusable style={{ display: "flex", gap: 6 }} flow-children="row" navEntryPreferPosition={MAINTAIN_X as any}>
+          <div style={{ padding: "3px 0" }}><Focusable style={{ display: "flex", gap: 6 }} flow-children="row" navEntryPreferPosition={MAINTAIN_X as any}>
             {row.map((g) => (
               <GifTile key={g.url + g.src} g={g} onPick={onPick} />
             ))}
-          </Focusable>
+          </Focusable></div>
         </PanelSectionRow>
       ))}
       {list.length > shown && (
@@ -100,19 +100,19 @@ export function GifPicker({ onPick, onClose }: { onPick: (g: Gif) => void; onClo
         />
       </PanelSectionRow>
       <PanelSectionRow>
-        <Focusable style={{ display: "flex", gap: 6 }}>
-          <DialogButton style={{ flex: 2, minWidth: 0 }} disabled={searching || !query.trim()} onClick={search}>
+        <div style={{ padding: "6px 0" }}><Focusable style={{ display: "flex", gap: 6 }}>
+          <DialogButton style={{ flex: 2, minWidth: 0, height: "auto", minHeight: 44, lineHeight: 1.25 }} disabled={searching || !query.trim()} onClick={search}>
             {searching ? "Searching..." : "Search"}
           </DialogButton>
           {results && (
-            <DialogButton style={{ flex: 2, minWidth: 0 }} onClick={() => { setResults(null); setQuery(""); }}>
+            <DialogButton style={{ flex: 2, minWidth: 0, height: "auto", minHeight: 44, lineHeight: 1.25 }} onClick={() => { setResults(null); setQuery(""); }}>
               Clear
             </DialogButton>
           )}
-          <DialogButton style={{ flex: 1, minWidth: 0 }} onClick={onClose}>
+          <DialogButton style={{ flex: 1, minWidth: 0, height: "auto", minHeight: 44, lineHeight: 1.25 }} onClick={onClose}>
             Close
           </DialogButton>
-        </Focusable>
+        </Focusable></div>
       </PanelSectionRow>
       {results ? (
         <>

@@ -31,6 +31,27 @@ export const sameEmoji = (a: { id?: string | null; name?: string | null; emoji?:
 
 const small = { fontSize: "11px", opacity: 0.7, margin: "4px 0 2px" };
 
+// A plain, transparent tile (Steam's buttons are grey and taller than an
+// emoji, so they overlapped the row above); selection draws its own ring.
+function EmojiTile({ e, mine, onPick }: { e: Emoji; mine: boolean; onPick: (e: Emoji) => void }) {
+  const [focused, setFocused] = useState(false);
+  return (
+    <Focusable
+      onActivate={() => onPick(e)}
+      onOKActionDescription={mine ? "Remove" : "React"}
+      {...({ onGamepadFocus: () => setFocused(true), onGamepadBlur: () => setFocused(false) } as any)}
+      style={{
+        width: 36, height: 36, flex: "none", borderRadius: 8, fontSize: 22, boxSizing: "border-box",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        background: focused ? "rgba(255,255,255,0.22)" : mine ? "rgba(88,101,242,0.25)" : "transparent",
+        border: focused ? "2px solid #ffffff" : mine ? "2px solid #5865f2" : "2px solid transparent",
+      }}
+    >
+      {e.url ? <img src={e.url} alt={e.name} style={{ width: 26, height: 26, objectFit: "contain" }} /> : e.emoji ?? e.name}
+    </Focusable>
+  );
+}
+
 function Rows({ list, onPick, mine }: { list: Emoji[]; onPick: (e: Emoji) => void; mine: (e: Emoji) => boolean }) {
   const rows: Emoji[][] = [];
   for (let i = 0; i < list.length; i += PER_ROW) rows.push(list.slice(i, i + PER_ROW));
@@ -39,21 +60,13 @@ function Rows({ list, onPick, mine }: { list: Emoji[]; onPick: (e: Emoji) => voi
       {rows.map((row, r) => (
         <PanelSectionRow key={r}>
           {/* One focus row per line, so up / down move between lines. */}
-          <Focusable style={{ display: "flex", gap: 4 }} flow-children="row" navEntryPreferPosition={MAINTAIN_X as any}>
-            {row.map((e) => (
-              <DialogButton
-                key={e.id || e.name}
-                onClick={() => onPick(e)}
-                style={{
-                  minWidth: 0, width: 38, height: 36, padding: 0, fontSize: 18,
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  border: mine(e) ? "2px solid #5865f2" : "2px solid transparent",
-                }}
-              >
-                {e.url ? <img src={e.url} alt={e.name} style={{ width: 24, height: 24, objectFit: "contain" }} /> : e.emoji ?? e.name}
-              </DialogButton>
-            ))}
-          </Focusable>
+          <div style={{ padding: "2px 0" }}>
+            <Focusable style={{ display: "flex", gap: 6 }} flow-children="row" navEntryPreferPosition={MAINTAIN_X as any}>
+              {row.map((e) => (
+                <EmojiTile key={e.id || e.name} e={e} mine={mine(e)} onPick={onPick} />
+              ))}
+            </Focusable>
+          </div>
         </PanelSectionRow>
       ))}
     </>
@@ -114,7 +127,8 @@ export function EmojiPicker({
       {!list && <PanelSectionRow><div style={small}>Loading your emojis...</div></PanelSectionRow>}
       {list?.error && <PanelSectionRow><div style={{ ...small, color: "#ed4245" }}>Couldn't load your emojis: {list.error}</div></PanelSectionRow>}
       <PanelSectionRow>
-        <Focusable style={{ display: "flex", gap: 6 }}>
+        <div style={{ paddingTop: 12, paddingBottom: 4 }}>
+        <Focusable style={{ display: "flex", gap: 8 }}>
           {!!list?.servers?.length && (
             <DialogButton style={{ flex: 2, minWidth: 0 }} onClick={() => setAll(!all)}>
               {all ? "Hide Server Emojis" : "Server Emojis"}
@@ -124,6 +138,7 @@ export function EmojiPicker({
             Close
           </DialogButton>
         </Focusable>
+        </div>
       </PanelSectionRow>
       {all && list && !list.nitro && (
         <PanelSectionRow>

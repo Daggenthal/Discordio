@@ -151,6 +151,7 @@ export function UploadScreenshot() {
 
   const send = async (label: string, target: { channelId?: string; userId?: string }) => {
     setSending(true);
+    toaster.toast({ title: "Discordio", body: `Sending screenshot to ${label}, one moment...` });
     try {
       const res: any = await call("post_screenshot_file", shot.id, target.channelId ?? null, target.userId ?? null);
       toaster.toast({ title: "Discordio", body: res?.error ? `Not sent: ${res.error}` : `Screenshot sent to ${label}` });

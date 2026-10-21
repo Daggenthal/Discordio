@@ -110,7 +110,7 @@ export function MessagesPanel() {
           >
             <span style={{ display: "flex", gap: "8px", alignItems: "center", textAlign: "left", minWidth: 0 }}>
               <Avatar src={c.avatar} size={30} />
-              <span style={{ flex: 1, minWidth: 0 }}>
+              <span style={{ flex: 1, minWidth: 0, height: "auto", minHeight: 44, lineHeight: 1.25 }}>
                 <span style={{ display: "flex", gap: 6, alignItems: "center" }}>
                   <b style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.label}</b>
                   {c.unread > 0 && (
@@ -206,8 +206,8 @@ function ConversationView({ conv, onBack }: { conv: Conversation; onBack: () => 
     <>
       <PanelSectionRow>
         <div ref={top}>
-          <Focusable style={{ display: "flex", gap: "8px" }}>
-            <DialogButton style={{ flex: 1, minWidth: 0 }} onClick={onBack}>
+          <div style={{ padding: "6px 0" }}><Focusable style={{ display: "flex", gap: "8px" }}>
+            <DialogButton style={{ flex: 1, minWidth: 0, height: "auto", minHeight: 44, lineHeight: 1.25 }} onClick={onBack}>
               ← Messages
             </DialogButton>
             {conv.is_dm && <ColorButton color="#23a55a" onClick={async () => {
@@ -217,7 +217,7 @@ function ConversationView({ conv, onBack }: { conv: Conversation; onBack: () => 
               }}>
               <FaPhone /> Call
             </ColorButton>}
-          </Focusable>
+          </Focusable></div>
         </div>
       </PanelSectionRow>
       <PanelSectionRow>
@@ -285,14 +285,14 @@ function ConversationView({ conv, onBack }: { conv: Conversation; onBack: () => 
         </ButtonItem>
       </PanelSectionRow>
       <PanelSectionRow>
-        <Focusable style={{ display: "flex", gap: "8px" }}>
-          <DialogButton style={{ flex: 1, minWidth: 0 }} onClick={() => { setGifs(!gifs); setShots(false); }}>
+        <div style={{ padding: "6px 0" }}><Focusable style={{ display: "flex", gap: "8px" }}>
+          <DialogButton style={{ flex: 1, minWidth: 0, height: "auto", minHeight: 44, lineHeight: 1.25 }} onClick={() => { setGifs(!gifs); setShots(false); }}>
             {gifs ? "Close GIFs" : "GIF"}
           </DialogButton>
-          <DialogButton style={{ flex: 2, minWidth: 0 }} onClick={() => { setShots(!shots); setGifs(false); }}>
+          <DialogButton style={{ flex: 2, minWidth: 0, height: "auto", minHeight: 44, lineHeight: 1.25 }} onClick={() => { setShots(!shots); setGifs(false); }}>
             {shots ? "Cancel Screenshot" : "📷 Screenshot"}
           </DialogButton>
-        </Focusable>
+        </Focusable></div>
       </PanelSectionRow>
       {gifs && (
         <GifPicker
@@ -309,20 +309,21 @@ function ConversationView({ conv, onBack }: { conv: Conversation; onBack: () => 
         />
       )}
       <PanelSectionRow>
-        <Focusable style={{ display: "flex", gap: "8px" }}>
-          <DialogButton style={{ flex: 1, minWidth: 0 }} onClick={jumpToTop}>
+        <div style={{ padding: "6px 0" }}><Focusable style={{ display: "flex", gap: "8px" }}>
+          <DialogButton style={{ flex: 1, minWidth: 0, height: "auto", minHeight: 44, lineHeight: 1.25 }} onClick={jumpToTop}>
             ↑ Back to Top
           </DialogButton>
-          <DialogButton style={{ flex: 1, minWidth: 0 }} onClick={() => fire("collapse:Messages")}>
+          <DialogButton style={{ flex: 1, minWidth: 0, height: "auto", minHeight: 44, lineHeight: 1.25 }} onClick={() => fire("collapse:Messages")}>
             Collapse Messages
           </DialogButton>
-        </Focusable>
+        </Focusable></div>
       </PanelSectionRow>
       {shots && (
         <ShotGrid
           selected={null}
           onPick={async (sh: Shot) => {
             setShots(false);
+            toaster.toast({ title: "Discordio", body: "Sending screenshot, one moment..." });
             const res: any = await call("post_screenshot_file", sh.id, conv.channel_id, null);
             toaster.toast({ title: "Discordio", body: res?.error ? `Not sent: ${res.error}` : "Screenshot sent" });
             if (!res?.error) load();
