@@ -35,6 +35,10 @@ After that, Discordio keeps itself up to date from Game Mode. Pick **Stable** fo
 > [!NOTE]
 > Deckcord and Discordio can't run side by side. Remove Deckcord first.
 
+### 🏪 Why Isn't It on the Decky Store?
+
+Decky's Plugin Store doesn't accept plugins that use AI-assisted code ([their submission rules](https://wiki.deckbrew.xyz/en/plugin-dev/submitting-plugins)). Since parts of Discordio were written with Claude Code, it can't be listed there. I fully understand why, and I get where they're coming from. This is just a heads up in case you were wondering why you won't find it in the store. Installing from the URL above works the same way, and Discordio keeps itself updated after that.
+
 ---
 
 ## ✨ Features
