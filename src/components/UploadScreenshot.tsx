@@ -46,6 +46,25 @@ const gameName = (appid: number) => {
   }
 };
 
+// Draws its own focus ring: the picture covers Steam's highlight.
+function ShotTile({ sh, selected, onPick, children }: { sh: Shot; selected: boolean; onPick: (s: Shot) => void; children: any }) {
+  const [focused, setFocused] = useState(false);
+  return (
+    <DialogButton
+      onClick={() => onPick(sh)}
+      {...({ onGamepadFocus: () => setFocused(true), onGamepadBlur: () => setFocused(false) } as any)}
+      style={{
+        width: "calc(33% - 4px)", minWidth: 0, padding: 2, height: "54px", overflow: "hidden", boxSizing: "border-box",
+        background: focused ? "#ffffff" : "transparent",
+        border: selected ? "2px solid #5865f2" : "2px solid transparent",
+        boxShadow: focused ? "0 0 0 2px #ffffff, 0 0 10px rgba(255,255,255,0.6)" : "none",
+      }}
+    >
+      {children}
+    </DialogButton>
+  );
+}
+
 // Grid of recent screenshots from Steam's screenshot folders.
 export function ShotGrid({ selected, onPick }: { selected: string | null; onPick: (s: Shot) => void }) {
   const [shots, setShots] = useState<Shot[] | null>(null);
@@ -68,20 +87,13 @@ export function ShotGrid({ selected, onPick }: { selected: string | null; onPick
       <PanelSectionRow key={r}>
         <Focusable style={{ display: "flex", gap: "6px" }} flow-children="row" navEntryPreferPosition={2 as any}>
           {row.map((sh) => (
-            <DialogButton
-              key={sh.id}
-              onClick={() => onPick(sh)}
-              style={{
-                width: "calc(33% - 4px)", minWidth: 0, padding: 0, height: "54px", overflow: "hidden",
-                border: sh.id === selected ? "2px solid #5865f2" : "2px solid transparent",
-              }}
-            >
+            <ShotTile key={sh.id} sh={sh} selected={sh.id === selected} onPick={onPick}>
               {sh.thumb ? (
                 <img src={sh.thumb} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
               ) : (
                 <span style={{ fontSize: 10 }}>{gameName(sh.appid) || "Screenshot"}</span>
               )}
-            </DialogButton>
+            </ShotTile>
           ))}
         </Focusable>
       </PanelSectionRow>

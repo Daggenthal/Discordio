@@ -12,6 +12,33 @@ const PAGE = 12;
 // whatever was last focused in that row, which looked like a diagonal move).
 const MAINTAIN_X = 2;
 
+// The picture fills the whole button, which hid Steam's focus highlight:
+// draw our own ring so you can see which GIF is selected.
+function GifTile({ g, onPick }: { g: Gif; onPick: (g: Gif) => void }) {
+  const [focused, setFocused] = useState(false);
+  const fill = { width: "100%", height: "100%", objectFit: "cover", display: "block", borderRadius: 4 } as const;
+  return (
+    <DialogButton
+      onClick={() => onPick(g)}
+      onOKActionDescription="Send"
+      {...({ onGamepadFocus: () => setFocused(true), onGamepadBlur: () => setFocused(false) } as any)}
+      style={{
+        flex: "0 0 calc(50% - 3px)", minWidth: 0, height: 84, padding: 3, overflow: "hidden", boxSizing: "border-box",
+        background: focused ? "#ffffff" : "rgba(255,255,255,0.08)",
+        boxShadow: focused ? "0 0 0 2px #ffffff, 0 0 12px rgba(255,255,255,0.6)" : "none",
+        transform: focused ? "scale(1.03)" : "none",
+        transition: "transform 80ms, box-shadow 80ms",
+      }}
+    >
+      {g.video ? (
+        <video src={g.src} autoPlay loop muted playsInline style={{ ...fill, pointerEvents: "none" }} />
+      ) : (
+        <img src={g.src} loading="lazy" style={{ ...fill, pointerEvents: "none" }} />
+      )}
+    </DialogButton>
+  );
+}
+
 function GifGrid({ list, onPick }: { list: Gif[]; onPick: (g: Gif) => void }) {
   const [shown, setShown] = useState(PAGE);
   const rows: Gif[][] = [];
@@ -23,17 +50,7 @@ function GifGrid({ list, onPick }: { list: Gif[]; onPick: (g: Gif) => void }) {
         <PanelSectionRow key={r}>
           <Focusable style={{ display: "flex", gap: 6 }} flow-children="row" navEntryPreferPosition={MAINTAIN_X as any}>
             {row.map((g) => (
-              <DialogButton
-                key={g.url + g.src}
-                onClick={() => onPick(g)}
-                style={{ flex: "0 0 calc(50% - 3px)", minWidth: 0, height: 84, padding: 0, overflow: "hidden" }}
-              >
-                {g.video ? (
-                  <video src={g.src} autoPlay loop muted playsInline style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
-                ) : (
-                  <img src={g.src} loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
-                )}
-              </DialogButton>
+              <GifTile key={g.url + g.src} g={g} onPick={onPick} />
             ))}
           </Focusable>
         </PanelSectionRow>
