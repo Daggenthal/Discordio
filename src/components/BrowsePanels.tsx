@@ -1,15 +1,19 @@
 import { call, toaster } from "@decky/api";
-import { ButtonItem, DialogButton, Focusable, PanelSectionRow, TextField, ToggleField } from "@decky/ui";
+import { ButtonItem, DialogButton, Focusable, PanelSection, PanelSectionRow, TextField, ToggleField } from "@decky/ui";
 import { FaComment, FaPhone } from "react-icons/fa";
 import { openChannelConversation, openConversationWith } from "./MessagesPanel";
 import { useEffect, useState } from "react";
 import { ColorButton } from "./ColorButton";
 import { Avatar, MemberRow, Member } from "./VoiceChatViews";
 import { fire } from "../lib/events";
+import { watchStream } from "../lib/watch";
+import { Favorite, isFavorite, toggleFavorite, useFavorites } from "../lib/favorites";
+import { FaEye, FaSignInAlt, FaStar } from "react-icons/fa";
 
 type Guild = { id: string; name: string; icon: string | null };
 type VoiceChannel = { id: string; name: string; members: Member[] };
-type Friend = { id: string; name: string; avatar: string | null; status: string };
+type FriendVoice = { channel_id: string; channel_name: string; guild_name: string; streaming: boolean; mine: boolean } | null;
+type Friend = { id: string; name: string; avatar: string | null; status: string; voice?: FriendVoice };
 
 const KEY_GUILD = "DISCORDIO_LAST_GUILD";
 
@@ -79,6 +83,7 @@ function TextChannels({ guildId, guildName }: { guildId: string; guildName: stri
 }
 
 function GuildChannels({ guildId, guildName }: { guildId: string; guildName: string }) {
+  const [, setFavTick] = useState(0);
   const [channels, setChannels] = useState<VoiceChannel[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -108,9 +113,17 @@ function GuildChannels({ guildId, guildName }: { guildId: string; guildName: str
       {!channels.length && <Hint>No voice channels you can see here</Hint>}
       {channels.map((ch) => (
         <PanelSectionRow key={ch.id}>
+          <Focusable
+            onOptionsButton={() => {
+              const on = toggleFavorite({ id: ch.id, name: ch.name, guild: guildName });
+              toaster.toast({ title: "Discordio", body: on ? `★ ${ch.name} added to Favorites` : `${ch.name} removed from Favorites` });
+              setFavTick((n) => n + 1);
+            }}
+            onOptionsActionDescription={isFavorite(ch.id) ? "Unfavorite" : "Favorite"}
+          >
           <ButtonItem
             layout="inline"
-            label={`🔊 ${ch.name}`}
+            label={`${isFavorite(ch.id) ? "★ " : ""}🔊 ${ch.name}`}
             description={ch.members.length ? `${ch.members.length} in channel` : "Empty"}
             onClick={async () => {
               const res: any = await call("join_voice", ch.id);
@@ -120,6 +133,7 @@ function GuildChannels({ guildId, guildName }: { guildId: string; guildName: str
           >
             Join
           </ButtonItem>
+          </Focusable>
           {ch.members.length > 0 && (
             <div style={{ paddingLeft: "8px", paddingBottom: "6px" }}>
               {ch.members.map((m) => (
@@ -318,7 +332,15 @@ function FriendRow({ f, open, onToggle }: { f: Friend; open: boolean; onToggle: 
                   }}
                 />
               </span>
-              <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</span>
+              <span style={{ flex: 1, minWidth: 0 }}>
+                <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</span>
+                {f.voice && (
+                  <span style={{ display: "block", fontSize: 11, opacity: 0.75, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    🔊 {f.voice.channel_name} · {f.voice.guild_name}
+                    {f.voice.streaming && <span style={{ color: "#ed4245", fontWeight: 700 }}> · LIVE</span>}
+                  </span>
+                )}
+              </span>
               <span style={{ opacity: 0.5, fontSize: 18 }}>{open ? "▾" : "▸"}</span>
             </span>
           </ButtonItem>
@@ -339,6 +361,68 @@ function FriendRow({ f, open, onToggle }: { f: Friend; open: boolean; onToggle: 
           </Focusable>
         </PanelSectionRow>
       )}
+      {open && f.voice && !f.voice.mine && (
+        <PanelSectionRow>
+          <Focusable style={{ display: "flex", gap: "8px" }}>
+            <DialogButton
+              style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
+              onClick={async () => {
+                const res: any = await call("join_voice", f.voice!.channel_id);
+                report(res, `Joining ${f.voice!.channel_name}`);
+                if (!res?.error) fire("collapse:Friends");
+              }}
+            >
+              <FaSignInAlt /> Join Their Call
+            </DialogButton>
+            {f.voice.streaming && (
+              <DialogButton
+                style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
+                onClick={() => watchStream(f.id, f.name)}
+              >
+                <FaEye /> Watch
+              </DialogButton>
+            )}
+          </Focusable>
+        </PanelSectionRow>
+      )}
     </>
+  );
+}
+
+
+// Favorite voice channels, at the top for one-press joining. Add or
+// remove one with the Options button on a voice channel in Servers.
+export function FavoritesPanel() {
+  const favs = useFavorites();
+  if (!favs.length) return null;
+  return (
+    <PanelSection title="Favorites">
+      {favs.map((f: Favorite) => (
+        <PanelSectionRow key={f.id}>
+          <Focusable
+            onOptionsButton={() => toggleFavorite(f)}
+            onOptionsActionDescription="Unfavorite"
+          >
+            <ButtonItem
+              layout="inline"
+              label={
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+                  <FaStar color="#f0b232" />
+                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {f.name} <span style={{ opacity: 0.6, fontSize: 11 }}>· {f.guild}</span>
+                  </span>
+                </span>
+              }
+              onClick={async () => {
+                const res: any = await call("join_voice", f.id);
+                report(res, `Joining ${f.name}`);
+              }}
+            >
+              Join
+            </ButtonItem>
+          </Focusable>
+        </PanelSectionRow>
+      ))}
+    </PanelSection>
   );
 }

@@ -2,6 +2,7 @@ import { call } from "@decky/api";
 import { ButtonItem, PanelSectionRow, ToggleField, Focusable } from "@decky/ui";
 import { toaster } from "@decky/api";
 import { ChoiceSlider } from "./ChoiceSlider";
+import { watchStream } from "../lib/watch";
 import { GoLivePanel } from "./GoLivePanel";
 import { useEffect, useRef, useState } from "react";
 import { FaMicrophoneSlash, FaVolumeMute, FaVideo, FaPhoneSlash } from "react-icons/fa";
@@ -235,6 +236,13 @@ function MemberItem({
       </PanelSectionRow>
       {open && !isMe && (
         <Focusable style={{ paddingLeft: 12, borderLeft: "2px solid rgba(255,255,255,0.15)", marginLeft: 4 }}>
+          {m.live && (
+            <PanelSectionRow>
+              <ButtonItem layout="below" onClick={() => watchStream(m.id, m.name)}>
+                Watch Stream
+              </ButtonItem>
+            </PanelSectionRow>
+          )}
           <PanelSectionRow>
             <ToggleField
               label="Local Mute"

@@ -707,6 +707,11 @@ class Plugin:
         log.info("Logging out of Discord")
         return await cls._req("logout", timeout=15)
 
+    @classmethod
+    async def watch_stream(cls, user_id):
+        """Watch someone's Go Live (Discord shows it; joins their voice channel if needed)."""
+        return await cls._req("watchStream", {"userId": user_id}, timeout=15)
+
     # -- status
 
     @classmethod

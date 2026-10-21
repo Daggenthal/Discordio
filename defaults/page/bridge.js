@@ -594,6 +594,47 @@
         return list.map((c) => ({ id: c.id, name: c.name, members: voiceMembers(c.id) }));
     }
 
+    // Which voice channel a friend is in (only for servers / calls you
+    // share, like in Discord), and whether they're streaming there.
+    function friendVoice(userId) {
+        try {
+            const VS = store("VoiceStateStore");
+            const st = VS && (VS.getVoiceStateForUser ? VS.getVoiceStateForUser(userId) : null);
+            if (!st || !st.channelId) return null;
+            const ch = C().ChannelStore.getChannel(st.channelId);
+            if (!ch) return null;
+            const g = ch.guild_id ? C().GuildStore.getGuild(ch.guild_id) : null;
+            return {
+                channel_id: ch.id, channel_name: ch.name || "Call", guild_name: g ? g.name : "Direct call",
+                streaming: !!st.selfStream, mine: voiceChannelId() === ch.id,
+            };
+        } catch (_) { return null; }
+    }
+
+    // Watch someone's Go Live (Discord shows it; the QAM opens Discord).
+    async function watchStream(userId) {
+        const S = store("ApplicationStreamingStore");
+        let stream = null;
+        try {
+            const all = (S && (S.getAllApplicationStreams ? S.getAllApplicationStreams() : [])) || [];
+            stream = all.find((x) => x.ownerId === userId) || null;
+        } catch (_) { }
+        if (!stream) throw new Error("They aren't streaming right now");
+        const key = [stream.streamType, stream.guildId, stream.channelId, stream.ownerId].filter(Boolean).join(":");
+        // Watching a server stream means being in its voice channel.
+        if (stream.channelId && voiceChannelId() !== stream.channelId) {
+            selectVoice(stream.guildId || null, stream.channelId);
+            await waitFor(() => voiceChannelId() === stream.channelId, 5000);
+        }
+        const a = props("watchStreamAndTransitionToStream") || props("watchStream");
+        if (a && a.watchStreamAndTransitionToStream) a.watchStreamAndTransitionToStream(stream);
+        else if (a && a.watchStream) a.watchStream(stream);
+        else dispatch({ type: "STREAM_WATCH", streamKey: key, allowMultiple: true });
+        // Show the stream full-size in Discord's call page.
+        try { openCallPage(stream.channelId); } catch (_) { }
+        return { ok: true };
+    }
+
     function friends() {
         const RS = store("RelationshipStore"), PS = store("PresenceStore");
         if (!RS) throw new Error("Discord's friends list wasn't found");
@@ -605,7 +646,7 @@
         const rank = { online: 0, idle: 1, dnd: 2, offline: 3 };
         return ids.map((id) => {
             const u = C().UserStore.getUser(id);
-            return { id, name: friendName(u) || userName(u), avatar: avatarUrl(u), status: (PS && PS.getStatus(id)) || "offline" };
+            return { id, name: friendName(u) || userName(u), avatar: avatarUrl(u), status: (PS && PS.getStatus(id)) || "offline", voice: friendVoice(id) };
         }).sort((a, b) => (rank[a.status] ?? 3) - (rank[b.status] ?? 3) || a.name.localeCompare(b.name));
     }
 
@@ -882,6 +923,7 @@
     });
     m("callFriend", ({ userId }) => callFriend(userId));
     m("incomingCall", () => incoming);
+    m("watchStream", ({ userId }) => watchStream(userId));
     m("getStatus", () => myStatus());
     m("setStatus", ({ status, custom }) => setStatus(status, custom));
     m("setLocalMute", ({ userId, muted }) => setLocalMute(userId, muted));

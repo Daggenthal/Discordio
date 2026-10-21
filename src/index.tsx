@@ -20,7 +20,7 @@ import { DeafenButton } from "./components/buttons/DeafenButton";
 import { DisconnectButton } from "./components/buttons/DisconnectButton";
 import { PushToTalkButton, CallShortcutsPanel, cleanupPtt, startMicShortcut } from "./components/buttons/PushToTalk";
 import { VoiceChannelView } from "./components/VoiceChatViews";
-import { ServersPanel, FriendsPanel } from "./components/BrowsePanels";
+import { ServersPanel, FriendsPanel, FavoritesPanel } from "./components/BrowsePanels";
 import { UpdatePanel } from "./components/UpdatePanel";
 import { OverlayPanel } from "./components/OverlayPanel";
 import { MessagesPanel, MessageSettingsPanel } from "./components/MessagesPanel";
@@ -206,6 +206,7 @@ const Content = () => {
               <SafeSection name="Voice"><VoiceChannelView /></SafeSection>
             </PanelSection>
           )}
+          <SafeSection name="Favorites"><FavoritesPanel /></SafeSection>
           <Collapsible title="Audio Settings" defaultOpen={false}>
             <SafeSection name="Audio devices"><AudioDevicesPanel /></SafeSection>
             <SafeSection name="Audio check"><AudioCheckPanel /></SafeSection>
