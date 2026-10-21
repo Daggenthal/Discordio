@@ -1337,6 +1337,26 @@
     }
 
     let callLogs = 0;
+    // The ringtone while someone calls you (Discord's own sound; its page is
+    // hidden, so it didn't play it by itself). Not in Do Not Disturb.
+    let ringtone = null;
+    function ringStart() {
+        if (ringtone) return;
+        try { const st = myStatus(); if (st && st.status === "dnd") return; } catch (_) { }
+        try {
+            const P = props("playSound", "createSound");
+            if (!P || !P.createSound) { warn("ringtone: Discord's sound player wasn't found"); return; }
+            const s = P.createSound("call_ringing", "call_ringing", 0.7);
+            ringtone = s;
+            if (s.loop) s.loop(); else if (s.play) s.play();
+        } catch (e) { warn("ringtone", e); ringtone = null; }
+    }
+    function ringStop() {
+        const s = ringtone;
+        ringtone = null;
+        try { s && s.stop && s.stop(); } catch (_) { }
+    }
+
     function onCall(e) {
         try {
             const u = me();
@@ -1366,10 +1386,12 @@
                     since: Date.now(),
                 };
                 log(`incoming call from ${incoming.caller.name}`);
+                ringStart();
                 emit("call_incoming", incoming);
             } else if (!ringingMe && incoming && incoming.channel_id === cid) {
                 const answered = voiceChannelId() === cid;
                 incoming = null;
+                ringStop();
                 emit("call_ended", { channel_id: cid, answered });
             }
         } catch (err) { warn("call event", err); }
@@ -1452,8 +1474,10 @@
         try { await C().RestAPI.post({ url: `/channels/${channelId}/call/ring`, body: { recipients: null } }); } catch (_) { }
         return { ok: true, method };
     });
-    m("answerCall", ({ channelId }) => answerCall(channelId));
-    m("declineCall", ({ channelId }) => declineCall(channelId));
+    m("answerCall", ({ channelId }) => { ringStop(); return answerCall(channelId); });
+    m("declineCall", ({ channelId }) => { ringStop(); return declineCall(channelId); });
+    // After the backend unlocks sound (if the first try was blocked).
+    m("ringAgain", () => { if (incoming) { ringStop(); ringStart(); } return { ok: true, ringing: !!ringtone }; });
     m("guilds", () => guilds());
     m("badges", () => myBadges());
     m("profile", ({ userId }) => userProfile(userId));

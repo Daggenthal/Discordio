@@ -335,8 +335,18 @@ class Plugin:
         cls.incoming = {**(data or {}), "received": time.time()}
         caller = (data or {}).get("caller") or {}
         log.info(f"Incoming call from {caller.get('name')}")
+        # The overlay shows the call card (where message popups go), so the
+        # QAM only needs a Steam notification when the overlay can't.
+        s = cls.settings.load()
+        overlay = bool(cls.overlay and cls.overlay.enabled(s) and (cls.overlay.active_engine(s) or s.get("overlay_hide_perf", True)))
         try:
-            await decky.emit("call", {"ringing": True, **cls.incoming})
+            await decky.emit("call", {"ringing": True, "overlay": overlay, **cls.incoming})
+        except Exception:
+            pass
+        # Make sure the ringtone can be heard (sound needs unlocking in the page).
+        try:
+            await cls._unlock_audio("ringtone")
+            await cls._req("ringAgain", {}, timeout=5)
         except Exception:
             pass
 
@@ -815,7 +825,8 @@ class Plugin:
         """Whether the overlay shows the ringing call card (then no Steam toast)."""
         try:
             s = cls.settings.load()
-            return bool(cls.overlay and cls.overlay.enabled(s) and cls.overlay.active_engine(s))
+            # With "hide performance overlay in calls" the card always gets the screen.
+            return bool(cls.overlay and cls.overlay.enabled(s) and (s.get("overlay_hide_perf", True) or cls.overlay.active_engine(s)))
         except Exception:
             return False
 

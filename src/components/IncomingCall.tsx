@@ -22,9 +22,12 @@ export function startCallNotifications() {
     const caller = c.caller || {};
     // The overlay's call card (where message popups appear) says it already;
     // the Steam notification is only for when the overlay can't show it.
-    call<[], boolean>("call_card_shown")
-      .then((shown) => !shown && toast())
-      .catch(() => toast());
+    if (c.overlay === true) return;
+    if (c.overlay === false) setTimeout(() => toast(), 0);
+    else
+      call<[], boolean>("call_card_shown")
+        .then((shown) => !shown && toast())
+        .catch(() => toast());
     const toast = () => toaster.toast({
       title: `${caller.name || "Someone"} is calling${c.group ? ` (${c.group})` : ""}`,
       body: callHint(),

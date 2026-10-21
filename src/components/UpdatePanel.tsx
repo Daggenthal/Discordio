@@ -74,7 +74,7 @@ export function UpdateBanner() {
     <PanelSection title="Update available">
       <PanelSectionRow>
         <div style={{ fontSize: 12, lineHeight: "16px", marginBottom: 10 }}>
-          <b>{info.latest}</b> is out (you have {current}).
+          <b>{info.latest}</b> is out (you are on {current}).
           {info.notes && <div style={{ opacity: 0.75, marginTop: 2 }}>{info.notes.split("\n")[0]}</div>}
         </div>
       </PanelSectionRow>
@@ -192,7 +192,7 @@ export function UpdatePanel() {
           <ButtonItem
             layout="below"
             disabled={busy}
-            description={`You have ${current}. ${info.notes ? info.notes.split("\n")[0] : ""}`}
+            description={`You are on ${current}. ${info.notes ? info.notes.split("\n")[0] : ""}`}
             onClick={async () => {
               setBusy(true);
               try {
