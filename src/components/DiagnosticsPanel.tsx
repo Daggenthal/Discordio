@@ -1,5 +1,6 @@
 import { ButtonItem, PanelSection, PanelSectionRow, ToggleField } from "@decky/ui";
 import { PageUsage } from "./PageUsage";
+import { SectionHeader } from "./SectionHeader";
 import { on } from "../lib/events";
 import { SystemInfo, steamSystemInfo } from "./SystemInfo";
 import { addEventListener, call, removeEventListener, toaster } from "@decky/api";
@@ -110,17 +111,17 @@ export function DiagnosticsPanel() {
   };
 
   return (
-    <PanelSection title="Diagnostics">
+    <PanelSection>
+      <PanelSectionRow>
+        <div data-dio-key="section:Diagnostics">
+          <SectionHeader title="Diagnostics" open={open} onToggle={() => setOpen(!open)} />
+        </div>
+      </PanelSectionRow>
       <PanelSectionRow>
         <div style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: "13px" }}>
           <Dot state={!d ? "pending" : problems.some((p) => p.state === "error") ? "error" : problems.length || qamProblems.length ? "warn" : "ok"} />
           <span>{summary}</span>
         </div>
-      </PanelSectionRow>
-      <PanelSectionRow>
-        <ButtonItem layout="below" onClick={() => setOpen(!open)}>
-          {open ? "Hide Diagnostics" : "Show Diagnostics"}
-        </ButtonItem>
       </PanelSectionRow>
 
       {open && (

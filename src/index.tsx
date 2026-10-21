@@ -30,6 +30,7 @@ import { startMicBridge } from "./lib/mic";
 import { AudioDevicesPanel } from "./components/AudioDevicesPanel";
 import { WelcomeBanner } from "./components/WelcomeBanner";
 import { Badges } from "./components/Badges";
+import { SectionHeader } from "./components/SectionHeader";
 import { MediaViewer } from "./components/MediaViewer";
 import { ProfilePanel } from "./components/ProfileView";
 import { openProfile, useProfileTarget } from "./lib/profile";
@@ -105,7 +106,9 @@ const Collapsible = ({
   children,
   defaultOpen,
   bottomCollapse = true,
+  badge,
 }: {
+  badge?: number;
   title: string;
   label?: string; // what the Show / Collapse button names (defaults to the title)
   children: any;
@@ -127,12 +130,10 @@ const Collapsible = ({
   // e.g. a friend's Message button opens Messages.
   useEffect(() => on(`expand:${title}`, () => setOpen(true)), [title]);
   return (
-    <PanelSection title={title}>
+    <PanelSection>
       <PanelSectionRow>
         <div data-dio-key={`section:${title}`}>
-        <ButtonItem layout="below" onClick={() => setOpen(!open)}>
-          {open ? `Collapse ${label ?? title}` : `Show ${label ?? title}`}
-        </ButtonItem>
+          <SectionHeader title={title} open={open} badge={badge} onToggle={() => setOpen(!open)} />
         </div>
       </PanelSectionRow>
       {open && children}
@@ -376,7 +377,7 @@ const Content = () => {
             <SafeSection name="Mic button"><PushToTalkButton /></SafeSection>
             <SafeSection name="Call shortcuts"><CallShortcutsPanel /></SafeSection>
           </Collapsible>
-          <Collapsible title="Messages" label={unread > 0 ? `Recent Messages (${unread})` : "Recent Messages"} defaultOpen={false} bottomCollapse={false}>
+          <Collapsible title="Messages" badge={unread} defaultOpen={false} bottomCollapse={false}>
             <SafeSection name="Messages"><MessagesPanel /></SafeSection>
           </Collapsible>
           <Collapsible title="Servers" defaultOpen={ui.autoOpenServers}>
