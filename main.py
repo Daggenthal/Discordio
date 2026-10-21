@@ -141,6 +141,7 @@ class Plugin:
         cls.bridge.on("rtc", cls._on_rtc)
         cls.bridge.on("pip_frame", cls._on_pip_frame)
         cls.bridge.on("pip", cls._on_pip)
+        cls.bridge.on("watch_ended", cls._on_watch_ended)
         cls.bridge.on("call_incoming", cls._on_call_incoming)
         cls.bridge.on("call_ended", cls._on_call_ended)
         cls.bridge.on("captcha", cls._on_captcha)
@@ -529,6 +530,8 @@ class Plugin:
     async def _on_pip_frame(cls, d):
         if not cls.pip or not isinstance(d, dict) or not d.get("data"):
             return
+        if not cls.pip.get("seq"):
+            diag.set("pip", diag.OK, "the stream's video is coming in")
         try:
             data = base64.b64decode(d["data"])
         except Exception:
@@ -542,9 +545,11 @@ class Plugin:
         if d.get("error"):
             diag.set("pip", diag.WARN, d["error"])
             cls.pip = None
+            await cls._pretend_visible(False)
             await decky.emit("pip", {"on": False, "error": d["error"]})
         elif d.get("stopped"):
             cls.pip = None
+            await cls._pretend_visible(False)
             await decky.emit("pip", {"on": False})
         elif d.get("started"):
             diag.set("pip", diag.OK, f"streaming frames to the overlay ({d.get('how')})")
@@ -902,19 +907,51 @@ class Plugin:
                                         "remove": bool(remove)}, timeout=10)
 
     @classmethod
-    async def watch_stream(cls, user_id, overlay=False):
-        """Watch someone's Go Live (joins their voice channel if needed): in
-        Discord, or as a picture-in-picture in the in-game overlay."""
+    async def watch_stream(cls, user_id, overlay=False, player=False):
+        """Watch someone's Go Live (joins their voice channel if needed):
+        full screen in the Discord view, or as a picture-in-picture in the
+        in-game overlay while you keep playing."""
         fps = cls.settings.load().get("pip_fps", 30)
-        res = await cls._req("watchStream", {"userId": user_id, "overlay": bool(overlay), "fps": fps}, timeout=15)
+        if overlay:
+            # Like Go Live: Discord only receives a stream's video while it
+            # thinks the stream is on screen, so the hidden page has to look
+            # visible (one pixel, full size by emulation).
+            await cls._pretend_visible(True)
+        res = await cls._req("watchStream", {"userId": user_id, "overlay": bool(overlay), "fps": fps,
+                                             "player": bool(player)}, timeout=15)
         if overlay and isinstance(res, dict) and not res.get("error"):
-            cls.pip = {"on": True, "starting": time.time(), "seq": 0, "data": None, "name": None}
+            cls.pip = {"on": True, "starting": time.time(), "seq": 0, "data": None, "name": res.get("name")}
+            diag.set("pip", diag.PENDING, "waiting for the stream's video")
+        elif overlay:
+            await cls._pretend_visible(False)
         return res
+
+    pretending = False
+
+    @classmethod
+    async def _pretend_visible(cls, on):
+        if bool(on) == cls.pretending or not cls.view:
+            return
+        cls.pretending = bool(on)
+        try:
+            await cls.view.emulate_full_size(on)
+            await cls.view.stealth_visible(on)
+        except Exception as e:
+            log.warning(f"stream view visibility ({on}): {e}")
 
     @classmethod
     async def stop_watching(cls):
         cls.pip = None
-        return await cls._req("stopWatching", {}, timeout=10)
+        res = await cls._req("stopWatching", {}, timeout=10)
+        await cls._pretend_visible(False)
+        return res
+
+    @classmethod
+    async def _on_watch_ended(cls, _d):
+        was = cls.pip
+        cls.pip = None
+        await cls._pretend_visible(False)
+        await decky.emit("pip", {"on": False, "ended": True, "name": (was or {}).get("name")})
 
     @classmethod
     async def get_pip(cls):

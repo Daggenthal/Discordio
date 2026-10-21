@@ -163,11 +163,14 @@
     // ------------------------------------------------------------------ 3.
     const peers = new Set(); // WeakRef<RTCPeerConnection>
     const videoTracks = [];  // { track, at }
-    // The newest live remote video, preferring one that's sending frames.
+    // The remote video that most recently started sending frames: watching a
+    // stream unmutes its track (Discord may have created it earlier).
     function latestRemoteVideo(since) {
-        const live = videoTracks.filter((v) => v.track.readyState === "live" && v.at >= (since || 0));
+        const live = videoTracks.filter((v) => v.track.readyState === "live");
         const sending = live.filter((v) => !v.track.muted);
-        const pick = (sending.length ? sending : live).sort((a, b) => b.at - a.at)[0];
+        const recent = sending.filter((v) => v.unmutedAt >= (since || 0));
+        const pool = recent.length ? recent : sending;
+        const pick = pool.sort((a, b) => b.unmutedAt - a.unmutedAt || b.at - a.at)[0];
         return pick ? pick.track : null;
     }
     const RPC = window.RTCPeerConnection;
@@ -182,8 +185,10 @@
                 // picture-in-picture.
                 pc.addEventListener("track", (e) => {
                     if (e.track && e.track.kind === "video" && !pc.__discordio) {
-                        videoTracks.push({ track: e.track, at: Date.now() });
-                        if (videoTracks.length > 20) videoTracks.shift();
+                        const v = { track: e.track, at: Date.now(), unmutedAt: e.track.muted ? 0 : Date.now() };
+                        e.track.addEventListener("unmute", () => { v.unmutedAt = Date.now(); });
+                        videoTracks.push(v);
+                        if (videoTracks.length > 40) videoTracks.shift();
                     }
                 });
                 const id = peers.size;

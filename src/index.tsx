@@ -30,6 +30,7 @@ import { startMicBridge } from "./lib/mic";
 import { AudioDevicesPanel } from "./components/AudioDevicesPanel";
 import { WelcomeBanner } from "./components/WelcomeBanner";
 import { Badges } from "./components/Badges";
+import { startWatchNotices } from "./lib/watch";
 import { STATUSES } from "./components/StatusPanel";
 import { MicProcessingPanel } from "./components/MicProcessingPanel";
 import { AudioCheckPanel } from "./components/AudioCheckPanel";
@@ -345,6 +346,7 @@ export default definePlugin(() => {
   const stopCallNotifications = safe("Incoming call notifications", () => startCallNotifications());
   const stopCaptchaNotifications = safe("Human check notifications", () => startCaptchaNotifications());
   const stopLoginHandoff = safe("Login hand-off", () => startLoginHandoff());
+  const stopWatchNotices = safe("Stream notices", () => startWatchNotices());
   safe("Reopen after update", () =>
     call<[], any>("get_update_info").then((i) => reopenAfterUpdate(i?.current_build ? `build ${i.current_build}` : "")).catch(() => reopenAfterUpdate(""))
   );
@@ -411,7 +413,7 @@ export default definePlugin(() => {
     onDismount() {
       disposed = true;
       removeEventListener("message", notificationListener);
-      for (const fn of [unpatchMenu, appLifetimeUnregister, settingsChangeUnregister, cleanupPtt, stopMic, stopCallNotifications, stopCaptchaNotifications, stopLoginHandoff]) {
+      for (const fn of [unpatchMenu, appLifetimeUnregister, settingsChangeUnregister, cleanupPtt, stopMic, stopCallNotifications, stopCaptchaNotifications, stopLoginHandoff, stopWatchNotices]) {
         try {
           fn?.();
         } catch (_) {}

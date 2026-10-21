@@ -4,6 +4,8 @@ import { useEffect, useLayoutEffect, useRef } from "react";
 import { showDiscord } from "../lib/view";
 import { note } from "../lib/diag";
 import { setDiscordShowing } from "../lib/loginHandoff";
+import { endFullScreen, watchingFullScreen } from "../lib/watch";
+import { openDiscordio } from "../lib/reopen";
 
 // Numeric values of @decky/ui's GamepadButton enum (it's a declared enum, so
 // it may not exist at runtime).
@@ -57,7 +59,11 @@ export const DiscordTab = () => {
   const shown = useRef(false);
   useEffect(() => {
     setDiscordShowing(true);
-    return () => setDiscordShowing(false);
+    return () => {
+      setDiscordShowing(false);
+      // Left Discord some other way while watching full screen.
+      if (watchingFullScreen()) endFullScreen();
+    };
   }, []);
 
   useLayoutEffect(() => {
@@ -108,6 +114,14 @@ export const DiscordTab = () => {
       }}
       onOKButton={() => nav("select")}
       onCancelButton={async () => {
+        if (watchingFullScreen()) {
+          // Done watching: stop, leave Discord, and land back in the
+          // Quick Access Menu over whatever you were doing.
+          await endFullScreen();
+          close();
+          setTimeout(openDiscordio, 400);
+          return;
+        }
         const res = await nav("back");
         if (!res?.handled) close();
       }}

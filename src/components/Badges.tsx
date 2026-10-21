@@ -9,7 +9,6 @@ let cache: { at: number; badges: Badge[]; facts: string[] } | null = null;
 // Your Discord profile badges. Moving onto one shows what it is.
 export function Badges({ userId }: { userId?: string }) {
   const [badges, setBadges] = useState<Badge[] | null>(cache?.badges ?? null);
-  const [facts, setFacts] = useState<string[]>(cache?.facts ?? []);
   const [focused, setFocused] = useState<Badge | null>(null);
 
   useEffect(() => {
@@ -19,12 +18,11 @@ export function Badges({ userId }: { userId?: string }) {
         const list = r?.badges ?? [];
         cache = { at: Date.now(), badges: list, facts: r?.facts ?? [] };
         setBadges(list);
-        setFacts(r?.facts ?? []);
       })
       .catch(() => setBadges([]));
   }, [userId]);
 
-  if (!badges?.length && !facts.length) return null;
+  if (!badges?.length) return null;
   return (
     <PanelSectionRow>
       <div style={{ padding: "2px 0 4px" }}>
@@ -48,11 +46,7 @@ export function Badges({ userId }: { userId?: string }) {
         </Focusable>
         )}
         {focused && <div style={{ fontSize: 12, opacity: 0.9, marginTop: 6, lineHeight: 1.35 }}>{focused.description}</div>}
-        {facts.map((f) => (
-          <div key={f} style={{ fontSize: 11, opacity: 0.6, marginTop: 4, lineHeight: 1.3 }}>
-            {f}
-          </div>
-        ))}
+
       </div>
     </PanelSectionRow>
   );

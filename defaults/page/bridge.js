@@ -631,6 +631,11 @@
     // track, so it works with the Discord view hidden.
     let pip = null;
     let watching = null; // stream key being watched
+    // media.js (loaded after this file) adds its helpers to window.DISCORDIO.media.
+    const remoteVideo = (since) => {
+        const m = (window.DISCORDIO || {}).media;
+        return m && m.latestRemoteVideo ? m.latestRemoteVideo(since) : null;
+    };
     const blobToB64 = (blob) => new Promise((resolve, reject) => {
         const fr = new FileReader();
         fr.onload = () => resolve(String(fr.result).split(",")[1] || "");
@@ -645,8 +650,8 @@
         pip = st;
         (async () => {
             let track = null;
-            for (let i = 0; i < 60 && st.on && !track; i++) {
-                track = D.media && D.media.latestRemoteVideo ? D.media.latestRemoteVideo((since || 0) - 2000) : null;
+            for (let i = 0; i < 80 && st.on && !track; i++) {
+                track = remoteVideo((since || 0) - 2000);
                 if (!track) await sleep(250);
             }
             if (!st.on) return;
@@ -709,8 +714,67 @@
         if (!quiet) emit("pip", { stopped: true });
         return { ok: true };
     }
+    // Full-screen player inside the Discord view: just the stream, no Discord
+    // around it. The Discord tab's B button stops watching and goes back.
+    let player = null;
+    function showPlayer({ since, name }) {
+        hidePlayer();
+        const el = document.createElement("div");
+        el.id = "discordio-player";
+        el.style.cssText = "position:fixed;inset:0;z-index:2147483647;background:#000;display:flex;align-items:center;justify-content:center";
+        el.innerHTML = '<video autoplay playsinline muted style="width:100%;height:100%;object-fit:contain"></video>' +
+            '<div class="dio-p-msg" style="position:absolute;color:#fff;font:600 22px sans-serif;opacity:.85;text-align:center"></div>' +
+            '<div style="position:absolute;left:24px;bottom:20px;display:flex;gap:10px;align-items:center;color:#fff;font:600 16px sans-serif;text-shadow:0 1px 3px #000">' +
+            '<span style="background:#ed4245;border-radius:4px;padding:2px 7px;font-size:13px">LIVE</span><span class="dio-p-name"></span>' +
+            '<span style="opacity:.7;font-weight:400">· press B to stop watching</span></div>';
+        el.querySelector(".dio-p-name").textContent = name || "";
+        document.body.appendChild(el);
+        const st = { el, on: true };
+        player = st;
+        const msg = (t) => { const m = el.querySelector(".dio-p-msg"); if (m) m.textContent = t || ""; };
+        msg("Waiting for the stream's video...");
+        (async () => {
+            let track = null;
+            for (let i = 0; i < 80 && st.on && !track; i++) {
+                track = remoteVideo((since || 0) - 2000);
+                if (!track) await sleep(250);
+            }
+            if (!st.on) return;
+            if (!track) { msg("The stream's video didn't arrive. Press B to go back."); emit("pip", { error: "the stream's video didn't arrive (player)" }); return; }
+            const v = el.querySelector("video");
+            v.srcObject = new MediaStream([track]);
+            try { await v.play(); } catch (_) { }
+            msg("");
+            track.addEventListener("ended", () => st.on && msg("The stream ended. Press B to go back."));
+        })();
+        return { ok: true };
+    }
+    function hidePlayer() {
+        if (!player) return;
+        player.on = false;
+        try { const v = player.el.querySelector("video"); v.srcObject = null; } catch (_) { }
+        player.el.remove();
+        player = null;
+    }
+    // When the person stops streaming, stop showing it.
+    const streamKey = (x) => [x.streamType, x.guildId, x.channelId, x.ownerId].filter(Boolean).join(":");
+    setInterval(() => {
+        if (!watching) return;
+        try {
+            const S = store("ApplicationStreamingStore");
+            const all = (S && S.getAllApplicationStreams ? S.getAllApplicationStreams() : null);
+            if (!all) return;
+            if (all.some((x) => streamKey(x) === watching)) return;
+        } catch (_) { return; }
+        watching = null;
+        pipStop(true);
+        if (player) { const m = player.el.querySelector(".dio-p-msg"); if (m) m.textContent = "The stream ended. Press B to go back."; }
+        emit("watch_ended", {});
+    }, 2000);
+
     function stopWatching() {
         pipStop();
+        hidePlayer();
         const key = watching;
         watching = null;
         if (!key) return { ok: true };
@@ -722,7 +786,7 @@
         return { ok: true };
     }
 
-    async function watchStream(userId, inOverlay, fps) {
+    async function watchStream(userId, inOverlay, fps, asPlayer) {
         const S = store("ApplicationStreamingStore");
         let stream = null;
         try {
@@ -730,7 +794,7 @@
             stream = all.find((x) => x.ownerId === userId) || null;
         } catch (_) { }
         if (!stream) throw new Error("They aren't streaming right now");
-        const key = [stream.streamType, stream.guildId, stream.channelId, stream.ownerId].filter(Boolean).join(":");
+        const key = streamKey(stream);
         // Watching a server stream means being in its voice channel.
         if (stream.channelId && voiceChannelId() !== stream.channelId) {
             selectVoice(stream.guildId || null, stream.channelId);
@@ -742,14 +806,13 @@
         else if (a && a.watchStream) a.watchStream(stream);
         else dispatch({ type: "STREAM_WATCH", streamKey: key, allowMultiple: true });
         watching = key;
-        if (inOverlay) {
-            let name = null;
-            try { const u = C().UserStore.getUser(userId); name = friendName(u) || userName(u); } catch (_) { }
-            pipStart({ since, name, fps });
-        }
+        let name = null;
+        try { const u = C().UserStore.getUser(userId); name = friendName(u) || userName(u); } catch (_) { }
+        if (inOverlay) pipStart({ since, name, fps });
+        if (asPlayer) showPlayer({ since, name });
         // Show the stream full-size in Discord's call page.
         try { openCallPage(stream.channelId); } catch (_) { }
-        return { ok: true };
+        return { ok: true, name };
     }
 
     function friends() {
@@ -1215,7 +1278,7 @@
     m("incomingCall", () => incoming);
     m("emojis", ({ channelId }) => emojis(channelId));
     m("react", ({ channelId, messageId, emoji, remove }) => react(channelId, messageId, emoji, !!remove));
-    m("watchStream", ({ userId, overlay, fps }) => watchStream(userId, !!overlay, fps));
+    m("watchStream", ({ userId, overlay, fps, player }) => watchStream(userId, !!overlay, fps, !!player));
     m("pipFps", ({ fps }) => pipFps(fps));
     m("stopWatching", () => stopWatching());
     m("pipStop", () => pipStop());
