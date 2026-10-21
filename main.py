@@ -577,6 +577,14 @@ class Plugin:
         return await cls._req("enablePtt", {"enabled": bool(enabled)})
 
     @classmethod
+    async def get_voice_mode(cls):
+        return await cls._req("voiceMode", {})
+
+    @classmethod
+    async def set_sensitivity(cls, auto, threshold=None):
+        return await cls._req("setSensitivity", {"auto": bool(auto), "threshold": threshold})
+
+    @classmethod
     async def set_rpc(cls, game):
         return await cls._req("setActivity", {"game": game}, timeout=15)
 

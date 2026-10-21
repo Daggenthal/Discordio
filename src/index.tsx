@@ -28,6 +28,7 @@ import { SafeSection } from "./components/SafeSection";
 import { useUiSettings, setUiSetting } from "./lib/settings";
 import { startMicBridge } from "./lib/mic";
 import { AudioDevicesPanel } from "./components/AudioDevicesPanel";
+import { MicProcessingPanel } from "./components/MicProcessingPanel";
 import { AudioCheckPanel } from "./components/AudioCheckPanel";
 import { StreamQualityPanel } from "./components/GoLivePanel";
 import { AccountPanel } from "./components/AccountPanel";
@@ -209,6 +210,7 @@ const Content = () => {
           <SafeSection name="Favorites"><FavoritesPanel /></SafeSection>
           <Collapsible title="Audio Settings" defaultOpen={false}>
             <SafeSection name="Audio devices"><AudioDevicesPanel /></SafeSection>
+            <SafeSection name="Voice processing"><MicProcessingPanel /></SafeSection>
             <SafeSection name="Audio check"><AudioCheckPanel /></SafeSection>
             <SafeSection name="Mic button"><PushToTalkButton /></SafeSection>
             <SafeSection name="Call shortcuts"><CallShortcutsPanel /></SafeSection>

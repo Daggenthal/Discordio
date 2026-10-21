@@ -30,21 +30,45 @@ export const listMics = async (): Promise<Device[]> => {
     .map((d, i) => ({ id: d.deviceId || "default", label: d.label || `Microphone ${i + 1}` }));
 };
 
+// Chromium's own voice processing, applied here where the microphone is
+// really opened (Discord's toggles can't reach a bridged track). Off by
+// default, as before: SteamOS may already process the mic.
+export type Processing = { noiseSuppression: boolean; echoCancellation: boolean; autoGainControl: boolean };
+const PKEY = "DISCORDIO_MIC_PROCESSING";
+const PDEFAULT: Processing = { noiseSuppression: false, echoCancellation: false, autoGainControl: false };
+export const getProcessing = (): Processing => {
+  try {
+    return { ...PDEFAULT, ...JSON.parse(localStorage.getItem(PKEY) || "{}") };
+  } catch (_) {
+    return { ...PDEFAULT };
+  }
+};
+
 export const openMic = (id: string = getMicId()) =>
   navigator.mediaDevices.getUserMedia({
     video: false,
     audio: {
       ...(id && id !== "default" ? { deviceId: { exact: id } } : {}),
-      echoCancellation: false,
-      noiseSuppression: false,
-      autoGainControl: false,
+      ...getProcessing(),
     },
   });
+
+export const setProcessing = async (patch: Partial<Processing>) => {
+  try {
+    localStorage.setItem(PKEY, JSON.stringify({ ...getProcessing(), ...patch }));
+  } catch (_) {}
+  await reopenLive(getMicId());
+};
 
 export const setMic = async (id: string) => {
   try {
     localStorage.setItem(KEY, id);
   } catch (_) {}
+  await reopenLive(id);
+};
+
+// Reopen the mic with the current settings and swap it into a live call.
+async function reopenLive(id: string) {
   // Swap the track on the live connection, if Discord is already using the mic.
   const pc = micPc;
   if (!pc || pc.connectionState === "closed") return;
@@ -57,4 +81,4 @@ export const setMic = async (id: string) => {
   try {
     old?.stop();
   } catch (_) {}
-};
+}

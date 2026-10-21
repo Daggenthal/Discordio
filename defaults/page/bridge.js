@@ -966,6 +966,19 @@
         });
         return { ok: true };
     });
+    // Voice activity sensitivity (Discord's "Input Sensitivity").
+    m("voiceMode", () => {
+        const s = store("MediaEngineStore").getSettings();
+        const o = s.modeOptions || {};
+        return { mode: s.mode, autoThreshold: o.autoThreshold !== false, threshold: typeof o.threshold === "number" ? o.threshold : -60 };
+    });
+    m("setSensitivity", ({ auto, threshold }) => {
+        const s = store("MediaEngineStore").getSettings();
+        const options = { ...(s.modeOptions || {}), autoThreshold: !!auto };
+        if (typeof threshold === "number") options.threshold = Math.max(-100, Math.min(0, threshold));
+        dispatch({ type: "AUDIO_SET_MODE", context: "default", mode: s.mode || "VOICE_ACTIVITY", options });
+        return { ok: true };
+    });
     m("setActivity", ({ game }) => setActivity(game));
     m("recentChannels", () => recentTextChannels());
     m("postScreenshot", async ({ channelId, userId, data, filename }) =>
