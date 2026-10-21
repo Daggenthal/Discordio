@@ -36,6 +36,13 @@ export function StatusPanel({ status }: { status?: { status: string; custom: str
   const [emoji, setEmoji] = useState<Emoji | "none" | undefined>(undefined);
   const [picking, setPicking] = useState(false);
   const [clearAfter, setClearAfter] = useState<number | string>(0);
+  // "Clear Custom Status" needs a second press.
+  const [confirmClear, setConfirmClear] = useState(false);
+  useEffect(() => {
+    if (!confirmClear) return;
+    const t = setTimeout(() => setConfirmClear(false), 4000);
+    return () => clearTimeout(t);
+  }, [confirmClear]);
   const [custom, setCustom] = useState(status?.custom ?? "");
   const [busy, setBusy] = useState(false);
   useEffect(() => {
@@ -137,6 +144,32 @@ export function StatusPanel({ status }: { status?: { status: string; custom: str
               {custom.trim() || shown ? "Set Custom Status" : "Clear Custom Status"}
             </ButtonItem>
           </PanelSectionRow>
+          {(status?.custom || status?.emoji) && (
+            <PanelSectionRow>
+              <ButtonItem
+                layout="below"
+                disabled={busy}
+                onClick={async () => {
+                  if (!confirmClear) return setConfirmClear(true);
+                  setConfirmClear(false);
+                  setEmoji("none");
+                  setCustom("");
+                  setBusy(true);
+                  try {
+                    const res: any = await call("set_status", null, "", "none", 0);
+                    toaster.toast({ title: "Discordio", body: res?.error ? `Couldn't clear it: ${res.error}` : "Custom status cleared" });
+                  } finally {
+                    setBusy(false);
+                    setEmoji(undefined);
+                  }
+                }}
+              >
+                <span style={{ color: confirmClear ? "#fff" : "#ff6b6b" }}>
+                  {confirmClear ? "Press Again to Clear" : "Clear Custom Status"}
+                </span>
+              </ButtonItem>
+            </PanelSectionRow>
+          )}
         </>
       )}
     </>
