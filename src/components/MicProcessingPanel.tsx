@@ -77,8 +77,13 @@ export function MicProcessingPanel() {
             <PanelSectionRow>
               {/* 1-based: Steam's slider ignores input at 0. Position p = p - 100 dB. */}
               <SliderField
-                label="Mic Sensitivity"
-                description={`Sounds quieter than ${Math.round(mode.threshold)} dB don't count as talking. Lower picks up more.`}
+                label={
+                  <span style={{ display: "flex", justifyContent: "space-between", width: "100%" }}>
+                    <span>Mic Sensitivity</span>
+                    <span style={{ fontWeight: 700 }}>{Math.round(mode.threshold)} dB</span>
+                  </span>
+                }
+                description="Sounds quieter than this don't count as talking. Lower picks up more, higher ignores more background noise."
                 min={1}
                 max={100}
                 step={1}
