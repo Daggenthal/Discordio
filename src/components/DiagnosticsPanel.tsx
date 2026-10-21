@@ -1,5 +1,6 @@
 import { ButtonItem, PanelSection, PanelSectionRow, ToggleField } from "@decky/ui";
 import { PageUsage } from "./PageUsage";
+import { SystemInfo, steamSystemInfo } from "./SystemInfo";
 import { addEventListener, call, removeEventListener, toaster } from "@decky/api";
 import { useEffect, useState } from "react";
 import { ChoiceSlider } from "./ChoiceSlider";
@@ -95,6 +96,7 @@ export function DiagnosticsPanel() {
   const exportReport = async () => {
     try {
       const path = await call<[any], string>("export_report", {
+        steam: await steamSystemInfo(),
         checks: getDiag(),
         mic: micStatus(),
         sliders: getSliderLog().map((e) => `${new Date(e.t).toLocaleTimeString()} ${e.slider}: ${e.what}`),
@@ -121,6 +123,7 @@ export function DiagnosticsPanel() {
 
       {open && (
         <>
+          <SystemInfo />
           <PageUsage />
           <PanelSectionRow>
             <ToggleField

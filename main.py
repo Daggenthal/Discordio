@@ -1340,6 +1340,12 @@ class Plugin:
         return snap if snap["show_private"] else diag.redact(snap)
 
     @classmethod
+    async def get_system_info(cls):
+        info = await asyncio.get_running_loop().run_in_executor(None, _system_info)
+        info["discordio_update_channel"] = cls.settings.load().get("update_channel", "stable")
+        return info
+
+    @classmethod
     async def set_diag_privacy(cls, show_private):
         """Show real names / IDs in Diagnostics and reports (off by default)."""
         cls.settings.update(diag_show_private=bool(show_private))
@@ -1449,8 +1455,15 @@ class Plugin:
             f"version {VERSION}, Python {platform.python_version()}, Decky {getattr(decky, 'DECKY_VERSION', '?')}",
             f"OS: {_os_release()}",
             "",
-            "== Health",
+            "== System",
         ]
+        sysinfo = _system_info()
+        sysinfo["discordio_update_channel"] = cls.settings.load().get("update_channel", "stable")
+        steam = (frontend or {}).pop("steam", None) if isinstance(frontend, dict) else None
+        if isinstance(steam, dict):
+            sysinfo.update({f"steam_{k}": v for k, v in steam.items()})
+        lines += [f"  {k}: {v}" for k, v in sysinfo.items()]
+        lines += ["", "== Health"]
         for c in d["components"]:
             lines.append(f"  [{c['state']:7}] {c['label']}: {c['detail']}")
         lines += ["", "== Recent errors"]
@@ -1484,6 +1497,64 @@ class Plugin:
             pass
         log.info(f"Report written to {path}")
         return str(path)
+
+
+def _run(cmd, timeout=3):
+    import subprocess
+    try:
+        out = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        return (out.stdout or out.stderr or "").strip()
+    except Exception:
+        return ""
+
+
+BRANCH_NAMES = {"rel": "Stable", "stable": "Stable", "rc": "Release Candidate", "beta": "Beta",
+                "bc": "Beta Candidate", "main": "Main (preview)", "staging": "Staging"}
+
+
+def _system_info():
+    """What a bug report needs to know about the machine (no personal data)."""
+    info = {}
+    try:
+        rel = dict(l.split("=", 1) for l in Path("/etc/os-release").read_text().splitlines() if "=" in l)
+        rel = {k: v.strip().strip('"') for k, v in rel.items()}
+        info["os"] = rel.get("PRETTY_NAME") or rel.get("NAME") or "?"
+        info["os_version"] = rel.get("VERSION_ID") or "?"
+        info["os_build"] = rel.get("BUILD_ID") or "?"
+        if rel.get("VARIANT_ID"):
+            info["os_variant"] = rel["VARIANT_ID"]
+    except Exception:
+        info["os"] = platform.platform()
+    branch = _run(["steamos-select-branch", "-c"]).splitlines()
+    branch = branch[-1].strip() if branch else ""
+    if not branch:
+        for f in ("/etc/steamos-branch", "/var/lib/steamos-branch"):
+            try:
+                branch = Path(f).read_text().strip()
+                break
+            except Exception:
+                pass
+    info["steamos_channel"] = BRANCH_NAMES.get(branch.lower(), branch) if branch else "unknown"
+    try:
+        _, _, home = system.session_user(decky)
+        beta = Path(home) / ".local/share/Steam/package/beta"
+        info["steam_client_channel"] = f"Beta ({beta.read_text().strip()})" if beta.exists() and beta.read_text().strip() else "Stable"
+    except Exception:
+        info["steam_client_channel"] = "unknown"
+    info["kernel"] = platform.release()
+    try:
+        vendor = Path("/sys/class/dmi/id/sys_vendor").read_text().strip()
+        product = Path("/sys/class/dmi/id/product_name").read_text().strip()
+        info["hardware"] = f"{vendor} {product}".strip()
+    except Exception:
+        pass
+    gs = _run(["gamescope", "--version"], timeout=2).splitlines()
+    if gs:
+        info["gamescope"] = gs[0][:80]
+    info["decky"] = str(getattr(decky, "DECKY_VERSION", "?"))
+    info["discordio"] = VERSION
+    info["python"] = platform.python_version()
+    return info
 
 
 def _os_release():
