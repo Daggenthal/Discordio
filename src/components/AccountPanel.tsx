@@ -2,6 +2,7 @@ import { call, toaster } from "@decky/api";
 import { ButtonItem, PanelSectionRow, Router } from "@decky/ui";
 import { useEffect, useState } from "react";
 import { Avatar } from "./VoiceChatViews";
+import { fire } from "../lib/events";
 
 type Account = { id: string; name: string; avatar: string | null; current: boolean; valid: boolean };
 type Accounts = { me: { id: string; name: string; avatar: string | null } | null; saved: Account[]; canSwitch: boolean; error?: string };
@@ -111,7 +112,15 @@ export function AccountPanel() {
           onClick={() => {
             if (!confirm) return setConfirm(true);
             setConfirm(false);
-            act(() => call("logout"), "Logged out. Open Discord to log in again");
+            act(async () => {
+              const res: any = await call("logout");
+              if (!res?.error) {
+                // Close Settings and go to the top, where Open Discord is.
+                fire("collapse-all");
+                setTimeout(() => fire("jump:top"), 80);
+              }
+              return res;
+            }, "Logged out. Open Discord to log in again");
           }}
         >
           <span style={{ color: "#ff6b6b" }}>{confirm ? "Press again to logout" : "Logout"}</span>
