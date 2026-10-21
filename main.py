@@ -777,7 +777,11 @@ class Plugin:
 
     @classmethod
     async def get_badges(cls):
-        return await cls._req("badges", {}, timeout=15, private=False)
+        res = await cls._req("badges", {}, timeout=15, private=False)
+        if isinstance(res, dict) and res.get("badges") is not None:
+            # In the log (and reports), to see what Discord sends for each badge.
+            log.info("Badges: " + ", ".join(f"{b.get('id')}: {b.get('description')}" for b in res["badges"]))
+        return res
 
     @classmethod
     async def edit_message(cls, channel_id, message_id, content):

@@ -4,29 +4,32 @@ import { useEffect, useState } from "react";
 
 type Badge = { id: string; description: string; icon: string | null };
 
-let cache: { at: number; badges: Badge[] } | null = null;
+let cache: { at: number; badges: Badge[]; facts: string[] } | null = null;
 
 // Your Discord profile badges. Moving onto one shows what it is.
 export function Badges({ userId }: { userId?: string }) {
   const [badges, setBadges] = useState<Badge[] | null>(cache?.badges ?? null);
+  const [facts, setFacts] = useState<string[]>(cache?.facts ?? []);
   const [focused, setFocused] = useState<Badge | null>(null);
 
   useEffect(() => {
     if (cache && Date.now() - cache.at < 10 * 60_000) return;
-    call<[], { badges?: Badge[]; error?: string }>("get_badges")
+    call<[], { badges?: Badge[]; facts?: string[]; error?: string }>("get_badges")
       .then((r) => {
         const list = r?.badges ?? [];
-        cache = { at: Date.now(), badges: list };
+        cache = { at: Date.now(), badges: list, facts: r?.facts ?? [] };
         setBadges(list);
+        setFacts(r?.facts ?? []);
       })
       .catch(() => setBadges([]));
   }, [userId]);
 
-  if (!badges?.length) return null;
+  if (!badges?.length && !facts.length) return null;
   return (
     <PanelSectionRow>
       <div style={{ padding: "2px 0 4px" }}>
-        <Focusable style={{ display: "flex", flexWrap: "wrap", gap: 6 }} flow-children="row">
+        {!!badges?.length && (
+        <Focusable style={{ display: "flex", flexWrap: "wrap", gap: 4 }} flow-children="row">
           {badges.map((b) => (
             <Focusable
               key={b.id}
@@ -35,7 +38,7 @@ export function Badges({ userId }: { userId?: string }) {
               {...({ onGamepadFocus: () => setFocused(b), onGamepadBlur: () => setFocused((f) => (f?.id === b.id ? null : f)) } as any)}
               style={{
                 width: 30, height: 30, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center",
-                background: focused?.id === b.id ? "rgba(255,255,255,0.2)" : "rgba(255,255,255,0.06)",
+                background: focused?.id === b.id ? "rgba(255,255,255,0.15)" : "transparent",
                 border: focused?.id === b.id ? "2px solid #fff" : "2px solid transparent", boxSizing: "border-box",
               }}
             >
@@ -43,7 +46,13 @@ export function Badges({ userId }: { userId?: string }) {
             </Focusable>
           ))}
         </Focusable>
-        {focused && <div style={{ fontSize: 12, opacity: 0.85, marginTop: 6, lineHeight: 1.35 }}>{focused.description}</div>}
+        )}
+        {focused && <div style={{ fontSize: 12, opacity: 0.9, marginTop: 6, lineHeight: 1.35 }}>{focused.description}</div>}
+        {facts.map((f) => (
+          <div key={f} style={{ fontSize: 11, opacity: 0.6, marginTop: 4, lineHeight: 1.3 }}>
+            {f}
+          </div>
+        ))}
       </div>
     </PanelSectionRow>
   );

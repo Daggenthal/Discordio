@@ -769,25 +769,59 @@
 
     // ------------------------------------------------------------- badges
     let badgeCache = null;
+    const fmtDate = (d) => d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+    function since(dateLike) {
+        const d = new Date(dateLike);
+        if (isNaN(d)) return null;
+        let months = (new Date().getFullYear() - d.getFullYear()) * 12 + (new Date().getMonth() - d.getMonth());
+        if (new Date().getDate() < d.getDate()) months -= 1;
+        months = Math.max(0, months);
+        const y = Math.floor(months / 12), m = months % 12;
+        const span = y ? `${y} year${y > 1 ? "s" : ""}${m ? `, ${m} month${m > 1 ? "s" : ""}` : ""}` : `${m} month${m === 1 ? "" : "s"}`;
+        return { date: fmtDate(d), span };
+    }
+    // Snowflake IDs carry their creation time.
+    const createdAt = (id) => new Date(Number(BigInt(id) >> 22n) + 1420070400000);
     async function myBadges() {
         const u = me();
         if (!u) throw new Error("not logged in");
         if (badgeCache && badgeCache.id === u.id && Date.now() - badgeCache.at < 10 * 60 * 1000) return badgeCache.value;
-        let badges = null;
+        // Discord's API has the full text (dates, counts); the client's store
+        // can hold only short names, so it's the fallback.
+        let profile = null;
         try {
-            const P = store("UserProfileStore");
-            const p = P && P.getUserProfile && P.getUserProfile(u.id);
-            if (p && Array.isArray(p.badges) && p.badges.length) badges = p.badges;
-        } catch (_) { }
-        if (!badges) {
             const r = await C().RestAPI.get({ url: `/users/${u.id}/profile`, query: { with_mutual_guilds: false, with_mutual_friends: false } });
-            badges = (r && r.body && r.body.badges) || [];
+            profile = r && r.body;
+        } catch (e) { warn("profile", e); }
+        if (!profile || !Array.isArray(profile.badges)) {
+            try {
+                const P = store("UserProfileStore");
+                const p = P && P.getUserProfile && P.getUserProfile(u.id);
+                if (p) profile = { ...p, ...(profile && !Array.isArray(profile) ? profile : {}), badges: p.badges };
+            } catch (_) { }
         }
-        const value = { badges: badges.map((b) => ({
-            id: b.id, description: b.description || b.id,
-            icon: b.icon ? `https://cdn.discordapp.com/badge-icons/${b.icon}.png` : null,
-        })) };
+        profile = profile || {};
+        const premiumSince = profile.premium_since || profile.premiumSince || null;
+        const boostSince = profile.premium_guild_since || profile.premiumGuildSince || null;
+        const created = since(createdAt(u.id));
+        const nitro = premiumSince ? since(premiumSince) : null;
+        const boost = boostSince ? since(boostSince) : null;
+        const badges = (profile.badges || []).map((b) => {
+            const id = String(b.id || "");
+            let text = b.description || id;
+            // Fill in what a short description leaves out.
+            if (/account.?age|legacy/i.test(id + " " + text) && created && !/\d{4}/.test(text)) text = `${text}: account created ${created.date} (${created.span} ago)`;
+            else if (/premium(?!_guild)|nitro|subscriber/i.test(id) && nitro && !/\d{4}/.test(text)) text = `${text}: subscriber since ${nitro.date} (${nitro.span})`;
+            else if (/guild_booster|boost/i.test(id) && boost && !/\d{4}/.test(text)) text = `${text}: boosting since ${boost.date} (${boost.span})`;
+            return { id, description: text, icon: b.icon ? `https://cdn.discordapp.com/badge-icons/${b.icon}.png` : null, link: b.link || null };
+        });
+        const facts = [];
+        if (created) facts.push(`On Discord since ${created.date} (${created.span})`);
+        if (nitro) facts.push(`Nitro since ${nitro.date} (${nitro.span})`);
+        if (boost) facts.push(`Boosting since ${boost.date} (${boost.span})`);
+        const value = { badges, facts };
         badgeCache = { id: u.id, at: Date.now(), value };
+        log("badges: " + badges.map((b) => `${b.id}="${b.description}"`).join(", "));
         return value;
     }
 
