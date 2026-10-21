@@ -93,6 +93,9 @@ def _collect_private(obj, depth=0):
             _collect_private(v, depth + 1)
 
 
+PIP_FPS = (10, 30, 40, 60)
+
+
 class Plugin:
     settings = None
     bridge = None
@@ -557,7 +560,8 @@ class Plugin:
         if not cls._pip_fresh():
             return Response(status=404)
         return Response(body=p["data"], content_type="image/jpeg",
-                        headers={"Access-Control-Allow-Origin": "*", "Cache-Control": "no-store"})
+                        headers={"Access-Control-Allow-Origin": "*", "Cache-Control": "no-store",
+                                 "Access-Control-Expose-Headers": "X-Seq", "X-Seq": str(p.get("seq", 0))})
 
     @classmethod
     async def _on_mic(cls, data):
@@ -600,7 +604,8 @@ class Plugin:
                          "message_position": s.get("message_position", "top-left"),
                          "message_duration": s.get("message_duration", 8),
                          "pip_position": s.get("pip_position", "bottom-right"),
-                         "pip_size": s.get("pip_size", "normal")},
+                         "pip_size": s.get("pip_size", "normal"),
+                         "pip_fps": s.get("pip_fps", 30)},
             "pip": ({"seq": cls.pip.get("seq"), "w": cls.pip.get("w"), "h": cls.pip.get("h"), "name": cls.pip.get("name")}
                     if cls._pip_fresh() else None),
         }, headers={"Access-Control-Allow-Origin": "*", "Cache-Control": "no-store"})
@@ -896,7 +901,8 @@ class Plugin:
     async def watch_stream(cls, user_id, overlay=False):
         """Watch someone's Go Live (joins their voice channel if needed): in
         Discord, or as a picture-in-picture in the in-game overlay."""
-        res = await cls._req("watchStream", {"userId": user_id, "overlay": bool(overlay)}, timeout=15)
+        fps = cls.settings.load().get("pip_fps", 30)
+        res = await cls._req("watchStream", {"userId": user_id, "overlay": bool(overlay), "fps": fps}, timeout=15)
         if overlay and isinstance(res, dict) and not res.get("error"):
             cls.pip = {"on": True, "starting": time.time(), "seq": 0, "data": None, "name": None}
         return res
@@ -914,8 +920,15 @@ class Plugin:
         return {"on": True, "name": p.get("name"), "frames": p.get("seq", 0), "live": cls._pip_fresh()}
 
     @classmethod
-    async def set_pip_look(cls, position=None, size=None):
+    async def set_pip_look(cls, position=None, size=None, fps=None):
         changes = {}
+        try:
+            if fps is not None and int(fps) in PIP_FPS:
+                changes["pip_fps"] = int(fps)
+                if cls.pip:
+                    await cls._req("pipFps", {"fps": int(fps)})
+        except (TypeError, ValueError):
+            pass
         if position in OVERLAY_POSITIONS:
             changes["pip_position"] = position
         if size in ("small", "normal", "large"):
@@ -923,7 +936,8 @@ class Plugin:
         if changes:
             cls.settings.update(**changes)
         s = cls.settings.load()
-        return {"position": s.get("pip_position", "bottom-right"), "size": s.get("pip_size", "normal")}
+        return {"position": s.get("pip_position", "bottom-right"), "size": s.get("pip_size", "normal"),
+                "fps": s.get("pip_fps", 30)}
 
     # -- status
 

@@ -13,6 +13,7 @@ const POSITIONS = [
   { value: "bottom-left", short: "BL", label: "Bottom left" },
   { value: "bottom-right", short: "BR", label: "Bottom right" },
 ];
+export const PIP_FPS = [10, 30, 40, 60].map((v) => ({ value: v, short: `${v}`, label: `${v} fps` }));
 const SIZES = [
   { value: "small", short: "Small", label: "Small" },
   { value: "normal", short: "Normal", label: "Normal" },
@@ -22,7 +23,7 @@ const SIZES = [
 // While a stream is showing in the overlay: where, how big, and stop.
 export function PipControls() {
   const [pip, setPip] = useState<Pip>({ on: false });
-  const [look, setLook] = useState<{ position: string; size: string } | null>(null);
+  const [look, setLook] = useState<{ position: string; size: string; fps: number } | null>(null);
   useEffect(() => {
     const load = () => call<[], Pip>("get_pip").then(setPip).catch(() => {});
     load();
@@ -38,7 +39,8 @@ export function PipControls() {
     };
   }, []);
   if (!pip.on) return null;
-  const set = async (position?: string, size?: string) => setLook(await call<any[], any>("set_pip_look", position ?? null, size ?? null));
+  const set = async (position?: string, size?: string, fps?: number) =>
+    setLook(await call<any[], any>("set_pip_look", position ?? null, size ?? null, fps ?? null));
   return (
     <>
       <PanelSectionRow>
@@ -53,6 +55,9 @@ export function PipControls() {
           </PanelSectionRow>
           <PanelSectionRow>
             <ChoiceSlider label="Stream Size" choices={SIZES} value={look.size} onChange={(v) => set(undefined, v)} />
+          </PanelSectionRow>
+          <PanelSectionRow>
+            <ChoiceSlider label="Stream Frame Rate" description="Higher is smoother but uses more CPU" choices={PIP_FPS} value={look.fps ?? 30} onChange={(v) => set(undefined, undefined, v)} />
           </PanelSectionRow>
         </>
       )}

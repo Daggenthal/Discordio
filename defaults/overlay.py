@@ -238,32 +238,43 @@ class Overlay:
     # -- stream picture-in-picture: the latest frame as a JPEG from the plugin
 
     def _pip_check(self, state):
-        pip = (state or {}).get("pip")
-        if not pip:
+        state = state or {}
+        self.pip_state = state.get("pip")
+        self.pip_fps = max(2, min(60, int((state.get("settings") or {}).get("pip_fps", 30) or 30)))
+        if not self.pip_state:
             if getattr(self, "pip_pix", None) is not None:
                 self.pip_pix = None
                 self.pip_seq = None
                 self.win.queue_draw()
             return
-        if pip.get("seq") != getattr(self, "pip_seq", None) and not getattr(self, "pip_fetching", False):
-            self.pip_fetching = True
-            threading.Thread(target=self._pip_fetch, args=(pip.get("seq"),), daemon=True).start()
+        if not getattr(self, "pip_running", False):
+            self.pip_running = True
+            threading.Thread(target=self._pip_loop, daemon=True).start()
 
-    def _pip_fetch(self, seq):
-        pix = None
+    def _pip_loop(self):
+        """Fetch frames at the chosen frame rate, independent of the state poll."""
+        last = object()  # nothing shown yet
         try:
-            with urllib.request.urlopen(STATE_URL.rstrip("/") + "/pip.jpg", timeout=1) as r:
-                loader = GdkPixbuf.PixbufLoader()
-                loader.write(r.read())
-                loader.close()
-                pix = loader.get_pixbuf()
-        except Exception:
-            pix = None
-        GLib.idle_add(self._pip_ready, seq, pix)
+            while getattr(self, "pip_state", None):
+                t0 = time.monotonic()
+                try:
+                    with urllib.request.urlopen(STATE_URL.rstrip("/") + "/pip.jpg", timeout=1) as r:
+                        seq = r.headers.get("X-Seq")
+                        body = r.read()
+                    if seq is None or seq != last:
+                        last = seq
+                        loader = GdkPixbuf.PixbufLoader()
+                        loader.write(body)
+                        loader.close()
+                        GLib.idle_add(self._pip_ready, seq, loader.get_pixbuf())
+                except Exception:
+                    time.sleep(0.2)
+                time.sleep(max(0.0, 1.0 / getattr(self, "pip_fps", 30) - (time.monotonic() - t0)))
+        finally:
+            self.pip_running = False
 
     def _pip_ready(self, seq, pix):
-        self.pip_fetching = False
-        if pix is not None:
+        if pix is not None and getattr(self, "pip_state", None):
             self.pip_pix = pix
             self.pip_seq = seq
             self.win.queue_draw()

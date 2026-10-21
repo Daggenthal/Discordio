@@ -638,10 +638,10 @@
         fr.readAsDataURL(blob);
     });
     function pipStart({ since, width, fps, name }) {
+        fps = Number(fps) || 30;
         pipStop(true);
         width = Math.max(160, Math.min(960, width || 480));
-        fps = Math.max(2, Math.min(15, fps || 10));
-        const st = { on: true, seq: 0 };
+        const st = { on: true, seq: 0, fps: Math.max(2, Math.min(60, fps || 30)) };
         pip = st;
         (async () => {
             let track = null;
@@ -675,7 +675,7 @@
                     if (r.done) break;
                     const frame = r.value;
                     const now = performance.now();
-                    if (now - last >= 1000 / fps) {
+                    if (now - last >= 1000 / st.fps - 2) {
                         last = now;
                         try { await send(frame, frame.displayWidth, frame.displayHeight); } catch (e) { warn("pip frame", e); }
                     }
@@ -686,13 +686,17 @@
                 v.muted = true; v.playsInline = true; v.srcObject = new MediaStream([clone]);
                 try { await v.play(); } catch (_) { }
                 while (st.on) {
-                    await sleep(1000 / fps);
+                    await sleep(1000 / st.fps);
                     try { await send(v, v.videoWidth, v.videoHeight); } catch (_) { }
                 }
                 v.srcObject = null;
             }
             if (pip === st) { pip = null; emit("pip", { stopped: true }); }
         })();
+        return { ok: true };
+    }
+    function pipFps(fps) {
+        if (pip) pip.fps = Math.max(2, Math.min(60, Number(fps) || 30));
         return { ok: true };
     }
     function pipStop(quiet) {
@@ -718,7 +722,7 @@
         return { ok: true };
     }
 
-    async function watchStream(userId, inOverlay) {
+    async function watchStream(userId, inOverlay, fps) {
         const S = store("ApplicationStreamingStore");
         let stream = null;
         try {
@@ -741,7 +745,7 @@
         if (inOverlay) {
             let name = null;
             try { const u = C().UserStore.getUser(userId); name = friendName(u) || userName(u); } catch (_) { }
-            pipStart({ since, name });
+            pipStart({ since, name, fps });
         }
         // Show the stream full-size in Discord's call page.
         try { openCallPage(stream.channelId); } catch (_) { }
@@ -1177,7 +1181,8 @@
     m("incomingCall", () => incoming);
     m("emojis", ({ channelId }) => emojis(channelId));
     m("react", ({ channelId, messageId, emoji, remove }) => react(channelId, messageId, emoji, !!remove));
-    m("watchStream", ({ userId, overlay }) => watchStream(userId, !!overlay));
+    m("watchStream", ({ userId, overlay, fps }) => watchStream(userId, !!overlay, fps));
+    m("pipFps", ({ fps }) => pipFps(fps));
     m("stopWatching", () => stopWatching());
     m("pipStop", () => pipStop());
     m("getStatus", () => myStatus());

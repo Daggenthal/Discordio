@@ -74,7 +74,7 @@
     pipRoot.style.cssText = "position:fixed;z-index:2147483647;border-radius:10px;overflow:hidden;pointer-events:none;box-shadow:0 4px 18px rgba(0,0,0,.5)";
     pipRoot.innerHTML = '<img style="display:block;width:100%"><div style="position:absolute;left:8px;bottom:8px;display:flex;gap:6px;align-items:center;font:700 12px sans-serif;color:#fff;text-shadow:0 1px 2px #000"><span style="background:#ed4245;border-radius:4px;padding:1px 5px;font-size:10px">LIVE</span><span class="dio-pip-name"></span></div>';
     document.body.appendChild(pipRoot);
-    let pipSeq = null;
+    let pipSeq = null; // X-Seq of the frame on screen
 
     const MIC_OFF = '<svg class="dio-mute" viewBox="0 0 24 24" fill="none" stroke="#ed4245" stroke-width="2.4" stroke-linecap="round">' +
         '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3M4 4l16 16"/></svg>';
@@ -136,10 +136,34 @@
         pipRoot.style.width = (PIP_W[settings.pip_size] || 380) + "px";
         place(pipRoot, settings.pip_position || "bottom-right");
         pipRoot.querySelector(".dio-pip-name").textContent = pip.name || "";
-        if (pip.seq !== pipSeq) {
-            pipSeq = pip.seq;
-            pipRoot.querySelector("img").src = STATE_URL.replace(/\/$/, "") + "/pip.jpg?" + pip.seq;
-        }
+        pipFps = Math.max(2, Math.min(60, Number(settings.pip_fps) || 30));
+        if (!pipLoop) pipLoop = runPip();
+    };
+    // Frames at the chosen rate, separate from the state poll; drawn on a
+    // canvas so there's no flicker between images.
+    let pipFps = 30, pipLoop = null;
+    const pipCanvas = document.createElement("canvas");
+    pipCanvas.style.cssText = "display:block;width:100%";
+    pipRoot.querySelector("img").replaceWith(pipCanvas);
+    const runPip = async () => {
+        try {
+            while (!stopped && !pipRoot.hidden) {
+                const t0 = performance.now();
+                try {
+                    const r = await fetch(STATE_URL.replace(/\/$/, "") + "/pip.jpg", { cache: "no-store" });
+                    const seq = r.headers.get("X-Seq");
+                    if (r.ok && seq !== pipSeq) {
+                        pipSeq = seq;
+                        const bmp = await createImageBitmap(await r.blob());
+                        if (pipCanvas.width !== bmp.width) pipCanvas.width = bmp.width;
+                        if (pipCanvas.height !== bmp.height) pipCanvas.height = bmp.height;
+                        pipCanvas.getContext("2d").drawImage(bmp, 0, 0);
+                        bmp.close();
+                    }
+                } catch (_) { }
+                await new Promise((res) => setTimeout(res, Math.max(0, 1000 / pipFps - (performance.now() - t0))));
+            }
+        } finally { pipLoop = null; }
     };
 
     const render = (state) => {

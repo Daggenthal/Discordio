@@ -1,6 +1,7 @@
 import { call } from "@decky/api";
 import { PanelSectionRow, ToggleField } from "@decky/ui";
 import { ChoiceSlider } from "./ChoiceSlider";
+import { PIP_FPS } from "./PipControls";
 import { useEffect, useState } from "react";
 
 type OverlaySettings = { enabled: boolean; position: string; engine: string; active: string | null; status: string; perf_overlay?: string; calls?: boolean; hold?: boolean; hide_perf?: boolean;
@@ -22,6 +23,10 @@ const POSITIONS = [
 
 export function OverlayPanel() {
   const [s, setS] = useState<OverlaySettings | null>(null);
+  const [pipFps, setPipFps] = useState(30);
+  useEffect(() => {
+    call<any[], any>("set_pip_look").then((l) => l?.fps && setPipFps(l.fps)).catch(() => {});
+  }, []);
 
   useEffect(() => {
     const load = () => call<[], OverlaySettings>("get_overlay_settings").then(setS).catch(() => {});
@@ -94,6 +99,18 @@ export function OverlayPanel() {
               choices={OPACITIES}
               value={Math.round((s.opacity ?? 100) / 10) * 10}
               onChange={(v) => look(undefined, v)}
+            />
+          </PanelSectionRow>
+          <PanelSectionRow>
+            <ChoiceSlider
+              label="Stream Frame Rate"
+              description="For streams you watch in the overlay. Higher is smoother but uses more CPU."
+              choices={PIP_FPS}
+              value={pipFps}
+              onChange={async (v) => {
+                setPipFps(v);
+                await call("set_pip_look", null, null, v);
+              }}
             />
           </PanelSectionRow>
           <PanelSectionRow>
