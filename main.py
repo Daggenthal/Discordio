@@ -891,7 +891,12 @@ class Plugin:
 
     @classmethod
     async def get_update_info(cls):
-        return await updates.check(VERSION)
+        return await updates.check(VERSION, cls.settings.load().get("update_channel", "stable"))
+
+    @classmethod
+    async def set_update_channel(cls, channel):
+        cls.settings.update(update_channel="beta" if channel == "beta" else "stable")
+        return await cls.get_update_info()
 
     # -- view
 

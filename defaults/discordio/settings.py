@@ -11,6 +11,8 @@ DEFAULTS = {
     "overlay_engine": "auto",
     # Show the overlay while a call rings or you're in one, even when it's off.
     "overlay_calls": True,
+    # stable: tested releases only; beta: every build
+    "update_channel": "stable",
     "message_popups": True,
     "message_position": "top-left",
     "message_duration": 8,

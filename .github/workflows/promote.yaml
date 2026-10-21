@@ -1,0 +1,30 @@
+# Marks a tested build as a stable release. Discordio's updater offers
+# stable releases to everyone, and every build only to the Beta channel.
+# Run it from GitHub: Actions > "Promote a build to stable" > Run workflow,
+# and enter the build number (e.g. 60).
+name: Promote a build to stable
+
+on:
+  workflow_dispatch:
+    inputs:
+      build:
+        description: "Build number to promote (e.g. 60)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mark build-${{ inputs.build }} as a full (stable) release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD: ${{ inputs.build }}
+        run: |
+          set -e
+          gh release view "build-$BUILD" --repo "$GITHUB_REPOSITORY" > /dev/null
+          gh release edit "build-$BUILD" --repo "$GITHUB_REPOSITORY" \
+            --prerelease=false --latest --title "Discordio build $BUILD (stable)"
+          echo "build-$BUILD is now the stable release"

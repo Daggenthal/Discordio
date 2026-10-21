@@ -1,5 +1,10 @@
 """
-Update check against the GitHub pre-releases CI publishes for every build.
+Update check against Discordio's GitHub releases.
+
+Channels:
+  stable  releases marked as full releases (a tested build, promoted with the
+          "Promote a build to stable" workflow or by unticking "pre-release")
+  beta    every build CI publishes (pre-releases), newest first
 The QAM hands the zip to Decky's own installer, which reloads the plugin in
 place, so updating never needs Desktop Mode or a Decky restart.
 """
@@ -20,8 +25,9 @@ def build_number(version):
     return int(m.group(1)) if m else 0
 
 
-async def check(current):
-    info = {"current": current, "current_build": build_number(current), "available": False}
+async def check(current, channel="stable"):
+    channel = "beta" if channel == "beta" else "stable"
+    info = {"current": current, "current_build": build_number(current), "available": False, "channel": channel}
     try:
         async with ClientSession(timeout=ClientTimeout(total=15)) as s:
             async with s.get(RELEASES_API, ssl=ssl_context(),
@@ -40,6 +46,8 @@ async def check(current):
     for rel in releases:
         if rel.get("draft"):
             continue
+        if channel == "stable" and rel.get("prerelease"):
+            continue
         n = build_number(rel.get("tag_name", ""))
         asset = next((a for a in rel.get("assets", []) if a.get("name", "").endswith(".zip")), None)
         if n and asset and (best is None or n > best[0]):
@@ -49,6 +57,9 @@ async def check(current):
         info.update(latest=rel.get("name") or rel.get("tag_name"), latest_build=n, version=f"build.{n}",
                     url=asset["browser_download_url"], notes=(rel.get("body") or "")[:400],
                     available=n > info["current_build"])
+    if not best and channel == "stable":
+        info["note"] = "no stable release yet; the beta channel has the latest builds"
     diag.set("updates", diag.OK,
-             f"build {info['current_build'] or 'local'}" + (f", build {info.get('latest_build')} available" if info["available"] else ", up to date"))
+             f"build {info['current_build'] or 'local'} ({channel})"
+             + (f", build {info.get('latest_build')} available" if info["available"] else ", up to date"))
     return info

@@ -2,6 +2,7 @@ import { call, toaster } from "@decky/api";
 import { ButtonItem, PanelSection, PanelSectionRow } from "@decky/ui";
 import { FaDownload } from "react-icons/fa";
 import { ColorButton } from "./ColorButton";
+import { ChoiceSlider } from "./ChoiceSlider";
 import { useEffect, useState } from "react";
 import { note } from "../lib/diag";
 import { clearUpdating, markUpdating } from "../lib/reopen";
@@ -17,6 +18,8 @@ type UpdateInfo = {
   url?: string;
   notes?: string;
   error?: string;
+  channel?: "stable" | "beta";
+  note?: string;
 };
 
 // Values of Decky's InstallType enum (frontend/src/plugin.ts).
@@ -132,9 +135,26 @@ const install = async (info: UpdateInfo) => {
   }
 };
 
+const CHANNELS = [
+  { value: "stable", short: "Stable", label: "Stable" },
+  { value: "beta", short: "Beta", label: "Beta" },
+];
+
 export function UpdatePanel() {
   const info = useUpdateInfo();
   const [busy, setBusy] = useState(false);
+
+  const setChannel = async (channel: string) => {
+    setBusy(true);
+    try {
+      const res = await call<[string], UpdateInfo>("set_update_channel", channel);
+      cached = res;
+      lastCheck = Date.now();
+      subscribers.forEach((fn) => fn(res));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const check = async () => {
     setBusy(true);
@@ -149,6 +169,24 @@ export function UpdatePanel() {
 
   return (
     <>
+      <PanelSectionRow>
+        <ChoiceSlider
+          label="Update channel"
+          description={
+            info?.channel === "beta"
+              ? "Every new build, as soon as it's made. Newest features, occasional bugs."
+              : "Tested releases only. Recommended."
+          }
+          choices={CHANNELS}
+          value={info?.channel ?? "stable"}
+          onChange={(v) => setChannel(v)}
+        />
+      </PanelSectionRow>
+      {info?.note && !info.available && (
+        <PanelSectionRow>
+          <div style={{ fontSize: 11, opacity: 0.7 }}>{info.note}</div>
+        </PanelSectionRow>
+      )}
       {info?.available ? (
         <PanelSectionRow>
           <ButtonItem
