@@ -286,8 +286,16 @@ class Overlay:
         if pix is None or not pip:
             return
         s = self.scale
-        w = {"small": 280, "normal": 380, "large": 520}.get(settings.get("pip_size"), 380) * s
-        h = w * pix.get_height() / max(1, pix.get_width())
+        # Fit inside a 16:9 box (380 x 214 at 100%), so a tall phone stream
+        # doesn't fill the screen, scaled by the size setting (10-200 %).
+        try:
+            pct = max(10, min(200, int(settings.get("pip_size", 100)))) / 100
+        except (TypeError, ValueError):
+            pct = 1.0
+        bw, bh = 380 * s * pct, 214 * s * pct
+        aspect = pix.get_width() / max(1, pix.get_height())
+        w = min(bw, bh * aspect)
+        h = w / aspect
         pos = settings.get("pip_position", "bottom-right")
         x = MARGIN * s if "left" in pos else self.screen_w - w - MARGIN * s
         y = MARGIN * s if "top" in pos else self.screen_h - h - MARGIN * s

@@ -620,7 +620,7 @@ class Plugin:
                          "message_position": s.get("message_position", "top-left"),
                          "message_duration": s.get("message_duration", 8),
                          "pip_position": s.get("pip_position", "bottom-right"),
-                         "pip_size": s.get("pip_size", "normal"),
+                         "pip_size": _pip_percent(s.get("pip_size")),
                          "pip_fps": s.get("pip_fps", 30)},
             "pip": ({"seq": cls.pip.get("seq"), "w": cls.pip.get("w"), "h": cls.pip.get("h"), "name": cls.pip.get("name")}
                     if cls._pip_fresh() and not cls.pip_paused else None),
@@ -1031,12 +1031,16 @@ class Plugin:
             pass
         if position in OVERLAY_POSITIONS:
             changes["pip_position"] = position
-        if size in ("small", "normal", "large"):
-            changes["pip_size"] = size
+        try:
+            # Percent of the normal size, 10 to 200 in steps of 10.
+            if size is not None:
+                changes["pip_size"] = max(10, min(200, int(round(float(size) / 10)) * 10))
+        except (TypeError, ValueError):
+            pass
         if changes:
             cls.settings.update(**changes)
         s = cls.settings.load()
-        return {"position": s.get("pip_position", "bottom-right"), "size": s.get("pip_size", "normal"),
+        return {"position": s.get("pip_position", "bottom-right"), "size": _pip_percent(s.get("pip_size")),
                 "fps": s.get("pip_fps", 30)}
 
     # -- status
@@ -1539,6 +1543,16 @@ class Plugin:
             pass
         log.info(f"Report written to {path}")
         return str(path)
+
+
+def _pip_percent(v):
+    """Stream picture size as a percent (older builds stored small / normal / large)."""
+    if isinstance(v, str):
+        return {"small": 70, "normal": 100, "large": 140}.get(v, 100)
+    try:
+        return max(10, min(200, int(v)))
+    except (TypeError, ValueError):
+        return 100
 
 
 def _run(cmd, timeout=3):

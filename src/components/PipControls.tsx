@@ -1,5 +1,5 @@
 import { addEventListener, call, removeEventListener } from "@decky/api";
-import { ButtonItem, PanelSectionRow } from "@decky/ui";
+import { ButtonItem, PanelSectionRow, SliderField } from "@decky/ui";
 import { useEffect, useState } from "react";
 import { on } from "../lib/events";
 import { stopWatching } from "../lib/watch";
@@ -14,16 +14,11 @@ const POSITIONS = [
   { value: "bottom-right", short: "BR", label: "Bottom right" },
 ];
 export const PIP_FPS = [10, 30, 40, 60].map((v) => ({ value: v, short: `${v}`, label: `${v} fps` }));
-const SIZES = [
-  { value: "small", short: "Small", label: "Small" },
-  { value: "normal", short: "Normal", label: "Normal" },
-  { value: "large", short: "Large", label: "Large" },
-];
 
 // While a stream is showing in the overlay: where, how big, and stop.
 export function PipControls() {
   const [pip, setPip] = useState<Pip>({ on: false });
-  const [look, setLook] = useState<{ position: string; size: string; fps: number } | null>(null);
+  const [look, setLook] = useState<{ position: string; size: number | string; fps: number } | null>(null);
   useEffect(() => {
     const load = () => call<[], Pip>("get_pip").then(setPip).catch(() => {});
     load();
@@ -54,7 +49,16 @@ export function PipControls() {
             <ChoiceSlider label="Stream Position" choices={POSITIONS} value={look.position} onChange={(v) => set(v)} />
           </PanelSectionRow>
           <PanelSectionRow>
-            <ChoiceSlider label="Stream Size" choices={SIZES} value={look.size} onChange={(v) => set(undefined, v)} />
+            {/* 10 % steps; 1-based (Steam's slider ignores input at 0). */}
+            <SliderField
+              label={`Stream Size: ${Number(look.size) || 100}%`}
+              description="100% is the normal size"
+              min={1}
+              max={20}
+              step={1}
+              value={Math.max(1, Math.min(20, Math.round((Number(look.size) || 100) / 10)))}
+              onChange={(v) => set(undefined, String(v * 10) as any)}
+            />
           </PanelSectionRow>
           <PanelSectionRow>
             <ChoiceSlider label="Stream Frame Rate" description="Higher is smoother but uses more CPU" choices={PIP_FPS} value={look.fps ?? 30} onChange={(v) => set(undefined, undefined, v)} />

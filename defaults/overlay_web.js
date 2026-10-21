@@ -133,7 +133,10 @@
             return;
         }
         pipRoot.hidden = false;
-        pipRoot.style.width = (PIP_W[settings.pip_size] || 380) + "px";
+        // Fit a 16:9 box (380 x 214 at 100 %) scaled by the size setting.
+        const pct = Math.max(10, Math.min(200, Number(settings.pip_size) || 100)) / 100;
+        const aspect = pipCanvas.width && pipCanvas.height ? pipCanvas.width / pipCanvas.height : 16 / 9;
+        pipRoot.style.width = Math.min(380 * pct, 214 * pct * aspect) + "px";
         place(pipRoot, settings.pip_position || "bottom-right");
         pipRoot.querySelector(".dio-pip-name").textContent = pip.name || "";
         pipFps = Math.max(2, Math.min(60, Number(settings.pip_fps) || 30));
