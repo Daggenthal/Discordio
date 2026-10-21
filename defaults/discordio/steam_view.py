@@ -253,6 +253,38 @@ class DiscordView:
               + "return true; })()")
         return await (await self.shared_context()).evaluate(js, timeout=5)
 
+    # --- resource use of the Discord page
+
+    async def usage(self):
+        """
+        How much the Discord page is using, from DevTools' own counters:
+        CPU as the share of time its main thread was busy since the last
+        sample, JavaScript memory, and the size of its page.
+        """
+        if not self.target or not self.target.connected:
+            raise RuntimeError("the Discord view isn't connected")
+        if getattr(self, "_perf_target", None) is not self.target:
+            await self.target.send("Performance.enable", {})
+            self._perf_target = self.target
+            self._perf_last = None
+        res = await self.target.send("Performance.getMetrics", {}, timeout=5)
+        m = {x["name"]: x["value"] for x in (res or {}).get("metrics", [])}
+        now = time.monotonic()
+        busy = m.get("TaskDuration", 0.0)
+        cpu = None
+        last = getattr(self, "_perf_last", None)
+        if last and now > last[0]:
+            cpu = max(0.0, min(100.0, (busy - last[1]) / (now - last[0]) * 100))
+        self._perf_last = (now, busy)
+        return {
+            "cpu": None if cpu is None else round(cpu, 1),
+            "js_mb": round(m.get("JSHeapUsedSize", 0) / 1048576, 1),
+            "js_total_mb": round(m.get("JSHeapTotalSize", 0) / 1048576, 1),
+            "nodes": int(m.get("Nodes", 0)),
+            "listeners": int(m.get("JSEventListeners", 0)),
+            "frames": int(m.get("Frames", 0)),
+        }
+
     async def unlock_audio(self):
         """
         Let the Discord page play sound (ringing, joins, notifications).

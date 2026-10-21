@@ -4,12 +4,14 @@ import { useEffect, useState } from "react";
 export type UiSettings = {
   autoOpenServers: boolean;
   autoOpenFriends: boolean;
+  showBadges: boolean;
 };
 
 const DEFAULTS: UiSettings = {
   autoOpenServers: true,
   // Off by default: long friend lists flood the QAM.
   autoOpenFriends: false,
+  showBadges: true,
 };
 
 const KEY = "DISCORDIO_UI_SETTINGS";

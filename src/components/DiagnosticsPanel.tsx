@@ -1,4 +1,5 @@
 import { ButtonItem, PanelSection, PanelSectionRow, ToggleField } from "@decky/ui";
+import { PageUsage } from "./PageUsage";
 import { addEventListener, call, removeEventListener, toaster } from "@decky/api";
 import { useEffect, useState } from "react";
 import { ChoiceSlider } from "./ChoiceSlider";
@@ -120,6 +121,7 @@ export function DiagnosticsPanel() {
 
       {open && (
         <>
+          <PageUsage />
           <PanelSectionRow>
             <ToggleField
               label="Show names in diagnostics"

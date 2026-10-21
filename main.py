@@ -13,6 +13,7 @@ Methods on Plugin are what the QAM calls.
 """
 
 import asyncio
+import base64
 import json
 import os
 import platform
@@ -135,6 +136,8 @@ class Plugin:
         cls.bridge.on("capture", cls._on_capture)
         cls.bridge.on("sound_blocked", cls._on_sound_blocked)
         cls.bridge.on("rtc", cls._on_rtc)
+        cls.bridge.on("pip_frame", cls._on_pip_frame)
+        cls.bridge.on("pip", cls._on_pip)
         cls.bridge.on("call_incoming", cls._on_call_incoming)
         cls.bridge.on("call_ended", cls._on_call_ended)
         cls.bridge.on("captcha", cls._on_captcha)
@@ -155,6 +158,7 @@ class Plugin:
         app.add_routes([
             get("/bridge", cls.bridge.handle),
             get("/overlay", cls._http_overlay),
+            get("/overlay/pip.jpg", cls._http_pip),
             get("/health", lambda r: json_response({"ok": True, "version": VERSION})),
         ])
         cls.runner = AppRunner(app, access_log=None)
@@ -180,6 +184,7 @@ class Plugin:
         }, log)
         cls.tasks.append(loop.create_task(cls.view.run()))
         cls.tasks.append(loop.create_task(cls._heartbeat()))
+        cls.tasks.append(loop.create_task(cls._usage_loop()))
 
         async def capture_port_changed(port):
             # The page (and future reloads of it) must use the helper's current address.
@@ -488,15 +493,71 @@ class Plugin:
     async def _on_message(cls, m):
         """A DM or mention: popup in the overlay, and the QAM's Messages list."""
         _collect_private(m)
-        dnd = cls._dnd()  # Do Not Disturb: keep it in Recent Messages, no popup / toast
-        cls.messages.add(m or {}, popup=not dnd)
+        m = m or {}
         s = cls.settings.load()
+        # Do Not Disturb or muted: keep it in Recent Messages, no popup / toast.
+        quiet = cls._dnd() or cls._muted_popup(m, s)
+        cls.messages.add(m, popup=not quiet)
         # Steam toast only when the overlay won't show the popup.
-        toast = not dnd and not (s.get("message_popups", True) and cls.overlay.active_engine(s))
+        toast = not quiet and not (s.get("message_popups", True) and cls.overlay.active_engine(s))
         try:
             await decky.emit("message", {**(m or {}), "toast": toast, "unread": cls.messages.unread()})
         except Exception:
             pass
+
+    @staticmethod
+    def _muted_popup(m, s):
+        """Whether the notification settings say no popup for this message."""
+        if m.get("is_dm") and not s.get("popup_dms", True):
+            return True
+        if not m.get("is_dm") and not s.get("popup_mentions", True):
+            return True
+        if m.get("guild_id") and str(m["guild_id"]) in (s.get("muted_guilds") or {}):
+            return True
+        if str(m.get("channel_id")) in (s.get("muted_channels") or {}):
+            return True
+        return bool(s.get("popup_follow_discord", True) and m.get("discord_muted"))
+
+    # -- stream picture-in-picture (frames from the page, for the overlay)
+
+    pip = None
+
+    @classmethod
+    async def _on_pip_frame(cls, d):
+        if not cls.pip or not isinstance(d, dict) or not d.get("data"):
+            return
+        try:
+            data = base64.b64decode(d["data"])
+        except Exception:
+            return
+        cls.pip.update(data=data, seq=int(d.get("seq") or 0), w=d.get("w"), h=d.get("h"), at=time.time(),
+                       name=d.get("name") or cls.pip.get("name"))
+
+    @classmethod
+    async def _on_pip(cls, d):
+        d = d or {}
+        if d.get("error"):
+            diag.set("pip", diag.WARN, d["error"])
+            cls.pip = None
+            await decky.emit("pip", {"on": False, "error": d["error"]})
+        elif d.get("stopped"):
+            cls.pip = None
+            await decky.emit("pip", {"on": False})
+        elif d.get("started"):
+            diag.set("pip", diag.OK, f"streaming frames to the overlay ({d.get('how')})")
+
+    @classmethod
+    def _pip_fresh(cls):
+        p = cls.pip
+        return bool(p and p.get("data") and time.time() - p.get("at", 0) < 3)
+
+    @classmethod
+    async def _http_pip(cls, request):
+        p = cls.pip
+        if not cls._pip_fresh():
+            return Response(status=404)
+        return Response(body=p["data"], content_type="image/jpeg",
+                        headers={"Access-Control-Allow-Origin": "*", "Cache-Control": "no-store"})
 
     @classmethod
     async def _on_mic(cls, data):
@@ -537,7 +598,11 @@ class Plugin:
                          "overlay_opacity": s.get("overlay_opacity", 100),
                          "overlay_speakers_only": bool(s.get("overlay_speakers_only", False)),
                          "message_position": s.get("message_position", "top-left"),
-                         "message_duration": s.get("message_duration", 8)},
+                         "message_duration": s.get("message_duration", 8),
+                         "pip_position": s.get("pip_position", "bottom-right"),
+                         "pip_size": s.get("pip_size", "normal")},
+            "pip": ({"seq": cls.pip.get("seq"), "w": cls.pip.get("w"), "h": cls.pip.get("h"), "name": cls.pip.get("name")}
+                    if cls._pip_fresh() else None),
         }, headers={"Access-Control-Allow-Origin": "*", "Cache-Control": "no-store"})
 
     # ------------------------------------------------------------ helpers
@@ -681,7 +746,91 @@ class Plugin:
 
     @classmethod
     async def get_conversations(cls):
-        return {"conversations": cls.messages.list(), "unread": cls.messages.unread()}
+        """Recent conversations, with Discord's own unread counts: DMs you
+        haven't read yet show up even if they came in before Discordio started."""
+        convs = [dict(c) for c in cls.messages.list()]
+        res = await cls._req("unreads", {"channelIds": [c["channel_id"] for c in convs]}, timeout=5, default={})
+        if isinstance(res, dict) and not res.get("error"):
+            states = res.get("channels") or {}
+            for c in convs:
+                st = states.get(c["channel_id"])
+                if st is not None:
+                    c["unread"] = st.get("unread", 0) if st.get("has") else 0
+                    c["mentions"] = st.get("mentions", 0)
+            have = {c["channel_id"] for c in convs}
+            for d in res.get("dms") or []:
+                if d.get("channel_id") not in have:
+                    d = dict(d)
+                    d["updated"] = (d.get("last") or {}).get("time") or 0
+                    convs.append(d)
+            convs.sort(key=lambda c: (c.get("unread", 0) > 0, c.get("updated") or 0), reverse=True)
+        mutes = cls.settings.load().get("muted_channels") or {}
+        for c in convs:
+            c["popups_muted"] = c["channel_id"] in mutes
+        total = sum(c.get("unread", 0) for c in convs if not c.get("muted"))
+        return {"conversations": convs, "unread": total}
+
+    @classmethod
+    async def get_badges(cls):
+        return await cls._req("badges", {}, timeout=15, private=False)
+
+    @classmethod
+    async def edit_message(cls, channel_id, message_id, content):
+        return await cls._req("editMessage", {"channelId": channel_id, "messageId": message_id, "content": content}, timeout=15)
+
+    @classmethod
+    async def delete_message(cls, channel_id, message_id):
+        return await cls._req("deleteMessage", {"channelId": channel_id, "messageId": message_id}, timeout=15)
+
+    @classmethod
+    async def get_friend_requests(cls):
+        return await cls._req("friendRequests", {})
+
+    @classmethod
+    async def friend_request(cls, action, user_id=None, username=None):
+        """accept / decline (incoming), cancel (outgoing), send (by username)."""
+        return await cls._req("friendRequest", {"action": action, "userId": user_id, "username": username}, timeout=15)
+
+    @classmethod
+    async def get_unread_total(cls):
+        res = await cls._req("unreads", {"channelIds": [c["channel_id"] for c in cls.messages.list()]}, timeout=5, default={})
+        if not isinstance(res, dict) or res.get("error"):
+            return cls.messages.unread()
+        total = res.get("total", 0)
+        dm_ids = {d.get("channel_id") for d in res.get("dms") or []}
+        for cid, st in (res.get("channels") or {}).items():
+            if cid not in dm_ids and st.get("has"):
+                total += max(1, st.get("mentions", 0))
+        return total
+
+    @classmethod
+    async def mark_read(cls, channel_ids=None, guild_id=None):
+        """Mark conversations, or a whole server, as read in Discord."""
+        ids = [c for c in (channel_ids or []) if c]
+        for c in ids:
+            cls.messages.mark_read(c)
+        return await cls._req("ack", {"channelIds": ids, "guildId": guild_id}, timeout=15)
+
+    @classmethod
+    async def mark_all_read(cls):
+        res = await cls._req("unreads", {"channelIds": [c["channel_id"] for c in cls.messages.list()]}, timeout=5, default={})
+        ids = [c["channel_id"] for c in cls.messages.list()]
+        if isinstance(res, dict):
+            ids += [d.get("channel_id") for d in res.get("dms") or []]
+        return await cls.mark_read(list(dict.fromkeys(ids)))
+
+    @classmethod
+    async def set_popup_mute(cls, kind, id, name=None, muted=True):
+        """No popups from a server ("guild") or a channel / DM ("channel")."""
+        key = "muted_guilds" if kind == "guild" else "muted_channels"
+        s = cls.settings.load()
+        cur = dict(s.get(key) or {})
+        if muted:
+            cur[str(id)] = name or str(id)
+        else:
+            cur.pop(str(id), None)
+        cls.settings.update(**{key: cur})
+        return await cls.get_message_settings()
 
     @classmethod
     async def get_history(cls, channel_id):
@@ -744,9 +893,37 @@ class Plugin:
                                         "remove": bool(remove)}, timeout=10)
 
     @classmethod
-    async def watch_stream(cls, user_id):
-        """Watch someone's Go Live (Discord shows it; joins their voice channel if needed)."""
-        return await cls._req("watchStream", {"userId": user_id}, timeout=15)
+    async def watch_stream(cls, user_id, overlay=False):
+        """Watch someone's Go Live (joins their voice channel if needed): in
+        Discord, or as a picture-in-picture in the in-game overlay."""
+        res = await cls._req("watchStream", {"userId": user_id, "overlay": bool(overlay)}, timeout=15)
+        if overlay and isinstance(res, dict) and not res.get("error"):
+            cls.pip = {"on": True, "starting": time.time(), "seq": 0, "data": None, "name": None}
+        return res
+
+    @classmethod
+    async def stop_watching(cls):
+        cls.pip = None
+        return await cls._req("stopWatching", {}, timeout=10)
+
+    @classmethod
+    async def get_pip(cls):
+        p = cls.pip
+        if not p:
+            return {"on": False}
+        return {"on": True, "name": p.get("name"), "frames": p.get("seq", 0), "live": cls._pip_fresh()}
+
+    @classmethod
+    async def set_pip_look(cls, position=None, size=None):
+        changes = {}
+        if position in OVERLAY_POSITIONS:
+            changes["pip_position"] = position
+        if size in ("small", "normal", "large"):
+            changes["pip_size"] = size
+        if changes:
+            cls.settings.update(**changes)
+        s = cls.settings.load()
+        return {"position": s.get("pip_position", "bottom-right"), "size": s.get("pip_size", "normal")}
 
     # -- status
 
@@ -754,6 +931,47 @@ class Plugin:
     async def set_status(cls, status=None, custom=None):
         """Online / idle / dnd / invisible, and / or a custom status text ("" clears it)."""
         return await cls._req("setStatus", {"status": status, "custom": custom}, timeout=15)
+
+    # -- Discord page resource use
+
+    usage_samples = []      # (time, cpu %, js MB), last 10 minutes
+
+    @classmethod
+    async def _usage_loop(cls):
+        while True:
+            await asyncio.sleep(10)
+            try:
+                if not cls.view or not cls.ready:
+                    continue
+                u = await cls.view.usage()
+                if u.get("cpu") is not None:
+                    cls.usage_samples.append((time.time(), u["cpu"], u["js_mb"]))
+                    cutoff = time.time() - 600
+                    cls.usage_samples = [x for x in cls.usage_samples if x[0] >= cutoff]
+                cpus = [x[1] for x in cls.usage_samples]
+                if cpus:
+                    diag.set("page_usage", diag.OK,
+                             f"CPU avg {sum(cpus) / len(cpus):.1f}% (peak {max(cpus):.0f}%), JS memory {u['js_mb']} MB")
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                diag.set("page_usage", diag.WARN, f"couldn't measure: {e}")
+
+    @classmethod
+    async def get_page_usage(cls):
+        try:
+            now = await cls.view.usage() if cls.view and cls.ready else None
+        except Exception as e:
+            return {"error": str(e)}
+        cpus = [x[1] for x in cls.usage_samples]
+        mems = [x[2] for x in cls.usage_samples]
+        return {
+            "now": now,
+            "avg_cpu": round(sum(cpus) / len(cpus), 1) if cpus else None,
+            "peak_cpu": round(max(cpus), 1) if cpus else None,
+            "peak_js_mb": max(mems) if mems else None,
+            "minutes": round((cls.usage_samples[-1][0] - cls.usage_samples[0][0]) / 60, 1) if len(cpus) > 1 else 0,
+        }
 
     @classmethod
     def _dnd(cls):
@@ -780,11 +998,17 @@ class Plugin:
     async def get_message_settings(cls):
         s = cls.settings.load()
         return {"popups": s.get("message_popups", True), "position": s.get("message_position", "top-left"),
-                "duration": s.get("message_duration", 8)}
+                "duration": s.get("message_duration", 8), "dms": s.get("popup_dms", True),
+                "mentions": s.get("popup_mentions", True), "follow_discord": s.get("popup_follow_discord", True),
+                "muted_guilds": s.get("muted_guilds") or {}, "muted_channels": s.get("muted_channels") or {}}
 
     @classmethod
-    async def set_message_settings(cls, popups=None, position=None, duration=None):
+    async def set_message_settings(cls, popups=None, position=None, duration=None, dms=None, mentions=None,
+                                   follow_discord=None):
         changes = {}
+        for key, v in (("popup_dms", dms), ("popup_mentions", mentions), ("popup_follow_discord", follow_discord)):
+            if v is not None:
+                changes[key] = bool(v)
         if popups is not None:
             changes["message_popups"] = bool(popups)
         if position in OVERLAY_POSITIONS:

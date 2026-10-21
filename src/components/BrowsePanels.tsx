@@ -6,11 +6,27 @@ import { useEffect, useState } from "react";
 import { ColorButton } from "./ColorButton";
 import { Avatar, MemberRow, Member } from "./VoiceChatViews";
 import { fire } from "../lib/events";
-import { watchStream } from "../lib/watch";
+import { watchInOverlay, watchStream } from "../lib/watch";
 import { Favorite, isFavorite, toggleFavorite, useFavorites } from "../lib/favorites";
 import { FaEye, FaSignInAlt, FaStar } from "react-icons/fa";
+import { FriendRequests } from "./FriendRequests";
+import { ActionRow, MutedIcon, UnreadBadge, markRead, setPopupMute } from "./Unread";
 
-type Guild = { id: string; name: string; icon: string | null };
+type Guild = { id: string; name: string; icon: string | null; unread?: boolean; mentions?: number; muted?: boolean };
+type TextChannel = { id: string; name: string; unread?: boolean; mentions?: number; muted?: boolean };
+
+// What's muted for popups in Discordio (Settings > message popups).
+function usePopupMutes() {
+  const [m, setM] = useState<{ guilds: Record<string, string>; channels: Record<string, string> }>({ guilds: {}, channels: {} });
+  const reload = () =>
+    call<[], any>("get_message_settings")
+      .then((s) => setM({ guilds: s?.muted_guilds || {}, channels: s?.muted_channels || {} }))
+      .catch(() => {});
+  useEffect(() => {
+    reload();
+  }, []);
+  return { ...m, reload };
+}
 type VoiceChannel = { id: string; name: string; members: Member[] };
 type FriendVoice = { channel_id: string; channel_name: string; guild_name: string; streaming: boolean; mine: boolean } | null;
 type Friend = { id: string; name: string; avatar: string | null; status: string; voice?: FriendVoice };
@@ -44,14 +60,20 @@ const Hint = ({ children, error }: { children: any; error?: boolean }) => (
 // Voice channels of one server, with who's in each and a Join button.
 function TextChannels({ guildId, guildName }: { guildId: string; guildName: string }) {
   const [open, setOpen] = useState(false);
-  const [channels, setChannels] = useState<{ id: string; name: string }[] | null>(null);
+  const [channels, setChannels] = useState<TextChannel[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    if (!open || channels) return;
-    query<{ id: string; name: string }[]>("text_channels", guildId).then(({ data, error }) => {
+  const [actionsFor, setActionsFor] = useState<string | null>(null);
+  const mutes = usePopupMutes();
+  const load = () =>
+    query<TextChannel[]>("text_channels", guildId).then(({ data, error }) => {
       setError(error);
       if (Array.isArray(data)) setChannels(data);
     });
+  useEffect(() => {
+    if (!open) return;
+    load();
+    const t = setInterval(load, 5000);
+    return () => clearInterval(t);
   }, [open]);
   return (
     <>
@@ -65,10 +87,18 @@ function TextChannels({ guildId, guildName }: { guildId: string; guildName: stri
       {open && channels && channels.length === 0 && <Hint>No text channels you can read here</Hint>}
       {open &&
         channels?.map((c) => (
-          <PanelSectionRow key={c.id}>
+          <div key={c.id}>
+          <PanelSectionRow>
+            <Focusable onOptionsButton={() => setActionsFor(actionsFor === c.id ? null : c.id)} onOptionsActionDescription="More">
             <ButtonItem
               layout="inline"
-              label={`# ${c.name}`}
+              label={
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontWeight: c.unread && !c.muted ? 700 : 400, opacity: c.muted ? 0.6 : 1 }}>
+                  # {c.name}
+                  <UnreadBadge unread={c.unread} mentions={c.mentions} muted={c.muted} />
+                  {(c.muted || mutes.channels[c.id]) && <MutedIcon />}
+                </span>
+              }
               onClick={() => {
                 fire("collapse:Servers");
                 openChannelConversation({ id: c.id, name: c.name, guild: guildName });
@@ -76,7 +106,24 @@ function TextChannels({ guildId, guildName }: { guildId: string; guildName: stri
             >
               Open
             </ButtonItem>
+            </Focusable>
           </PanelSectionRow>
+          {actionsFor === c.id && (
+            <ActionRow
+              actions={[
+                { label: "Mark as Read", onClick: async () => { await markRead([c.id], undefined, `#${c.name}`); setActionsFor(null); load(); } },
+                {
+                  label: mutes.channels[c.id] ? "Unmute Popups" : "Mute Popups",
+                  onClick: async () => {
+                    await setPopupMute("channel", c.id, `#${c.name}`, !mutes.channels[c.id]);
+                    setActionsFor(null);
+                    mutes.reload();
+                  },
+                },
+              ]}
+            />
+          )}
+          </div>
         ))}
     </>
   );
@@ -159,6 +206,8 @@ export function ServersPanel() {
     }
   });
 
+  const [actionsFor, setActionsFor] = useState<string | null>(null);
+  const mutes = usePopupMutes();
   const load = () =>
     query<Guild[]>("guilds").then(({ data, error }) => {
       setError(error);
@@ -167,6 +216,8 @@ export function ServersPanel() {
 
   useEffect(() => {
     load();
+    const t = setInterval(load, 8000); // unread markers stay current
+    return () => clearInterval(t);
   }, []);
 
   if (error) {
@@ -187,12 +238,17 @@ export function ServersPanel() {
       {guilds.map((g) => (
         <div key={g.id}>
           <PanelSectionRow>
+            <Focusable onOptionsButton={() => setActionsFor(actionsFor === g.id ? null : g.id)} onOptionsActionDescription="More">
             <ButtonItem
               layout="inline"
               label={
                 <span style={{ display: "inline-flex", alignItems: "center", gap: "8px", minWidth: 0 }}>
                   <Avatar src={g.icon} size={28} />
-                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{g.name}</span>
+                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: g.unread && !g.muted ? 700 : 400 }}>
+                    {g.name}
+                  </span>
+                  <UnreadBadge unread={g.unread} mentions={g.mentions} muted={g.muted} />
+                  {(g.muted || mutes.guilds[g.id]) && <MutedIcon />}
                 </span>
               }
               onClick={() => {
@@ -205,7 +261,23 @@ export function ServersPanel() {
             >
               {open === g.id ? "Hide" : "Open"}
             </ButtonItem>
+            </Focusable>
           </PanelSectionRow>
+          {actionsFor === g.id && (
+            <ActionRow
+              actions={[
+                { label: "Mark Server as Read", onClick: async () => { await markRead([], g.id, g.name); setActionsFor(null); load(); } },
+                {
+                  label: mutes.guilds[g.id] ? "Unmute Popups" : "Mute Popups",
+                  onClick: async () => {
+                    await setPopupMute("guild", g.id, g.name, !mutes.guilds[g.id]);
+                    setActionsFor(null);
+                    mutes.reload();
+                  },
+                },
+              ]}
+            />
+          )}
           {open === g.id && <GuildChannels guildId={g.id} guildName={g.name} />}
         </div>
       ))}
@@ -263,6 +335,7 @@ export function FriendsPanel() {
           {online} online · {friends.length} friends
         </div>
       </PanelSectionRow>
+      <FriendRequests />
       <PanelSectionRow>
         {/* Selecting the field with A opens Steam's keyboard. */}
         <TextField label="Find a friend" value={search} onChange={(e) => setSearch(e.target.value)} />
@@ -380,6 +453,14 @@ function FriendRow({ f, open, onToggle }: { f: Friend; open: boolean; onToggle: 
                 onClick={() => watchStream(f.id, f.name)}
               >
                 <FaEye /> Watch
+              </DialogButton>
+            )}
+            {f.voice.streaming && (
+              <DialogButton
+                style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
+                onClick={() => watchInOverlay(f.id, f.name)}
+              >
+                <FaEye /> In Overlay
               </DialogButton>
             )}
           </Focusable>

@@ -2,7 +2,8 @@ import { call } from "@decky/api";
 import { ButtonItem, PanelSectionRow, ToggleField, Focusable } from "@decky/ui";
 import { toaster } from "@decky/api";
 import { ChoiceSlider } from "./ChoiceSlider";
-import { watchStream } from "../lib/watch";
+import { watchInOverlay, watchStream } from "../lib/watch";
+import { PipControls } from "./PipControls";
 import { GoLivePanel } from "./GoLivePanel";
 import { useEffect, useRef, useState } from "react";
 import { FaMicrophoneSlash, FaVolumeMute, FaVideo, FaPhoneSlash } from "react-icons/fa";
@@ -150,6 +151,7 @@ export function VoiceChannelView() {
           onToggle={() => setOpenId(openId === m.id ? null : m.id)}
         />
       ))}
+      <PipControls />
       <CallHealth />
       <GoLivePanel inCall />
       <PanelSectionRow>
@@ -240,6 +242,13 @@ function MemberItem({
             <PanelSectionRow>
               <ButtonItem layout="below" onClick={() => watchStream(m.id, m.name)}>
                 Watch Stream
+              </ButtonItem>
+            </PanelSectionRow>
+          )}
+          {m.live && (
+            <PanelSectionRow>
+              <ButtonItem layout="below" description="A small picture over your game, so you can keep playing" onClick={() => watchInOverlay(m.id, m.name)}>
+                Watch in Overlay
               </ButtonItem>
             </PanelSectionRow>
           )}

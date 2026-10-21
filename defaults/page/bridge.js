@@ -589,6 +589,7 @@
         return ids.map((id) => { try { return GS.getGuild(id); } catch (_) { return null; } }).filter(Boolean).map((g) => ({
             id: g.id, name: g.name,
             icon: g.icon ? `https://cdn.discordapp.com/icons/${g.id}/${g.icon}.webp?size=64` : null,
+            ...(() => { const r = guildReadState(g.id); return { unread: r.has, mentions: r.mentions, muted: discordMuted(g.id, null) }; })(),
         }));
     }
 
@@ -624,7 +625,100 @@
     }
 
     // Watch someone's Go Live (Discord shows it; the QAM opens Discord).
-    async function watchStream(userId) {
+    // ------------------------------------------------- stream in the overlay
+    // Frames of a stream you watch, small JPEGs a few times a second, for the
+    // in-game overlay's picture-in-picture. Read straight from the video
+    // track, so it works with the Discord view hidden.
+    let pip = null;
+    let watching = null; // stream key being watched
+    const blobToB64 = (blob) => new Promise((resolve, reject) => {
+        const fr = new FileReader();
+        fr.onload = () => resolve(String(fr.result).split(",")[1] || "");
+        fr.onerror = reject;
+        fr.readAsDataURL(blob);
+    });
+    function pipStart({ since, width, fps, name }) {
+        pipStop(true);
+        width = Math.max(160, Math.min(960, width || 480));
+        fps = Math.max(2, Math.min(15, fps || 10));
+        const st = { on: true, seq: 0 };
+        pip = st;
+        (async () => {
+            let track = null;
+            for (let i = 0; i < 60 && st.on && !track; i++) {
+                track = D.media && D.media.latestRemoteVideo ? D.media.latestRemoteVideo((since || 0) - 2000) : null;
+                if (!track) await sleep(250);
+            }
+            if (!st.on) return;
+            if (!track) { emit("pip", { error: "the stream's video didn't arrive" }); st.on = false; return; }
+            const clone = track.clone();
+            st.track = clone;
+            const canvas = typeof OffscreenCanvas !== "undefined" ? new OffscreenCanvas(width, Math.round(width * 9 / 16)) : null;
+            if (!canvas) { emit("pip", { error: "this browser can't draw the frames" }); return; }
+            const ctx = canvas.getContext("2d");
+            const send = async (src, sw, sh) => {
+                if (!sw || !sh) return;
+                const h = Math.max(2, Math.round(width * sh / sw));
+                if (canvas.height !== h) canvas.height = h;
+                ctx.drawImage(src, 0, 0, width, h);
+                const blob = await canvas.convertToBlob({ type: "image/jpeg", quality: 0.72 });
+                emit("pip_frame", { seq: ++st.seq, data: await blobToB64(blob), w: width, h, name: name || null });
+            };
+            emit("pip", { started: true, how: window.MediaStreamTrackProcessor ? "track" : "video" });
+            let last = 0;
+            if (window.MediaStreamTrackProcessor) {
+                const reader = new MediaStreamTrackProcessor({ track: clone }).readable.getReader();
+                st.reader = reader;
+                while (st.on) {
+                    let r;
+                    try { r = await reader.read(); } catch (_) { break; }
+                    if (r.done) break;
+                    const frame = r.value;
+                    const now = performance.now();
+                    if (now - last >= 1000 / fps) {
+                        last = now;
+                        try { await send(frame, frame.displayWidth, frame.displayHeight); } catch (e) { warn("pip frame", e); }
+                    }
+                    frame.close();
+                }
+            } else {
+                const v = document.createElement("video");
+                v.muted = true; v.playsInline = true; v.srcObject = new MediaStream([clone]);
+                try { await v.play(); } catch (_) { }
+                while (st.on) {
+                    await sleep(1000 / fps);
+                    try { await send(v, v.videoWidth, v.videoHeight); } catch (_) { }
+                }
+                v.srcObject = null;
+            }
+            if (pip === st) { pip = null; emit("pip", { stopped: true }); }
+        })();
+        return { ok: true };
+    }
+    function pipStop(quiet) {
+        const st = pip;
+        if (!st) return { ok: true };
+        pip = null;
+        st.on = false;
+        try { st.reader && st.reader.cancel(); } catch (_) { }
+        try { st.track && st.track.stop(); } catch (_) { }
+        if (!quiet) emit("pip", { stopped: true });
+        return { ok: true };
+    }
+    function stopWatching() {
+        pipStop();
+        const key = watching;
+        watching = null;
+        if (!key) return { ok: true };
+        const a = props("closeStream");
+        try {
+            if (a && a.closeStream) a.closeStream(key, false);
+            else dispatch({ type: "STREAM_CLOSE", streamKey: key });
+        } catch (e) { warn("closeStream", e); }
+        return { ok: true };
+    }
+
+    async function watchStream(userId, inOverlay) {
         const S = store("ApplicationStreamingStore");
         let stream = null;
         try {
@@ -639,9 +733,16 @@
             await waitFor(() => voiceChannelId() === stream.channelId, 5000);
         }
         const a = props("watchStreamAndTransitionToStream") || props("watchStream");
+        const since = Date.now();
         if (a && a.watchStreamAndTransitionToStream) a.watchStreamAndTransitionToStream(stream);
         else if (a && a.watchStream) a.watchStream(stream);
         else dispatch({ type: "STREAM_WATCH", streamKey: key, allowMultiple: true });
+        watching = key;
+        if (inOverlay) {
+            let name = null;
+            try { const u = C().UserStore.getUser(userId); name = friendName(u) || userName(u); } catch (_) { }
+            pipStart({ since, name });
+        }
         // Show the stream full-size in Discord's call page.
         try { openCallPage(stream.channelId); } catch (_) { }
         return { ok: true };
@@ -662,6 +763,60 @@
         }).sort((a, b) => (rank[a.status] ?? 3) - (rank[b.status] ?? 3) || a.name.localeCompare(b.name));
     }
 
+    // ------------------------------------------------------------- badges
+    let badgeCache = null;
+    async function myBadges() {
+        const u = me();
+        if (!u) throw new Error("not logged in");
+        if (badgeCache && badgeCache.id === u.id && Date.now() - badgeCache.at < 10 * 60 * 1000) return badgeCache.value;
+        let badges = null;
+        try {
+            const P = store("UserProfileStore");
+            const p = P && P.getUserProfile && P.getUserProfile(u.id);
+            if (p && Array.isArray(p.badges) && p.badges.length) badges = p.badges;
+        } catch (_) { }
+        if (!badges) {
+            const r = await C().RestAPI.get({ url: `/users/${u.id}/profile`, query: { with_mutual_guilds: false, with_mutual_friends: false } });
+            badges = (r && r.body && r.body.badges) || [];
+        }
+        const value = { badges: badges.map((b) => ({
+            id: b.id, description: b.description || b.id,
+            icon: b.icon ? `https://cdn.discordapp.com/badge-icons/${b.icon}.png` : null,
+        })) };
+        badgeCache = { id: u.id, at: Date.now(), value };
+        return value;
+    }
+
+    // ------------------------------------------------------ friend requests
+    function friendRequests() {
+        const RS = store("RelationshipStore");
+        if (!RS) throw new Error("Discord's friends list wasn't found");
+        let rel = {};
+        try { rel = RS.getMutableRelationships ? Object.fromEntries(RS.getMutableRelationships()) : RS.getRelationships(); } catch (_) {
+            try { rel = RS.getRelationships(); } catch (_) { rel = {}; }
+        }
+        const out = { incoming: [], outgoing: [] };
+        for (const [id, v] of Object.entries(rel || {})) {
+            const type = typeof v === "object" && v ? v.type : v;
+            if (type !== 3 && type !== 4) continue;
+            const u = C().UserStore.getUser(id);
+            const entry = { id, name: u ? (u.globalName || u.global_name || u.username) : id, username: u ? u.username : null, avatar: avatarUrl(u) };
+            (type === 3 ? out.incoming : out.outgoing).push(entry);
+        }
+        return out;
+    }
+    async function friendRequest(action, userId, username) {
+        const url = `/users/@me/relationships/${userId}`;
+        if (action === "accept") await C().RestAPI.put({ url, body: {} });
+        else if (action === "decline" || action === "cancel") await C().RestAPI.del({ url });
+        else if (action === "send") {
+            const name = String(username || "").trim().replace(/^@/, "");
+            if (!name) throw new Error("Type a username first");
+            await C().RestAPI.post({ url: "/users/@me/relationships", body: { username: name, discriminator: null } });
+        } else throw new Error("unknown action");
+        return { ok: true };
+    }
+
     async function dmChannel(userId) {
         const CS = C().ChannelStore;
         let dm = CS.getDMFromUserId ? CS.getDMFromUserId(userId) : null;
@@ -672,6 +827,88 @@
             for (let i = 0; i < 30 && !CS.getChannel(dm); i++) await new Promise((r2) => setTimeout(r2, 100));
         }
         return dm;
+    }
+
+    // ------------------------------------------------------------ unreads
+    function readState(channelId) {
+        const R = store("ReadStateStore");
+        let unread = 0, mentions = 0, has = false;
+        try { has = !!(R && R.hasUnread && R.hasUnread(channelId)); } catch (_) { }
+        try { mentions = (R && R.getMentionCount && R.getMentionCount(channelId)) || 0; } catch (_) { }
+        try { unread = (R && R.getUnreadCount && R.getUnreadCount(channelId)) || 0; } catch (_) { }
+        return { has: has || mentions > 0 || unread > 0, unread: Math.max(unread, mentions, has ? 1 : 0), mentions };
+    }
+    function guildReadState(guildId) {
+        const G = store("GuildReadStateStore");
+        let has = false, mentions = 0;
+        try { has = !!(G && G.hasUnread && G.hasUnread(guildId)); } catch (_) { }
+        try { mentions = (G && G.getMentionCount && G.getMentionCount(guildId)) || 0; } catch (_) { }
+        return { has: has || mentions > 0, mentions };
+    }
+    // Discord's own mutes (right-click > Mute in Discord).
+    function discordMuted(guildId, channelId) {
+        const S = store("UserGuildSettingsStore");
+        if (!S) return false;
+        try { if (guildId && S.isMuted && S.isMuted(guildId)) return true; } catch (_) { }
+        try { if (S.isChannelMuted && S.isChannelMuted(guildId || null, channelId)) return true; } catch (_) { }
+        return false;
+    }
+    function lastMessageId(channelId) {
+        try { const R = store("ReadStateStore"); const id = R && R.lastMessageId && R.lastMessageId(channelId); if (id) return id; } catch (_) { }
+        try { const ch = C().ChannelStore.getChannel(channelId); if (ch && (ch.lastMessageId || ch.last_message_id)) return ch.lastMessageId || ch.last_message_id; } catch (_) { }
+        try { const list = store("MessageStore").getMessages(channelId).toArray(); if (list.length) return list[list.length - 1].id; } catch (_) { }
+        return null;
+    }
+    // DMs with unread messages, plus the read state of the channels asked about.
+    function unreads(channelIds) {
+        const dms = [];
+        try {
+            const PS = store("PrivateChannelSortStore");
+            for (const id of (PS && PS.getPrivateChannelIds ? PS.getPrivateChannelIds() : []).slice(0, 60)) {
+                const r = readState(id);
+                if (!r.has) continue;
+                const ch = C().ChannelStore.getChannel(id);
+                if (!ch) continue;
+                let avatar = null, last = null;
+                try {
+                    if (!ch.name && ch.recipients && ch.recipients.length === 1) avatar = avatarUrl(C().UserStore.getUser(ch.recipients[0]));
+                } catch (_) { }
+                try {
+                    const list = store("MessageStore").getMessages(id).toArray();
+                    const msg = list[list.length - 1];
+                    if (msg) {
+                        const au = C().UserStore.getUser(msg.author.id) || msg.author;
+                        last = { author: friendName(au) || userName(au), text: messageText(msg), time: msgTime(msg.timestamp) / 1000 };
+                    }
+                } catch (_) { }
+                dms.push({ channel_id: id, label: channelLabel(ch), is_dm: true, avatar, unread: r.unread, mentions: r.mentions,
+                    muted: discordMuted(null, id), last });
+                if (dms.length >= 20) break;
+            }
+        } catch (e) { warn("unread DMs", e); }
+        const channels = {};
+        for (const id of channelIds || []) { try { channels[id] = readState(id); } catch (_) { } }
+        let total = 0;
+        for (const d of dms) if (!d.muted) total += d.unread;
+        return { dms, channels, total };
+    }
+    // Mark channels (or a whole server) as read, the way Discord does.
+    async function ack(channelIds, guildId) {
+        let ids = (channelIds || []).slice();
+        if (guildId) {
+            try {
+                const GCS = store("GuildChannelStore");
+                const g = GCS && GCS.getChannels(guildId);
+                for (const v of (g && g.SELECTABLE) || []) ids.push((v.channel || v).id);
+            } catch (_) { }
+            try { for (const c of Object.values(C().ChannelStore.getMutableGuildChannelsForGuild(guildId) || {})) ids.push(c.id); } catch (_) { }
+        }
+        ids = [...new Set(ids)].filter((id) => readState(id).has);
+        const states = ids.map((id) => ({ channel_id: id, message_id: lastMessageId(id), read_state_type: 0 })).filter((s) => s.message_id);
+        for (let i = 0; i < states.length; i += 100) {
+            await C().RestAPI.post({ url: "/read-states/ack-bulk", body: { read_states: states.slice(i, i + 100) } });
+        }
+        return { ok: true, acked: states.length };
     }
 
     function textChannels(guildId) {
@@ -686,7 +923,10 @@
             list = Object.values(all).filter((c) => c.type === 0 || c.type === 5)
                 .sort((a, b) => (a.position || 0) - (b.position || 0));
         }
-        return list.map((c) => ({ id: c.id, name: c.name }));
+        return list.map((c) => {
+            const r = readState(c.id);
+            return { id: c.id, name: c.name, unread: r.has, mentions: r.mentions, muted: discordMuted(guildId, c.id) };
+        });
     }
 
     async function callFriend(userId) {
@@ -937,7 +1177,9 @@
     m("incomingCall", () => incoming);
     m("emojis", ({ channelId }) => emojis(channelId));
     m("react", ({ channelId, messageId, emoji, remove }) => react(channelId, messageId, emoji, !!remove));
-    m("watchStream", ({ userId }) => watchStream(userId));
+    m("watchStream", ({ userId, overlay }) => watchStream(userId, !!overlay));
+    m("stopWatching", () => stopWatching());
+    m("pipStop", () => pipStop());
     m("getStatus", () => myStatus());
     m("setStatus", ({ status, custom }) => setStatus(status, custom));
     m("setLocalMute", ({ userId, muted }) => setLocalMute(userId, muted));
@@ -959,6 +1201,13 @@
     m("answerCall", ({ channelId }) => answerCall(channelId));
     m("declineCall", ({ channelId }) => declineCall(channelId));
     m("guilds", () => guilds());
+    m("badges", () => myBadges());
+    m("editMessage", ({ channelId, messageId, content }) => editMessage(channelId, messageId, content));
+    m("deleteMessage", ({ channelId, messageId }) => deleteMessage(channelId, messageId));
+    m("friendRequests", () => friendRequests());
+    m("friendRequest", ({ action, userId, username }) => friendRequest(action, userId, username));
+    m("unreads", ({ channelIds }) => unreads(channelIds));
+    m("ack", ({ channelIds, guildId }) => ack(channelIds, guildId));
     m("voiceChannels", ({ guildId }) => voiceChannels(guildId));
     m("friends", () => friends());
     m("voice", () => voiceInfo());
@@ -1119,7 +1368,7 @@
         return {
             id: msg.id, channel_id: msg.channel_id,
             author: { id: a.id, name: friendName(u) || userName(u), avatar: avatarUrl(u) },
-            text, media, reactions, replyTo,
+            text, media, reactions, replyTo, edited: !!(msg.editedTimestamp || msg.edited_timestamp),
             time: msgTime(msg.timestamp),
             mine: !!(me() && a.id === me().id),
         };
@@ -1146,7 +1395,10 @@
             // Popups have no room for pictures: say what was sent.
             const label = (m.media || []).map((x) => ({ gif: "GIF", gifv: "GIF", image: "image", video: "video", sticker: "sticker" })[x.kind] || "file");
             const text = m.text || (label.length ? `[${label[0]}${label.length > 1 ? ` +${label.length - 1}` : ""}]` : "");
-            emit("message", { ...m, text, channel_label: channelLabel(ch), is_dm: !!isDM });
+            const guild = ch && ch.guild_id ? C().GuildStore.getGuild(ch.guild_id) : null;
+            emit("message", { ...m, text, channel_label: channelLabel(ch), is_dm: !!isDM, mentioned,
+                guild_id: guild ? guild.id : null, guild_name: guild ? guild.name : null,
+                discord_muted: discordMuted(ch && ch.guild_id, msg.channel_id) });
         } catch (err) { warn("message event", err); }
     }
 
@@ -1331,6 +1583,27 @@
             }
         }
         await C().RestAPI.post({ url: `/channels/${channelId}/messages`, body: { content, nonce: nonce(), tts: false, ...(ref ? { message_reference: ref } : {}) } });
+        return { ok: true, method: "rest" };
+    }
+
+    // Edit / delete one of your own messages.
+    async function editMessage(channelId, messageId, content) {
+        content = String(content || "").trim();
+        if (!content) throw new Error("A message can't be empty (delete it instead)");
+        if (content.length > 2000) throw new Error("Discord messages can be at most 2000 characters");
+        const a = props("editMessage", "sendMessage");
+        try {
+            if (a && a.editMessage) { await a.editMessage(channelId, messageId, { content }); return { ok: true, method: "action" }; }
+        } catch (e) { warn("editMessage action", e); }
+        await C().RestAPI.patch({ url: `/channels/${channelId}/messages/${messageId}`, body: { content } });
+        return { ok: true, method: "rest" };
+    }
+    async function deleteMessage(channelId, messageId) {
+        const a = props("deleteMessage", "sendMessage");
+        try {
+            if (a && a.deleteMessage) { await a.deleteMessage(channelId, messageId); return { ok: true, method: "action" }; }
+        } catch (e) { warn("deleteMessage action", e); }
+        await C().RestAPI.del({ url: `/channels/${channelId}/messages/${messageId}` });
         return { ok: true, method: "rest" };
     }
 

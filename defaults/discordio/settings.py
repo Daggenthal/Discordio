@@ -17,6 +17,13 @@ DEFAULTS = {
     "message_popups": True,
     "message_position": "top-left",
     "message_duration": 8,
+    "pip_position": "bottom-right",  # stream picture-in-picture in the overlay
+    "pip_size": "normal",
+    "popup_dms": True,           # popups for direct messages
+    "popup_mentions": True,      # popups for @mentions in servers
+    "popup_follow_discord": True,  # respect what's muted in Discord itself
+    "muted_guilds": {},          # id -> name: no popups from this server
+    "muted_channels": {},        # id -> name: no popups from this channel / DM
     # Chosen automatically by the capture helper; "" means "not found yet".
     "capture_variant": "",
     "capture_libs": "bundled",

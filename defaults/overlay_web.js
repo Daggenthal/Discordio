@@ -67,6 +67,14 @@
     msgRoot.id = "discordio-messages";
     document.body.appendChild(msgRoot);
     const cards = new Map();
+    // Stream picture-in-picture.
+    const pipRoot = document.createElement("div");
+    pipRoot.id = "discordio-pip";
+    pipRoot.hidden = true;
+    pipRoot.style.cssText = "position:fixed;z-index:2147483647;border-radius:10px;overflow:hidden;pointer-events:none;box-shadow:0 4px 18px rgba(0,0,0,.5)";
+    pipRoot.innerHTML = '<img style="display:block;width:100%"><div style="position:absolute;left:8px;bottom:8px;display:flex;gap:6px;align-items:center;font:700 12px sans-serif;color:#fff;text-shadow:0 1px 2px #000"><span style="background:#ed4245;border-radius:4px;padding:1px 5px;font-size:10px">LIVE</span><span class="dio-pip-name"></span></div>';
+    document.body.appendChild(pipRoot);
+    let pipSeq = null;
 
     const MIC_OFF = '<svg class="dio-mute" viewBox="0 0 24 24" fill="none" stroke="#ed4245" stroke-width="2.4" stroke-linecap="round">' +
         '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3M4 4l16 16"/></svg>';
@@ -115,9 +123,29 @@
         }
     };
 
+    const PIP_W = { small: 280, normal: 380, large: 520 };
+    const renderPip = (state) => {
+        const settings = (state && state.settings) || {};
+        const pip = state && state.pip;
+        if (!pip || settings.overlay_engine_active !== "steam") {
+            pipRoot.hidden = true;
+            pipSeq = null;
+            return;
+        }
+        pipRoot.hidden = false;
+        pipRoot.style.width = (PIP_W[settings.pip_size] || 380) + "px";
+        place(pipRoot, settings.pip_position || "bottom-right");
+        pipRoot.querySelector(".dio-pip-name").textContent = pip.name || "";
+        if (pip.seq !== pipSeq) {
+            pipSeq = pip.seq;
+            pipRoot.querySelector("img").src = STATE_URL.replace(/\/$/, "") + "/pip.jpg?" + pip.seq;
+        }
+    };
+
     const render = (state) => {
         renderVoice(state);
         renderMessages(state);
+        renderPip(state);
     };
 
     // Overlay options: size / opacity for everything, and "only show who's
@@ -207,6 +235,7 @@
         clearInterval(timer);
         root.remove();
         msgRoot.remove();
+        pipRoot.remove();
         style.remove();
         delete window.__discordioOverlay;
         delete window.__discordioOverlayStop;

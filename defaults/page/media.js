@@ -162,6 +162,14 @@
 
     // ------------------------------------------------------------------ 3.
     const peers = new Set(); // WeakRef<RTCPeerConnection>
+    const videoTracks = [];  // { track, at }
+    // The newest live remote video, preferring one that's sending frames.
+    function latestRemoteVideo(since) {
+        const live = videoTracks.filter((v) => v.track.readyState === "live" && v.at >= (since || 0));
+        const sending = live.filter((v) => !v.track.muted);
+        const pick = (sending.length ? sending : live).sort((a, b) => b.at - a.at)[0];
+        return pick ? pick.track : null;
+    }
     const RPC = window.RTCPeerConnection;
     if (RPC) {
         // A construct proxy (not a wrapper function) so code that extends
@@ -170,6 +178,14 @@
             construct(target, args, newTarget) {
                 const pc = Reflect.construct(target, args, newTarget);
                 peers.add(new WeakRef(pc));
+                // Remote video (cameras, streams you watch): for the overlay's
+                // picture-in-picture.
+                pc.addEventListener("track", (e) => {
+                    if (e.track && e.track.kind === "video" && !pc.__discordio) {
+                        videoTracks.push({ track: e.track, at: Date.now() });
+                        if (videoTracks.length > 20) videoTracks.shift();
+                    }
+                });
                 const id = peers.size;
                 let lastState = "";
                 pc.addEventListener("connectionstatechange", () => {
@@ -311,5 +327,5 @@
         } catch (_) { }
     }
 
-    D.media = { keepFlowing, status, rtcStats, pin };
+    D.media = { keepFlowing, status, rtcStats, pin, latestRemoteVideo };
 })();

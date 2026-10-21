@@ -235,8 +235,79 @@ class Overlay:
             state = None
         GLib.idle_add(self._apply, state)
 
+    # -- stream picture-in-picture: the latest frame as a JPEG from the plugin
+
+    def _pip_check(self, state):
+        pip = (state or {}).get("pip")
+        if not pip:
+            if getattr(self, "pip_pix", None) is not None:
+                self.pip_pix = None
+                self.pip_seq = None
+                self.win.queue_draw()
+            return
+        if pip.get("seq") != getattr(self, "pip_seq", None) and not getattr(self, "pip_fetching", False):
+            self.pip_fetching = True
+            threading.Thread(target=self._pip_fetch, args=(pip.get("seq"),), daemon=True).start()
+
+    def _pip_fetch(self, seq):
+        pix = None
+        try:
+            with urllib.request.urlopen(STATE_URL.rstrip("/") + "/pip.jpg", timeout=1) as r:
+                loader = GdkPixbuf.PixbufLoader()
+                loader.write(r.read())
+                loader.close()
+                pix = loader.get_pixbuf()
+        except Exception:
+            pix = None
+        GLib.idle_add(self._pip_ready, seq, pix)
+
+    def _pip_ready(self, seq, pix):
+        self.pip_fetching = False
+        if pix is not None:
+            self.pip_pix = pix
+            self.pip_seq = seq
+            self.win.queue_draw()
+        return False
+
+    def draw_pip(self, cr, state, settings):
+        pix = getattr(self, "pip_pix", None)
+        pip = state.get("pip")
+        if pix is None or not pip:
+            return
+        s = self.scale
+        w = {"small": 280, "normal": 380, "large": 520}.get(settings.get("pip_size"), 380) * s
+        h = w * pix.get_height() / max(1, pix.get_width())
+        pos = settings.get("pip_position", "bottom-right")
+        x = MARGIN * s if "left" in pos else self.screen_w - w - MARGIN * s
+        y = MARGIN * s if "top" in pos else self.screen_h - h - MARGIN * s
+        cr.save()
+        self.rounded(cr, x, y, w, h, 10 * s)
+        cr.clip()
+        cr.translate(x, y)
+        cr.scale(w / pix.get_width(), h / pix.get_height())
+        Gdk.cairo_set_source_pixbuf(cr, pix, 0, 0)
+        cr.paint()
+        cr.restore()
+        # Who you're watching, bottom left of the picture.
+        cr.select_font_face("Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
+        cr.set_font_size(10 * s)
+        tag_w = cr.text_extents("LIVE").x_advance + 10 * s
+        self.tag(cr, "LIVE", x + 8 * s + tag_w, y + h - 24 * s, s, RED)
+        if pip.get("name"):
+            name_x = x + 8 * s + tag_w + 6 * s
+            cr.select_font_face("Sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_BOLD)
+            cr.set_font_size(12 * s)
+            cr.set_source_rgba(0, 0, 0, 0.6)
+            self.text(cr, pip["name"], name_x + 1, y + h - 11 * s + 1, x + w - name_x - 8 * s)
+            cr.set_source_rgba(1, 1, 1, 0.95)
+            self.text(cr, pip["name"], name_x, y + h - 11 * s, x + w - name_x - 8 * s)
+
     def _apply(self, state):
         self.fetching = False
+        try:
+            self._pip_check(state)
+        except Exception:
+            pass
         self.state_time = time.monotonic()
         old = json.dumps(self.state, sort_keys=True) if self.state else None
         self.state = state
@@ -300,6 +371,7 @@ class Overlay:
         cr.push_group()
         panel_h = self.draw_voice(cr, state, voice, settings) if voice else 0
         self.draw_messages(cr, state.get("messages") or [], settings, panel_h)
+        self.draw_pip(cr, state, settings)
         cr.pop_group_to_source()
         cr.paint_with_alpha(opacity)
 

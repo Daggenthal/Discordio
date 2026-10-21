@@ -26,6 +26,8 @@ COMPONENTS = [
     ("capture", "Screen capture"),
     ("overlay", "In-game overlay"),
     ("perf_hold", "Performance overlay during calls"),
+    ("page_usage", "Discord page usage"),
+    ("pip", "Stream in the overlay"),
     ("updates", "Updates"),
 ]
 

@@ -81,8 +81,12 @@ export function EmojiPicker({
   onPick,
   onClose,
   onReply,
+  onEdit,
+  onDelete,
 }: {
   onReply?: () => void;
+  onEdit?: () => void;
+  onDelete?: () => void;
   channelId: string;
   existing: (Emoji & { me?: boolean })[];
   onPick: (e: Emoji, remove: boolean) => void;
@@ -92,6 +96,12 @@ export function EmojiPicker({
   const [all, setAll] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
   const [shown, setShown] = useState(PAGE);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  useEffect(() => {
+    if (!confirmDelete) return;
+    const t = setTimeout(() => setConfirmDelete(false), 4000);
+    return () => clearTimeout(t);
+  }, [confirmDelete]);
 
   useEffect(() => {
     loadEmojis(channelId)
@@ -107,7 +117,20 @@ export function EmojiPicker({
     <>
       {onReply && (
         <PanelSectionRow>
-          <DialogButton onClick={onReply}>↩ Reply</DialogButton>
+          <div style={{ padding: "4px 0" }}>
+            <Focusable style={{ display: "flex", gap: 8 }}>
+              <DialogButton style={{ flex: 1, minWidth: 0, height: "auto", minHeight: 40 }} onClick={onReply}>↩ Reply</DialogButton>
+              {onEdit && <DialogButton style={{ flex: 1, minWidth: 0, height: "auto", minHeight: 40 }} onClick={onEdit}>✎ Edit</DialogButton>}
+              {onDelete && (
+                <DialogButton
+                  style={{ flex: 1, minWidth: 0, height: "auto", minHeight: 40, color: confirmDelete ? "#fff" : "#ff6b6b", background: confirmDelete ? "#da373c" : undefined }}
+                  onClick={() => (confirmDelete ? onDelete() : setConfirmDelete(true))}
+                >
+                  {confirmDelete ? "Press Again" : "🗑 Delete"}
+                </DialogButton>
+              )}
+            </Focusable>
+          </div>
         </PanelSectionRow>
       )}
       {!!existing.length && (

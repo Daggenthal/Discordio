@@ -1,0 +1,66 @@
+import { addEventListener, call, removeEventListener } from "@decky/api";
+import { ButtonItem, PanelSectionRow } from "@decky/ui";
+import { useEffect, useState } from "react";
+import { on } from "../lib/events";
+import { stopWatching } from "../lib/watch";
+import { ChoiceSlider } from "./ChoiceSlider";
+
+type Pip = { on: boolean; name?: string | null; frames?: number; live?: boolean };
+
+const POSITIONS = [
+  { value: "top-left", short: "TL", label: "Top left" },
+  { value: "top-right", short: "TR", label: "Top right" },
+  { value: "bottom-left", short: "BL", label: "Bottom left" },
+  { value: "bottom-right", short: "BR", label: "Bottom right" },
+];
+const SIZES = [
+  { value: "small", short: "Small", label: "Small" },
+  { value: "normal", short: "Normal", label: "Normal" },
+  { value: "large", short: "Large", label: "Large" },
+];
+
+// While a stream is showing in the overlay: where, how big, and stop.
+export function PipControls() {
+  const [pip, setPip] = useState<Pip>({ on: false });
+  const [look, setLook] = useState<{ position: string; size: string } | null>(null);
+  useEffect(() => {
+    const load = () => call<[], Pip>("get_pip").then(setPip).catch(() => {});
+    load();
+    const t = setInterval(load, 2000);
+    const off = on("pip-changed", load);
+    const onEvt = () => load();
+    addEventListener("pip", onEvt);
+    call<[], any>("set_pip_look").then(setLook).catch(() => {});
+    return () => {
+      clearInterval(t);
+      off();
+      removeEventListener("pip", onEvt);
+    };
+  }, []);
+  if (!pip.on) return null;
+  const set = async (position?: string, size?: string) => setLook(await call<any[], any>("set_pip_look", position ?? null, size ?? null));
+  return (
+    <>
+      <PanelSectionRow>
+        <div style={{ fontSize: 12, opacity: 0.8 }}>
+          📺 Watching {pip.name || "a stream"} in the overlay{pip.live ? "" : " (waiting for video...)"}
+        </div>
+      </PanelSectionRow>
+      {look && (
+        <>
+          <PanelSectionRow>
+            <ChoiceSlider label="Stream Position" choices={POSITIONS} value={look.position} onChange={(v) => set(v)} />
+          </PanelSectionRow>
+          <PanelSectionRow>
+            <ChoiceSlider label="Stream Size" choices={SIZES} value={look.size} onChange={(v) => set(undefined, v)} />
+          </PanelSectionRow>
+        </>
+      )}
+      <PanelSectionRow>
+        <ButtonItem layout="below" onClick={stopWatching}>
+          Stop Watching
+        </ButtonItem>
+      </PanelSectionRow>
+    </>
+  );
+}

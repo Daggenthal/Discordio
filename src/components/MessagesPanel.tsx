@@ -6,6 +6,7 @@ import { fire, on } from "../lib/events";
 import { Shot, ShotGrid } from "./UploadScreenshot";
 import { Emoji, EmojiPicker } from "./EmojiPicker";
 import { GifPicker } from "./GifPicker";
+import { ActionRow, MutedIcon, UnreadBadge, markRead, setPopupMute } from "./Unread";
 import { ColorButton } from "./ColorButton";
 import { Avatar } from "./VoiceChatViews";
 import { ChoiceSlider } from "./ChoiceSlider";
@@ -16,6 +17,9 @@ type Conversation = {
   is_dm: boolean;
   avatar: string | null;
   unread: number;
+  mentions?: number;
+  muted?: boolean; // muted in Discord
+  popups_muted?: boolean; // muted for popups in Discordio
   last?: { author: string; text: string; time: number };
 };
 type Media = { kind: "image" | "gif" | "gifv" | "video" | "sticker" | "file"; url?: string; poster?: string; name?: string; title?: string; width?: number; height?: number };
@@ -29,6 +33,7 @@ type Message = {
   media?: Media[];
   reactions?: Reaction[];
   replyTo?: { id: string; name: string | null; text: string } | null;
+  edited?: boolean;
 };
 type History = { channel_id: string; label: string; messages: Message[]; error?: string; typing?: string[] };
 
@@ -79,6 +84,7 @@ export function MessagesPanel() {
     []
   );
 
+  const [actionsFor, setActionsFor] = useState<string | null>(null);
   const load = () =>
     call<[], { conversations: Conversation[] }>("get_conversations")
       .then((r) => setConvs(r?.conversations ?? []))
@@ -100,24 +106,43 @@ export function MessagesPanel() {
   if (!convs) return <Hint>Loading...</Hint>;
   if (convs.length === 0) return <Hint>No new messages. DMs and mentions show up here and as popups over your game.</Hint>;
 
+  const anyUnread = convs.some((c) => c.unread > 0);
   return (
     <>
+      {anyUnread && (
+        <PanelSectionRow>
+          <ButtonItem
+            layout="below"
+            onClick={async () => {
+              const res: any = await call("mark_all_read");
+              toaster.toast({ title: "Discordio", body: res?.error ? `Couldn't mark as read: ${res.error}` : "All caught up" });
+              load();
+            }}
+          >
+            Mark All as Read
+          </ButtonItem>
+        </PanelSectionRow>
+      )}
       {convs.map((c) => (
-        <PanelSectionRow key={c.channel_id}>
+        <div key={c.channel_id}>
+        <PanelSectionRow>
+          <Focusable
+            onOptionsButton={() => setActionsFor(actionsFor === c.channel_id ? null : c.channel_id)}
+            onOptionsActionDescription="More"
+          >
           <ButtonItem
             layout="below"
             onClick={() => setOpen(c)}
           >
             <span style={{ display: "flex", gap: "8px", alignItems: "center", textAlign: "left", minWidth: 0 }}>
               <Avatar src={c.avatar} size={30} />
-              <span style={{ flex: 1, minWidth: 0, height: "auto", minHeight: 44, lineHeight: 1.25 }}>
+              <span style={{ flex: 1, minWidth: 0 }}>
                 <span style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                  <b style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.label}</b>
-                  {c.unread > 0 && (
-                    <span style={{ background: "#ed4245", color: "#fff", borderRadius: 8, fontSize: 10, padding: "0 6px", fontWeight: 700 }}>
-                      {c.unread}
-                    </span>
-                  )}
+                  <b style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", opacity: c.unread > 0 || c.mentions ? 1 : 0.85 }}>
+                    {c.label}
+                  </b>
+                  <UnreadBadge unread={c.unread} mentions={c.mentions} />
+                  {(c.muted || c.popups_muted) && <MutedIcon />}
                   {c.last && <span style={{ marginLeft: "auto", fontSize: 11, opacity: 0.6 }}>{ago(c.last.time)}</span>}
                 </span>
                 {c.last && (
@@ -129,8 +154,22 @@ export function MessagesPanel() {
               </span>
             </span>
           </ButtonItem>
+          </Focusable>
         </PanelSectionRow>
+        {actionsFor === c.channel_id && (
+          <ActionRow
+            actions={[
+              { label: "Mark as Read", onClick: async () => { await markRead([c.channel_id], undefined, c.label); setActionsFor(null); load(); } },
+              {
+                label: c.popups_muted ? "Unmute Popups" : "Mute Popups",
+                onClick: async () => { await setPopupMute("channel", c.channel_id, c.label, !c.popups_muted); setActionsFor(null); load(); },
+              },
+            ]}
+          />
+        )}
+        </div>
       ))}
+      <Hint>Press Options on a conversation to mark it read or mute its popups.</Hint>
     </>
   );
 }
@@ -143,6 +182,7 @@ function ConversationView({ conv, onBack }: { conv: Conversation; onBack: () => 
   const [shots, setShots] = useState(false);
   const [gifs, setGifs] = useState(false);
   const [replyTo, setReplyTo] = useState<{ id: string; name: string; text: string } | null>(null);
+  const [editing, setEditing] = useState<{ id: string; before: string } | null>(null);
   const top = useRef<HTMLDivElement>(null);
   const reply = useRef<HTMLDivElement>(null);
 
@@ -167,9 +207,18 @@ function ConversationView({ conv, onBack }: { conv: Conversation; onBack: () => 
     return () => clearTimeout(t);
   }, [conv.channel_id]);
 
+  const lastAcked = useRef<string | null>(null);
   const load = () =>
     call<[string], History>("get_history", conv.channel_id)
-      .then(setHistory)
+      .then((h) => {
+        setHistory(h);
+        // Reading it here counts as reading it in Discord.
+        const last = h?.messages?.[h.messages.length - 1]?.id;
+        if (last && last !== lastAcked.current) {
+          lastAcked.current = last;
+          call("mark_read", [conv.channel_id], null).catch(() => {});
+        }
+      })
       .catch((e) => setHistory({ channel_id: conv.channel_id, label: conv.label, messages: [], error: String(e) }));
 
   useEffect(() => {
@@ -189,6 +238,20 @@ function ConversationView({ conv, onBack }: { conv: Conversation; onBack: () => 
   const send = async () => {
     if (!text.trim()) return;
     setSending(true);
+    if (editing) {
+      try {
+        const res: any = await call("edit_message", conv.channel_id, editing.id, text);
+        if (res?.error) toaster.toast({ title: "Discordio", body: `Not saved: ${res.error}` });
+        else {
+          setText(editing.before);
+          setEditing(null);
+          load();
+        }
+      } finally {
+        setSending(false);
+      }
+      return;
+    }
     try {
       const res: any = await call("send_message", conv.channel_id, text, replyTo?.id ?? null);
       if (res?.error) toaster.toast({ title: "Discordio", body: `Not sent: ${res.error}` });
@@ -243,8 +306,22 @@ function ConversationView({ conv, onBack }: { conv: Conversation; onBack: () => 
           }}
           onReply={() => {
             setPicking(null);
+            setEditing(null);
             setReplyTo({ id: m.id, name: m.author.name, text: m.text || (m.media?.length ? "(attachment)" : "") });
             setTimeout(jumpToReply, 100);
+          }}
+          onEdit={() => {
+            setPicking(null);
+            setReplyTo(null);
+            setEditing({ id: m.id, before: text });
+            setText(m.text);
+            setTimeout(jumpToReply, 100);
+          }}
+          onDelete={async () => {
+            setPicking(null);
+            const res: any = await call("delete_message", conv.channel_id, m.id);
+            toaster.toast({ title: "Discordio", body: res?.error ? `Couldn't delete: ${res.error}` : "Message deleted" });
+            load();
           }}
         />
       ))}
@@ -253,6 +330,16 @@ function ConversationView({ conv, onBack }: { conv: Conversation; onBack: () => 
           <div style={{ ...small, opacity: 0.7, fontStyle: "italic" }}>
             {history.typing.join(", ")} {history.typing.length > 1 ? "are" : "is"} typing...
           </div>
+        </PanelSectionRow>
+      )}
+      {editing && (
+        <PanelSectionRow>
+          <Focusable style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{ flex: 1, minWidth: 0, ...small, opacity: 0.8 }}>✎ Editing your message</div>
+            <DialogButton style={{ minWidth: 0, width: "auto", padding: "4px 12px" }} onClick={() => { setText(editing.before); setEditing(null); }}>
+              Cancel
+            </DialogButton>
+          </Focusable>
         </PanelSectionRow>
       )}
       {replyTo && (
@@ -281,7 +368,7 @@ function ConversationView({ conv, onBack }: { conv: Conversation; onBack: () => 
       </PanelSectionRow>
       <PanelSectionRow>
         <ButtonItem layout="below" disabled={sending || !text.trim()} onClick={send}>
-          {sending ? "Sending..." : "Send"}
+          {sending ? (editing ? "Saving..." : "Sending...") : editing ? "Save Edit" : "Send"}
         </ButtonItem>
       </PanelSectionRow>
       <PanelSectionRow>
@@ -342,7 +429,10 @@ const POSITIONS = [
 ];
 const DURATIONS = [4, 8, 15, 30].map((d) => ({ value: d, short: `${d}s`, label: `${d} seconds` }));
 
-type MessageSettings = { popups: boolean; position: string; duration: number };
+type MessageSettings = {
+  popups: boolean; position: string; duration: number; dms?: boolean; mentions?: boolean; follow_discord?: boolean;
+  muted_guilds?: Record<string, string>; muted_channels?: Record<string, string>;
+};
 
 // Settings for message popups (shown by the in-game overlay).
 export function MessageSettingsPanel() {
@@ -350,9 +440,14 @@ export function MessageSettingsPanel() {
   useEffect(() => {
     call<[], MessageSettings>("get_message_settings").then(setS).catch(() => {});
   }, []);
-  const update = async (popups?: boolean, position?: string, duration?: number) =>
-    setS(await call<[boolean | null, string | null, number | null], MessageSettings>(
-      "set_message_settings", popups ?? null, position ?? null, duration ?? null));
+  const update = async (popups?: boolean, position?: string, duration?: number, extra: { dms?: boolean; mentions?: boolean; follow?: boolean } = {}) =>
+    setS(await call<any[], MessageSettings>(
+      "set_message_settings", popups ?? null, position ?? null, duration ?? null, extra.dms ?? null, extra.mentions ?? null, extra.follow ?? null));
+  const unmute = async (kind: "guild" | "channel", id: string) => setS(await call<any[], MessageSettings>("set_popup_mute", kind, id, null, false));
+  const muted = [
+    ...Object.entries(s?.muted_guilds || {}).map(([id, name]) => ({ kind: "guild" as const, id, name })),
+    ...Object.entries(s?.muted_channels || {}).map(([id, name]) => ({ kind: "channel" as const, id, name })),
+  ];
   if (!s) return null;
   return (
     <>
@@ -372,6 +467,32 @@ export function MessageSettingsPanel() {
           <PanelSectionRow>
             <ChoiceSlider label="Show popups for" choices={DURATIONS} value={s.duration} onChange={(v) => update(undefined, undefined, v)} />
           </PanelSectionRow>
+          <PanelSectionRow>
+            <ToggleField label="Direct Messages" description="Pop up when someone DMs you" checked={s.dms !== false}
+              onChange={(v) => update(undefined, undefined, undefined, { dms: v })} />
+          </PanelSectionRow>
+          <PanelSectionRow>
+            <ToggleField label="Server Mentions" description="Pop up when someone @mentions you in a server" checked={s.mentions !== false}
+              onChange={(v) => update(undefined, undefined, undefined, { mentions: v })} />
+          </PanelSectionRow>
+          <PanelSectionRow>
+            <ToggleField label="Follow Discord's Mutes" description="No popups from servers and channels you muted in Discord" checked={s.follow_discord !== false}
+              onChange={(v) => update(undefined, undefined, undefined, { follow: v })} />
+          </PanelSectionRow>
+          {muted.length > 0 && (
+            <>
+              <PanelSectionRow>
+                <div style={{ ...small, opacity: 0.7 }}>Muted in Discordio (press Options on a server, channel or conversation to mute it):</div>
+              </PanelSectionRow>
+              {muted.map((x) => (
+                <PanelSectionRow key={x.kind + x.id}>
+                  <ButtonItem layout="inline" label={`🔕 ${x.name}`} onClick={() => unmute(x.kind, x.id)}>
+                    Unmute
+                  </ButtonItem>
+                </PanelSectionRow>
+              ))}
+            </>
+          )}
         </>
       )}
     </>
@@ -439,8 +560,12 @@ function MessageRow({
   onPick,
   onReacted,
   onReply,
+  onEdit,
+  onDelete,
 }: {
   onReply: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
   m: Message;
   channelId: string;
   picking: boolean;
@@ -489,7 +614,7 @@ function MessageRow({
                 </div>
               )}
               <b style={{ color: m.mine ? "#949cf7" : undefined }}>{m.author.name}</b>{" "}
-              <span style={{ opacity: 0.5, fontSize: 10 }}>{ago(m.time / 1000)}</span>
+              <span style={{ opacity: 0.5, fontSize: 10 }}>{ago(m.time / 1000)}{m.edited ? " · edited" : ""}</span>
               {m.text ? <div>{m.text}</div> : !m.media?.length && <i style={{ opacity: 0.6 }}>(no text)</i>}
               {m.media?.map((x, i) => <MediaView key={i} m={x} />)}
               {!!m.reactions?.length && (
@@ -520,6 +645,8 @@ function MessageRow({
           onPick={react}
           onClose={onPick}
           onReply={onReply}
+          onEdit={m.mine && m.text ? onEdit : undefined}
+          onDelete={m.mine ? onDelete : undefined}
         />
       )}
     </>

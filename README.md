@@ -10,14 +10,16 @@ Discord in SteamOS Game Mode, as a Decky Loader plugin. Voice, servers, friends,
 - **Calls from the QAM:** who's in your call with speaking, mute, deafen and LIVE badges; mute, deafen, disconnect; per-person Local Mute and Voice Volume; Server Mute, Server Deafen and Server Disconnect when you have the permission.
 - **Incoming calls:** a Steam notification and a banner with Answer and Decline, plus controller shortcuts (default: hold Options/Start and pull R2 to answer, L2 to decline). Shortcuts are rebindable and work on any controller.
 - **Servers, friends and favorites:** voice and text channels for every server, a searchable friends list with online counts, join a friend's call, watch their stream, and pin favorite voice channels to the top.
-- **Messages:** recent conversations, images, GIFs and videos, emoji reactions, "is typing", and sending a Steam screenshot straight into a conversation.
+- **Messages:** recent conversations with unread counts, images, GIFs and videos, replies, editing and deleting your own messages, reactions with your own and your servers' emojis, "is typing", your favorite GIFs and GIF search, and sending a Steam screenshot straight into a conversation.
+- **Unread and notifications:** unread markers on conversations, servers and channels, Mark as Read, and popup control: DMs, mentions, Discord's own mutes, or mute a server, channel or conversation just for popups.
+- **Friend requests:** accept, decline or cancel requests, and add friends by username.
 - **Go Live:** stream your game without Discord ever appearing on screen. Resolution from 480p to 4K and 5 to 60 fps, with Nitro-only settings marked and Nitro detected automatically.
-- **In-game overlay:** your voice channel on top of games with a speaking highlight. Can turn itself on only during calls; size, opacity, and "only show who's talking" options. Works alongside Steam's performance overlay.
+- **In-game overlay:** your voice channel on top of games with a speaking highlight, and a friend's stream as a small picture-in-picture while you keep playing. Steam's performance overlay is hidden during calls and restored afterwards. Can turn itself on only during calls; size, opacity, and "only show who's talking" options. Works alongside Steam's performance overlay.
 - **Audio Settings:** microphone and speaker choice, noise suppression, echo cancellation, automatic gain, mic sensitivity, a microphone test with "hear yourself", and a test sound.
-- **Status:** Online, Idle, Do Not Disturb or Invisible, plus a custom status. Do Not Disturb silences Discordio's popups.
+- **Status and profile:** Online, Idle, Do Not Disturb or Invisible, plus a custom status, and your Discord badges under your name. Do Not Disturb silences Discordio's popups.
 - **Accounts:** switch between saved accounts, add another, or log out.
 - **Updates from Game Mode:** pick the Stable or Beta channel; Discordio checks when you open it, shows a banner, installs through Decky and reopens itself.
-- **Diagnostics:** live health of every part, a self-test, fix-it buttons and an exportable report. Names and IDs are hidden from diagnostics and reports by default.
+- **Diagnostics:** live health of every part, how much CPU and memory the Discord page uses, a self-test, fix-it buttons and an exportable report. Names and IDs are hidden from diagnostics and reports by default.
 
 ## Before you start
 

@@ -29,6 +29,7 @@ import { useUiSettings, setUiSetting } from "./lib/settings";
 import { startMicBridge } from "./lib/mic";
 import { AudioDevicesPanel } from "./components/AudioDevicesPanel";
 import { WelcomeBanner } from "./components/WelcomeBanner";
+import { Badges } from "./components/Badges";
 import { STATUSES } from "./components/StatusPanel";
 import { MicProcessingPanel } from "./components/MicProcessingPanel";
 import { AudioCheckPanel } from "./components/AudioCheckPanel";
@@ -192,6 +193,14 @@ const SettingsPanel = () => {
         />
       </PanelSectionRow>
       <PanelSectionRow>
+        <ToggleField
+          label="Show Badges"
+          description="Your Discord badges under your name"
+          checked={ui.showBadges}
+          onChange={(v) => setUiSetting("showBadges", v)}
+        />
+      </PanelSectionRow>
+      <PanelSectionRow>
         <div style={{ fontWeight: 700, fontSize: "13px", marginTop: "6px" }}>In-game overlay</div>
       </PanelSectionRow>
       <SafeSection name="Overlay"><OverlayPanel /></SafeSection>
@@ -224,6 +233,15 @@ const Content = () => {
   const ui = useUiSettings();
   const ready = state?.loaded && state?.logged_in;
   const topRef = useRef<HTMLDivElement>(null);
+  // Unread count on the Messages button.
+  const [unread, setUnread] = useState(0);
+  useEffect(() => {
+    if (!ready) return;
+    const load = () => call<[], number>("get_unread_total").then((n) => setUnread(Number(n) || 0)).catch(() => {});
+    load();
+    const t = setInterval(load, 6000);
+    return () => clearInterval(t);
+  }, [ready]);
   // "Back to Top" buttons: move the view and the controller's focus to the
   // first thing in Discordio, so the next press continues from there.
   useEffect(
@@ -265,6 +283,7 @@ const Content = () => {
             <PanelSectionRow>
               <ProfileLine state={state} />
             </PanelSectionRow>
+            {ui.showBadges && <SafeSection name="Badges"><Badges userId={state?.me?.id} /></SafeSection>}
             <SafeSection name="Status"><StatusPanel status={state?.status} /></SafeSection>
           </>
         )}
@@ -284,7 +303,7 @@ const Content = () => {
             <SafeSection name="Mic button"><PushToTalkButton /></SafeSection>
             <SafeSection name="Call shortcuts"><CallShortcutsPanel /></SafeSection>
           </Collapsible>
-          <Collapsible title="Messages" label="Recent Messages" defaultOpen={false}>
+          <Collapsible title="Messages" label={unread > 0 ? `Recent Messages (${unread})` : "Recent Messages"} defaultOpen={false}>
             <SafeSection name="Messages"><MessagesPanel /></SafeSection>
           </Collapsible>
           <Collapsible title="Servers" defaultOpen={ui.autoOpenServers}>
