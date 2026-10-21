@@ -127,9 +127,11 @@ const Collapsible = ({
   return (
     <PanelSection title={title}>
       <PanelSectionRow>
+        <div data-dio-key={`section:${title}`}>
         <ButtonItem layout="below" onClick={() => setOpen(!open)}>
           {open ? `Collapse ${label ?? title}` : `Show ${label ?? title}`}
         </ButtonItem>
+        </div>
       </PanelSectionRow>
       {open && children}
     </PanelSection>

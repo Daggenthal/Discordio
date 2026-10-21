@@ -18,22 +18,30 @@ export function closeProfile() {
   beginRestore();
   fire("profile-changed");
   if (!key) return;
-  // The menu is rebuilt and lists (like friends) load again: keep looking
-  // for the button for a few seconds.
+  // The menu is rebuilt and lists (like friends) load again, and Steam may
+  // put the cursor back at the top after we've moved it: keep putting it on
+  // the button (or, failing that, its section) for a moment.
   const started = Date.now();
-  const tryFocus = () => {
-    try {
-      const el = document.querySelector<HTMLElement>(`[data-dio-key="${key}"]`);
-      const btn = el?.matches("button, .DialogButton, [tabindex]") ? el : el?.querySelector<HTMLElement>("button, .DialogButton, [tabindex]");
-      if (btn || el) {
-        (btn || el)!.focus();
-        (btn || el)!.scrollIntoView({ block: "center" });
-        return;
-      }
-    } catch (_) {}
-    if (Date.now() - started < 4000) setTimeout(tryFocus, 150);
+  const find = (): HTMLElement | null => {
+    const el = document.querySelector<HTMLElement>(`[data-dio-key="${key}"]`) ||
+      (key.startsWith("friend") ? document.querySelector<HTMLElement>('[data-dio-key="section:Friends"]') : null);
+    if (!el) return null;
+    return el.matches("button, .DialogButton, [tabindex]") ? el : el.querySelector<HTMLElement>("button, .DialogButton, [tabindex]") || el;
   };
-  setTimeout(tryFocus, 150);
+  let placedAt = 0;
+  const tick = () => {
+    try {
+      const el = find();
+      if (el && !el.contains(document.activeElement)) {
+        el.focus();
+        el.scrollIntoView({ block: "center" });
+        if (!placedAt) placedAt = Date.now();
+      } else if (el && !placedAt) placedAt = Date.now();
+    } catch (_) {}
+    const now = Date.now();
+    if ((placedAt && now - placedAt < 1500) || (!placedAt && now - started < 4000)) setTimeout(tick, 120);
+  };
+  setTimeout(tick, 100);
 }
 export function useProfileTarget() {
   const [t, setT] = useState(target);
