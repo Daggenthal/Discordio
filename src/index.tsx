@@ -31,6 +31,8 @@ import { AudioDevicesPanel } from "./components/AudioDevicesPanel";
 import { WelcomeBanner } from "./components/WelcomeBanner";
 import { Badges } from "./components/Badges";
 import { MediaViewer } from "./components/MediaViewer";
+import { ProfileView } from "./components/ProfileView";
+import { openProfile } from "./lib/profile";
 import { startWatchNotices } from "./lib/watch";
 import { STATUSES } from "./components/StatusPanel";
 import { MicProcessingPanel } from "./components/MicProcessingPanel";
@@ -166,6 +168,26 @@ const ProfileLine = ({ state }: { state: any }) => {
   );
 };
 
+// Your name row can be selected (with a glow) and opens your profile card.
+const SelectableProfile = ({ state }: { state: any }) => {
+  const [focused, setFocused] = useState(false);
+  return (
+    <Focusable
+      onActivate={() => openProfile(null)}
+      onOKActionDescription="View Profile"
+      {...({ onGamepadFocus: () => setFocused(true), onGamepadBlur: () => setFocused(false) } as any)}
+      style={{
+        width: "100%", borderRadius: 10, padding: "6px 8px", margin: "0 -8px", boxSizing: "content-box",
+        background: focused ? "rgba(255,255,255,0.12)" : "transparent",
+        boxShadow: focused ? "0 0 0 2px #fff, 0 0 12px rgba(255,255,255,0.45)" : "none",
+        transition: "box-shadow .1s, background .1s",
+      }}
+    >
+      <ProfileLine state={state} />
+    </Focusable>
+  );
+};
+
 const BackToTop = ({ gap = 0 }: { gap?: number }) => (
   <PanelSectionRow>
     {gap > 0 && <div style={{ height: gap }} />}
@@ -228,9 +250,6 @@ const SettingsPanel = () => {
         </ButtonItem>
       </PanelSectionRow>
       {showUpdates && <SafeSection name="Updates"><UpdatePanel /></SafeSection>}
-      <PanelSectionRow>
-        <div style={{ fontWeight: 700, fontSize: "13px", marginTop: "14px" }}>Account</div>
-      </PanelSectionRow>
       <SafeSection name="Account"><AccountPanel /></SafeSection>
       {/* Spaced away from Logout so it isn't pressed by accident. */}
       <BackToTop gap={18} />
@@ -291,7 +310,7 @@ const Content = () => {
               <SafeSection name="Friends count"><FriendsCount /></SafeSection>
             </PanelSectionRow>
             <PanelSectionRow>
-              <ProfileLine state={state} />
+              <SelectableProfile state={state} />
             </PanelSectionRow>
             {ui.showBadges && <SafeSection name="Badges"><Badges userId={state?.me?.id} /></SafeSection>}
             <SafeSection name="Status"><StatusPanel status={state?.status} /></SafeSection>
@@ -395,6 +414,9 @@ export default definePlugin(() => {
   safe("Register the media viewer route", () =>
     routerHook.addRoute("/discordio-view", () => <MediaViewer />)
   );
+  safe("Register the profile route", () =>
+    routerHook.addRoute("/discordio-profile", () => <ProfileView />)
+  );
 
   let settingsChangeUnregister: any;
   let lastDisplayIsExternal: boolean | undefined;
@@ -434,6 +456,7 @@ export default definePlugin(() => {
         routerHook.removeRoute("/discord");
         try {
           routerHook.removeRoute("/discordio-view");
+          routerHook.removeRoute("/discordio-profile");
         } catch (_) {}
       } catch (_) {}
     },

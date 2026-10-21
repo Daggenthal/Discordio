@@ -10,6 +10,8 @@ import { watchInOverlay, watchStream } from "../lib/watch";
 import { Favorite, isFavorite, toggleFavorite, useFavorites } from "../lib/favorites";
 import { FaEye, FaSignInAlt, FaStar } from "react-icons/fa";
 import { FriendRequests } from "./FriendRequests";
+import { openProfile } from "../lib/profile";
+import { FaUser } from "react-icons/fa";
 import { ActionRow, MutedIcon, UnreadBadge, markRead, setPopupMute } from "./Unread";
 
 type Guild = { id: string; name: string; icon: string | null; unread?: boolean; mentions?: number; muted?: boolean };
@@ -430,6 +432,12 @@ function FriendRow({ f, open, onToggle }: { f: Friend; open: boolean; onToggle: 
               onClick={() => messageFriend(f)}
             >
               <FaComment /> Message
+            </DialogButton>
+            <DialogButton
+              style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
+              onClick={() => openProfile(f.id, "Friends")}
+            >
+              <FaUser /> Profile
             </DialogButton>
           </Focusable>
         </PanelSectionRow>

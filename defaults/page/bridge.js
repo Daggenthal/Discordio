@@ -190,7 +190,7 @@
         const u = me();
         return {
             loggedIn: !!u,
-            user: u ? { id: u.id, name: userName(u), avatar: u.avatar || null, avatarUrl: avatarUrl(u), premiumType: u.premiumType ?? 0 } : null,
+            user: u ? { id: u.id, name: userName(u), handle: u.username || null, avatar: u.avatar || null, avatarUrl: avatarUrl(u), premiumType: u.premiumType ?? 0 } : null,
             media: media(),
             voice: voiceInfo(),
             status: myStatus(),
@@ -898,28 +898,27 @@
     const tidy = (t) => String(t || "").replace(/(^|:\s*)([a-z])/g, (_, a, c) => a + c.toUpperCase());
     // Snowflake IDs carry their creation time.
     const createdAt = (id) => new Date(Number(BigInt(id) >> 22n) + 1420070400000);
-    async function myBadges() {
-        const u = me();
-        if (!u) throw new Error("not logged in");
-        if (badgeCache && badgeCache.id === u.id && Date.now() - badgeCache.at < 10 * 60 * 1000) return badgeCache.value;
-        // Discord's API has the full text (dates, counts); the client's store
-        // can hold only short names, so it's the fallback.
+    // Full profile from Discord's API (the store's copy can be partial).
+    async function fetchProfile(userId) {
         let profile = null;
         try {
-            const r = await C().RestAPI.get({ url: `/users/${u.id}/profile`, query: { with_mutual_guilds: false, with_mutual_friends: false } });
+            const r = await C().RestAPI.get({ url: `/users/${userId}/profile`,
+                query: { with_mutual_guilds: true, with_mutual_friends: true, with_mutual_friends_count: true } });
             profile = r && r.body;
         } catch (e) { warn("profile", e); }
         if (!profile || !Array.isArray(profile.badges)) {
             try {
                 const P = store("UserProfileStore");
-                const p = P && P.getUserProfile && P.getUserProfile(u.id);
+                const p = P && P.getUserProfile && P.getUserProfile(userId);
                 if (p) profile = { ...p, ...(profile && !Array.isArray(profile) ? profile : {}), badges: p.badges };
             } catch (_) { }
         }
-        profile = profile || {};
+        return profile && !Array.isArray(profile) ? profile : {};
+    }
+    function badgesOf(profile, userId) {
         const premiumSince = profile.premium_since || profile.premiumSince || null;
         const boostSince = profile.premium_guild_since || profile.premiumGuildSince || null;
-        const created = since(createdAt(u.id));
+        const created = since(createdAt(userId));
         const nitro = premiumSince ? since(premiumSince) : null;
         const boost = boostSince ? since(boostSince) : null;
         const badges = (profile.badges || []).map((b) => {
@@ -936,14 +935,70 @@
             }
             return { id, description: tidy(text), icon: b.icon ? `https://cdn.discordapp.com/badge-icons/${b.icon}.png` : null, link: b.link || null };
         });
-        const facts = [];
-        if (created) facts.push(`On Discord since ${created.date} (${created.short})`);
-        if (nitro) facts.push(`Nitro since ${nitro.date} (${nitro.short})`);
-        if (boost) facts.push(`Boosting since ${boost.date} (${boost.short})`);
-        const value = { badges, facts };
+        return { badges, created };
+    }
+    async function myBadges() {
+        const u = me();
+        if (!u) throw new Error("not logged in");
+        if (badgeCache && badgeCache.id === u.id && Date.now() - badgeCache.at < 10 * 60 * 1000) return badgeCache.value;
+        const { badges } = badgesOf(await fetchProfile(u.id), u.id);
+        const value = { badges };
         badgeCache = { id: u.id, at: Date.now(), value };
         log("badges: " + badges.map((b) => `${b.id}="${b.description}"`).join(", "));
         return value;
+    }
+
+    const CONNECTIONS = { youtube: "YouTube", twitch: "Twitch", steam: "Steam", xbox: "Xbox", playstation: "PlayStation",
+        spotify: "Spotify", github: "GitHub", twitter: "X", reddit: "Reddit", tiktok: "TikTok", instagram: "Instagram",
+        battlenet: "Battle.net", epicgames: "Epic Games", riotgames: "Riot Games", leagueoflegends: "League of Legends",
+        bluesky: "Bluesky", mastodon: "Mastodon", domain: "Website", facebook: "Facebook", paypal: "PayPal", ebay: "eBay",
+        crunchyroll: "Crunchyroll", roblox: "Roblox", bungie: "Bungie.net" };
+    const colorHex = (n) => (typeof n === "number" ? "#" + n.toString(16).padStart(6, "0") : null);
+    // Everything Discord shows on a profile card.
+    async function userProfile(userId) {
+        const meU = me();
+        userId = userId || (meU && meU.id);
+        if (!userId) throw new Error("not logged in");
+        const p = await fetchProfile(userId);
+        const base = C().UserStore.getUser(userId) || (meU && meU.id === userId ? meU : null) || {};
+        const u = { username: base.username, global_name: base.globalName || base.global_name, avatar: base.avatar,
+            banner: base.banner, accent_color: base.accentColor, avatar_decoration_data: base.avatarDecorationData,
+            primary_guild: base.primaryGuild, ...(p.user || {}) };
+        const up = p.user_profile || p.userProfile || {};
+        const banner = up.banner || u.banner || null;
+        const deco = u.avatar_decoration_data || u.avatarDecorationData || null;
+        const tag = u.primary_guild || u.primaryGuild || u.clan || null;
+        const theme = up.theme_colors || up.themeColors || null;
+        const status = (() => { try { return (store("PresenceStore") && store("PresenceStore").getStatus(userId)) || "offline"; } catch (_) { return "offline"; } })();
+        let custom = null;
+        try {
+            const acts = (store("PresenceStore") && store("PresenceStore").getActivities(userId)) || [];
+            const c = acts.find((a) => a.type === 4);
+            if (c) custom = { text: c.state || "", emoji: c.emoji ? (c.emoji.id ? `https://cdn.discordapp.com/emojis/${c.emoji.id}.png?size=32` : c.emoji.name) : null };
+            var playing = acts.filter((a) => a.type !== 4).map((a) => ({ type: a.type, name: a.name, details: a.details || null, state: a.state || null }));
+        } catch (_) { }
+        if (userId === (meU && meU.id) && !custom) { try { const st = myStatus(); if (st && st.custom) custom = { text: st.custom, emoji: null }; } catch (_) { } }
+        const { badges, created } = badgesOf(p, userId);
+        const avatar = u.avatar ? `https://cdn.discordapp.com/avatars/${userId}/${u.avatar}.${String(u.avatar).startsWith("a_") ? "gif" : "png"}?size=256` : avatarUrl(u);
+        return {
+            id: userId, me: userId === (meU && meU.id),
+            name: friendName(u) || u.global_name || u.globalName || u.username, username: u.username || null,
+            avatar,
+            decoration: deco && deco.asset ? `https://cdn.discordapp.com/avatar-decoration-presets/${deco.asset}.png?size=256&passthrough=true` : null,
+            banner: banner ? `https://cdn.discordapp.com/banners/${userId}/${banner}.${String(banner).startsWith("a_") ? "gif" : "png"}?size=1024` : null,
+            banner_color: colorHex(up.accent_color ?? u.accent_color ?? u.accentColor) || u.banner_color || null,
+            theme: Array.isArray(theme) && theme.length === 2 ? theme.map(colorHex) : null,
+            tag: tag && (tag.tag || tag.identity_guild_id) ? { text: tag.tag || null, badge: tag.badge && (tag.identity_guild_id || tag.identityGuildId) ? `https://cdn.discordapp.com/clan-badges/${tag.identity_guild_id || tag.identityGuildId}/${tag.badge}.png?size=32` : null } : null,
+            pronouns: up.pronouns || null,
+            bio: up.bio || u.bio || "",
+            status, custom, playing: typeof playing !== "undefined" ? playing : [],
+            badges,
+            member_since: created ? created.date : null,
+            connections: (p.connected_accounts || []).map((c) => ({ type: c.type, label: CONNECTIONS[c.type] || c.type, name: c.name, verified: !!c.verified })),
+            mutual_friends: p.mutual_friends_count ?? (p.mutual_friends || []).length ?? null,
+            mutual_servers: (p.mutual_guilds || []).length || null,
+            note: (() => { try { const N = store("NoteStore"); const n = N && N.getNote && N.getNote(userId); return (n && (n.note ?? n)) || null; } catch (_) { return null; } })(),
+        };
     }
 
     // ------------------------------------------------------ friend requests
@@ -1363,6 +1418,7 @@
     m("declineCall", ({ channelId }) => declineCall(channelId));
     m("guilds", () => guilds());
     m("badges", () => myBadges());
+    m("profile", ({ userId }) => userProfile(userId));
     m("editMessage", ({ channelId, messageId, content }) => editMessage(channelId, messageId, content));
     m("deleteMessage", ({ channelId, messageId }) => deleteMessage(channelId, messageId));
     m("friendRequests", () => friendRequests());

@@ -59,6 +59,7 @@ def frontend_state(state, bridge_ready, stage):
         "me": {
             "id": user.get("id", ""),
             "username": user.get("name", ""),
+            "handle": user.get("handle"),
             "avatar": user.get("avatar"),
             "is_muted": bool(media.get("mute")),
             "is_deafened": bool(media.get("deaf")),
@@ -779,6 +780,10 @@ class Plugin:
             c["popups_muted"] = c["channel_id"] in mutes
         total = sum(c.get("unread", 0) for c in convs if not c.get("muted"))
         return {"conversations": convs, "unread": total}
+
+    @classmethod
+    async def get_profile(cls, user_id=None):
+        return await cls._req("profile", {"userId": user_id}, timeout=15)
 
     @classmethod
     async def get_badges(cls):

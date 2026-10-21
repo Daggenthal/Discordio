@@ -10,6 +10,10 @@ type Accounts = { me: { id: string; name: string; avatar: string | null } | null
 // remembers, adding one, and logging out.
 export function AccountPanel() {
   const [a, setA] = useState<Accounts | null>(null);
+  const [handle, setHandle] = useState<string | null>(null);
+  useEffect(() => {
+    call<[], any>("get_state").then((st) => setHandle(st?.me?.handle ?? null)).catch(() => {});
+  }, []);
   const [confirm, setConfirm] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -56,7 +60,7 @@ export function AccountPanel() {
   return (
     <>
       <PanelSectionRow>
-        <div style={{ fontWeight: 700, fontSize: "13px", marginTop: "6px" }}>Account</div>
+        <div style={{ fontWeight: 700, fontSize: "13px", marginTop: "14px" }}>Account</div>
       </PanelSectionRow>
       {a.me && (
         <PanelSectionRow>
@@ -65,6 +69,14 @@ export function AccountPanel() {
             <span>
               Current Account: <b>{a.me.name}</b>
             </span>
+          </div>
+        </PanelSectionRow>
+      )}
+      {handle && (
+        <PanelSectionRow>
+          <div style={{ fontSize: 13, lineHeight: 1.4 }}>
+            Your Username: <b style={{ fontSize: 15 }}>{handle}</b>
+            <div style={{ fontSize: 11, opacity: 0.65 }}>Give this to someone so they can add you as a friend</div>
           </div>
         </PanelSectionRow>
       )}
