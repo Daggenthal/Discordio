@@ -1,5 +1,5 @@
 import { call, toaster } from "@decky/api";
-import { ButtonItem, DialogButton, Focusable, PanelSection, PanelSectionRow, TextField, ToggleField } from "@decky/ui";
+import { ButtonItem, DialogButton, Field, Focusable, PanelSection, PanelSectionRow, TextField, ToggleField } from "@decky/ui";
 import { FaComment, FaPhone } from "react-icons/fa";
 import { openChannelConversation, openConversationWith } from "./MessagesPanel";
 import { useEffect, useState } from "react";
@@ -297,15 +297,33 @@ const STATUS_COLOR: Record<string, string> = {
 const PAGE = 25;
 
 export function FriendsPanel() {
-  const [friends, setFriends] = useState<Friend[] | null>(null);
-  const [showOffline, setShowOffline] = useState(false);
+  // The list as it was loaded last, so coming back from a profile shows it
+  // (and the friend you were on) right away.
+  const [friends, setFriendsRaw] = useState<Friend[] | null>(() => restored<Friend[]>("friends-list") ?? null);
+  const setFriends = (v: Friend[]) => {
+    remember("friends-list", v);
+    setFriendsRaw(v);
+  };
+  const [showOffline, setShowOfflineRaw] = useState<boolean>(() => restored<boolean>("friends-offline") ?? false);
+  const setShowOffline = (v: boolean) => {
+    remember("friends-offline", v);
+    setShowOfflineRaw(v);
+  };
   const [openId, setOpenIdRaw] = useState<string | null>(() => restored<string | null>("friend") ?? null);
   const setOpenId = (v: string | null) => {
     remember("friend", v);
     setOpenIdRaw(v);
   };
-  const [search, setSearch] = useState("");
-  const [shown, setShown] = useState(PAGE);
+  const [search, setSearchRaw] = useState<string>(() => restored<string>("friends-search") ?? "");
+  const setSearch = (v: string) => {
+    remember("friends-search", v);
+    setSearchRaw(v);
+  };
+  const [shown, setShownRaw] = useState<number>(() => restored<number>("friends-shown") ?? PAGE);
+  const setShown = (v: number) => {
+    remember("friends-shown", v);
+    setShownRaw(v);
+  };
 
   useEffect(() => {
     let alive = true;
@@ -397,11 +415,16 @@ function FriendRow({ f, open, onToggle }: { f: Friend; open: boolean; onToggle: 
           onSecondaryButton={() => callFriend(f)}
           onSecondaryActionDescription="Call"
         >
-          <ButtonItem
-            layout="below"
-            onClick={onToggle}
-          >
-            <span style={{ display: "flex", alignItems: "center", gap: "8px", minWidth: 0, textAlign: "left" }}>
+          {/* A plain row (no grey button), Steam's own highlight when selected. */}
+          <Field
+            focusable
+            highlightOnFocus
+            bottomSeparator="standard"
+            padding="compact"
+            onActivate={onToggle}
+            data-dio-key={`friend-row:${f.id}`}
+            label={
+            <span style={{ display: "flex", alignItems: "center", gap: "8px", minWidth: 0, textAlign: "left", width: "100%" }}>
               <span style={{ position: "relative", display: "inline-block", flex: "none" }}>
                 <Avatar src={f.avatar} size={28} />
                 <span
@@ -422,7 +445,8 @@ function FriendRow({ f, open, onToggle }: { f: Friend; open: boolean; onToggle: 
               </span>
               <span style={{ opacity: 0.5, fontSize: 18 }}>{open ? "▾" : "▸"}</span>
             </span>
-          </ButtonItem>
+            }
+          />
         </Focusable>
       </PanelSectionRow>
       {open && (
@@ -437,13 +461,14 @@ function FriendRow({ f, open, onToggle }: { f: Friend; open: boolean; onToggle: 
             >
               <FaComment /> Message
             </DialogButton>
-            <DialogButton
-              style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
-              data-dio-key={`friend:${f.id}`}
-              onClick={() => openProfile(f.id, `friend:${f.id}`)}
-            >
-              <FaUser /> Profile
-            </DialogButton>
+            <div data-dio-key={`friend:${f.id}`} style={{ flex: 1, minWidth: 0, display: "flex" }}>
+              <DialogButton
+                style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
+                onClick={() => openProfile(f.id, `friend:${f.id}`)}
+              >
+                <FaUser /> Profile
+              </DialogButton>
+            </div>
           </Focusable>
         </PanelSectionRow>
       )}

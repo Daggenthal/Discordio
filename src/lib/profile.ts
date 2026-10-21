@@ -18,14 +18,22 @@ export function closeProfile() {
   beginRestore();
   fire("profile-changed");
   if (!key) return;
-  setTimeout(() => {
+  // The menu is rebuilt and lists (like friends) load again: keep looking
+  // for the button for a few seconds.
+  const started = Date.now();
+  const tryFocus = () => {
     try {
       const el = document.querySelector<HTMLElement>(`[data-dio-key="${key}"]`);
       const btn = el?.matches("button, .DialogButton, [tabindex]") ? el : el?.querySelector<HTMLElement>("button, .DialogButton, [tabindex]");
-      (btn || el)?.focus();
-      (btn || el)?.scrollIntoView({ block: "center" });
+      if (btn || el) {
+        (btn || el)!.focus();
+        (btn || el)!.scrollIntoView({ block: "center" });
+        return;
+      }
     } catch (_) {}
-  }, 250);
+    if (Date.now() - started < 4000) setTimeout(tryFocus, 150);
+  };
+  setTimeout(tryFocus, 150);
 }
 export function useProfileTarget() {
   const [t, setT] = useState(target);
