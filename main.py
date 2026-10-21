@@ -66,6 +66,7 @@ def frontend_state(state, bridge_ready, stage):
         "vc": ({"channel_name": voice["channel_name"], "guild_name": voice["guild_name"], "users": voice["members"]}
                if voice else {}),
         "voice": voice,
+        "status": s.get("status"),
         "stage": stage,
         "error": None,
         "attempts": 0,
@@ -483,10 +484,11 @@ class Plugin:
     async def _on_message(cls, m):
         """A DM or mention: popup in the overlay, and the QAM's Messages list."""
         _collect_private(m)
-        cls.messages.add(m or {})
+        dnd = cls._dnd()  # Do Not Disturb: keep it in Recent Messages, no popup / toast
+        cls.messages.add(m or {}, popup=not dnd)
         s = cls.settings.load()
         # Steam toast only when the overlay won't show the popup.
-        toast = not (s.get("message_popups", True) and cls.overlay.active_engine(s))
+        toast = not dnd and not (s.get("message_popups", True) and cls.overlay.active_engine(s))
         try:
             await decky.emit("message", {**(m or {}), "toast": toast, "unread": cls.messages.unread()})
         except Exception:
@@ -704,6 +706,17 @@ class Plugin:
     async def logout(cls):
         log.info("Logging out of Discord")
         return await cls._req("logout", timeout=15)
+
+    # -- status
+
+    @classmethod
+    async def set_status(cls, status=None, custom=None):
+        """Online / idle / dnd / invisible, and / or a custom status text ("" clears it)."""
+        return await cls._req("setStatus", {"status": status, "custom": custom}, timeout=15)
+
+    @classmethod
+    def _dnd(cls):
+        return ((cls.state or {}).get("status") or {}).get("status") == "dnd"
 
     @classmethod
     async def open_dm(cls, user_id):

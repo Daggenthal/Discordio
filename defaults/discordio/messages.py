@@ -15,7 +15,7 @@ class Messages:
         self.conversations = {}  # channel_id -> conversation
         self.popups = []         # newest last
 
-    def add(self, m):
+    def add(self, m, popup=True):
         now = time.time()
         cid = m.get("channel_id")
         if not cid:
@@ -40,6 +40,8 @@ class Messages:
             oldest = min(self.conversations.values(), key=lambda c: c["updated"])
             self.conversations.pop(oldest["channel_id"], None)
 
+        if not popup:
+            return
         self.popups.append({
             "id": m.get("id") or f"{cid}-{now}",
             "channel_id": cid,

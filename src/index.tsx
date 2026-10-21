@@ -33,6 +33,7 @@ import { StreamQualityPanel } from "./components/GoLivePanel";
 import { AccountPanel } from "./components/AccountPanel";
 import { UpdateBanner } from "./components/UpdatePanel";
 import { FriendsCount } from "./components/FriendsCount";
+import { StatusPanel } from "./components/StatusPanel";
 import { startLoginHandoff } from "./lib/loginHandoff";
 import { reopenAfterUpdate } from "./lib/reopen";
 import { IncomingCallBanner, startCallNotifications } from "./components/IncomingCall";
@@ -194,6 +195,7 @@ const Content = () => {
                 </span>
               </span>
             </PanelSectionRow>
+            <SafeSection name="Status"><StatusPanel status={state?.status} /></SafeSection>
           </>
         )}
       </PanelSection>

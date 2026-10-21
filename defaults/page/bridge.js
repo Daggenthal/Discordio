@@ -181,7 +181,67 @@
             user: u ? { id: u.id, name: userName(u), avatar: u.avatar || null, avatarUrl: avatarUrl(u), premiumType: u.premiumType ?? 0 } : null,
             media: media(),
             voice: voiceInfo(),
+            status: myStatus(),
         };
+    }
+
+    // ------------------------------------------------------------- status
+    const STATUSES = ["online", "idle", "dnd", "invisible"];
+    function myStatus() {
+        const u = me();
+        if (!u) return null;
+        let status = "online", custom = null;
+        try {
+            const set = discordSetting("status", "status");
+            const v = set && set.getSetting && set.getSetting();
+            status = (STATUSES.includes(v) ? v : null) || store("PresenceStore").getStatus(u.id) || "online";
+        } catch (_) { }
+        try {
+            const set = discordSetting("status", "customStatus");
+            const v = set && set.getSetting && set.getSetting();
+            if (v && v.text) custom = v.text;
+        } catch (_) { }
+        if (custom === null) {
+            try {
+                const acts = store("PresenceStore").getActivities(u.id) || [];
+                const c = acts.find((a) => a.type === 4);
+                if (c && c.state) custom = c.state;
+            } catch (_) { }
+        }
+        return { status, custom };
+    }
+
+    // Discord's synced user settings (through Vencord's settings API when
+    // it's available).
+    function discordSetting(group, name) {
+        try {
+            const api = Vencord.Api && Vencord.Api.UserSettings;
+            if (api && api.getUserSetting) return api.getUserSetting(group, name) || null;
+        } catch (_) { }
+        return null;
+    }
+
+    async function setStatus(status, custom) {
+        const out = {};
+        if (status !== undefined && status !== null) {
+            if (!STATUSES.includes(status)) throw new Error("Unknown status " + status);
+            const set = discordSetting("status", "status");
+            if (set && set.updateSetting) { await set.updateSetting(status); out.status = "setting"; }
+            else { await C().RestAPI.patch({ url: "/users/@me/settings", body: { status } }); out.status = "rest"; }
+        }
+        if (custom !== undefined && custom !== null) {
+            const text = String(custom).trim().slice(0, 128);
+            const set = discordSetting("status", "customStatus");
+            if (set && set.updateSetting) {
+                await set.updateSetting(text ? { text, expiresAtMs: "0" } : undefined);
+                out.custom = "setting";
+            } else {
+                await C().RestAPI.patch({ url: "/users/@me/settings", body: { custom_status: text ? { text } : null } });
+                out.custom = "rest";
+            }
+        }
+        setTimeout(() => pushState(true), 500);
+        return { ok: true, ...out, now: myStatus() };
     }
 
     let stateTimer = null, lastState = "";
@@ -822,6 +882,8 @@
     });
     m("callFriend", ({ userId }) => callFriend(userId));
     m("incomingCall", () => incoming);
+    m("getStatus", () => myStatus());
+    m("setStatus", ({ status, custom }) => setStatus(status, custom));
     m("setLocalMute", ({ userId, muted }) => setLocalMute(userId, muted));
     m("setUserVolume", ({ userId, volume }) => setUserVolume(userId, volume));
     m("moderate", ({ userId, action, value }) => moderate(userId, action, value));
