@@ -10,7 +10,9 @@ export function ColorButton({
   onClick,
   disabled,
   children,
+  style,
 }: {
+  style?: any;
   color: string;
   onClick: () => void;
   disabled?: boolean;
@@ -39,6 +41,7 @@ export function ColorButton({
         filter: focused ? "brightness(1.2)" : "none",
         transform: focused ? "scale(1.03)" : "none",
         transition: "box-shadow .1s, filter .1s, transform .1s",
+        ...(style || {}),
       }}
     >
       {children}

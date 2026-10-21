@@ -1,5 +1,5 @@
 import { call, toaster } from "@decky/api";
-import { ButtonItem, DialogButton, Field, Focusable, PanelSection, PanelSectionRow, TextField, ToggleField } from "@decky/ui";
+import { ButtonItem, DialogButton, Focusable, PanelSection, PanelSectionRow, TextField, ToggleField } from "@decky/ui";
 import { FaComment, FaPhone } from "react-icons/fa";
 import { openChannelConversation, openConversationWith } from "./MessagesPanel";
 import { useEffect, useState } from "react";
@@ -406,25 +406,27 @@ const messageFriend = (f: Friend) => {
 
 // A friend: A shows Call / Message, X calls, Options opens your messages.
 function FriendRow({ f, open, onToggle }: { f: Friend; open: boolean; onToggle: () => void }) {
+  const [focused, setFocused] = useState(false);
   return (
     <>
-      <PanelSectionRow>
-        <Focusable
-          onOptionsButton={() => messageFriend(f)}
-          onOptionsActionDescription="Message"
-          onSecondaryButton={() => callFriend(f)}
-          onSecondaryActionDescription="Call"
-        >
-          {/* A plain row (no grey button), Steam's own highlight when selected. */}
-          <Field
-            focusable
-            highlightOnFocus
-            bottomSeparator="standard"
-            padding="compact"
-            onActivate={onToggle}
-            data-dio-key={`friend-row:${f.id}`}
-            label={
-            <span style={{ display: "flex", alignItems: "center", gap: "8px", minWidth: 0, textAlign: "left", width: "100%" }}>
+      {/* A plain row with a line under it (no grey button); lights up when selected. */}
+      <Focusable
+        data-dio-key={`friend-row:${f.id}`}
+        onActivate={onToggle}
+        onOKActionDescription={open ? "Close" : "Options"}
+        onOptionsButton={() => messageFriend(f)}
+        onOptionsActionDescription="Message"
+        onSecondaryButton={() => callFriend(f)}
+        onSecondaryActionDescription="Call"
+        {...({ onGamepadFocus: () => setFocused(true), onGamepadBlur: () => setFocused(false) } as any)}
+        style={{
+          padding: "8px 6px", borderRadius: 6,
+          borderBottom: "1px solid rgba(255,255,255,0.12)",
+          background: focused ? "rgba(255,255,255,0.14)" : "transparent",
+          boxShadow: focused ? "inset 0 0 0 2px rgba(255,255,255,0.75)" : "none",
+        }}
+      >
+        <span style={{ display: "flex", alignItems: "center", gap: "8px", minWidth: 0, textAlign: "left", width: "100%" }}>
               <span style={{ position: "relative", display: "inline-block", flex: "none" }}>
                 <Avatar src={f.avatar} size={28} />
                 <span
@@ -445,38 +447,35 @@ function FriendRow({ f, open, onToggle }: { f: Friend; open: boolean; onToggle: 
               </span>
               <span style={{ opacity: 0.5, fontSize: 18 }}>{open ? "▾" : "▸"}</span>
             </span>
-            }
-          />
-        </Focusable>
-      </PanelSectionRow>
+      </Focusable>
       {open && (
-        <PanelSectionRow>
-          <Focusable style={{ display: "flex", gap: "8px" }}>
-            <ColorButton color="#23a55a" onClick={() => callFriend(f)}>
+        <div style={{ padding: "6px 4px 8px" }}>
+          <Focusable style={{ display: "flex", gap: "6px" }}>
+            <ColorButton color="#23a55a" style={{ padding: "10px 4px", fontSize: 14 }} onClick={() => callFriend(f)}>
               <FaPhone /> Call
             </ColorButton>
             <DialogButton
-              style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
+              style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "10px 4px", fontSize: 14 }}
               onClick={() => messageFriend(f)}
             >
               <FaComment /> Message
             </DialogButton>
             <div data-dio-key={`friend:${f.id}`} style={{ flex: 1, minWidth: 0, display: "flex" }}>
               <DialogButton
-                style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
+                style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "10px 4px", fontSize: 14 }}
                 onClick={() => openProfile(f.id, `friend:${f.id}`)}
               >
                 <FaUser /> Profile
               </DialogButton>
             </div>
           </Focusable>
-        </PanelSectionRow>
+        </div>
       )}
       {open && f.voice && !f.voice.mine && (
-        <PanelSectionRow>
-          <Focusable style={{ display: "flex", gap: "8px" }}>
+        <div style={{ padding: "0 4px 8px" }}>
+          <Focusable style={{ display: "flex", gap: "6px" }}>
             <DialogButton
-              style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
+              style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "10px 4px", fontSize: 14 }}
               onClick={async () => {
                 const res: any = await call("join_voice", f.voice!.channel_id);
                 report(res, `Joining ${f.voice!.channel_name}`);
@@ -487,7 +486,7 @@ function FriendRow({ f, open, onToggle }: { f: Friend; open: boolean; onToggle: 
             </DialogButton>
             {f.voice.streaming && (
               <DialogButton
-                style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
+                style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "10px 4px", fontSize: 14 }}
                 onClick={() => watchStream(f.id, f.name)}
               >
                 <FaEye /> Watch
@@ -495,14 +494,14 @@ function FriendRow({ f, open, onToggle }: { f: Friend; open: boolean; onToggle: 
             )}
             {f.voice.streaming && (
               <DialogButton
-                style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
+                style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "10px 4px", fontSize: 14 }}
                 onClick={() => watchInOverlay(f.id, f.name)}
               >
                 <FaEye /> In Overlay
               </DialogButton>
             )}
           </Focusable>
-        </PanelSectionRow>
+        </div>
       )}
     </>
   );
