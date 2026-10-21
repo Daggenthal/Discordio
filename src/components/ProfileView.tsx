@@ -70,7 +70,13 @@ export function ProfilePanel({ userId }: { userId: string | null }) {
   }, [userId]);
 
   const [c1, c2] = p?.theme ?? ["#2b2d31", "#2b2d31"];
-  const ring = p?.theme ? c1 : "#2b2d31";
+  // The avatar ring matches the darkened background behind it.
+  const darken = (hex: string, k: number) => {
+    const n = parseInt((hex || "#000000").slice(1), 16);
+    const f = (v: number) => Math.round(v * (1 - k)).toString(16).padStart(2, "0");
+    return `#${f((n >> 16) & 255)}${f((n >> 8) & 255)}${f(n & 255)}`;
+  };
+  const ring = p?.theme ? darken(c1, 0.45) : "#2b2d31";
   const back = (
     <PanelSectionRow>
       <DialogButton onClick={closeProfile}>← Back</DialogButton>
@@ -93,10 +99,19 @@ export function ProfilePanel({ userId }: { userId: string | null }) {
       {!p && <PanelSectionRow><div style={{ fontSize: 12, opacity: 0.7 }}>Loading profile...</div></PanelSectionRow>}
       {p?.error && <PanelSectionRow><div style={{ fontSize: 12, color: "#ff6b6b" }}>Couldn't load the profile: {p.error}</div></PanelSectionRow>}
       {p && !p.error && (
-        <>
+        // The whole profile sits on its theme colours, top to bottom, darkened
+        // the way Discord does so the text stays readable.
+        <div
+          style={{
+            borderRadius: 12, overflow: "hidden", paddingBottom: 6,
+            background: p.theme
+              ? `linear-gradient(rgba(0,0,0,0.45), rgba(0,0,0,0.45)), linear-gradient(180deg, ${c1}, ${c2})`
+              : "#2b2d31",
+          }}
+        >
           {/* Card top: banner, avatar with decoration, name, tag and badges */}
           <PanelSectionRow>
-            <div style={{ borderRadius: 12, overflow: "hidden", background: p.theme ? `linear-gradient(180deg, ${c1}, ${c2})` : "#2b2d31" }}>
+            <div style={{ borderRadius: 12, overflow: "hidden" }}>
               <div style={{ height: 96, background: p.banner ? `center / cover no-repeat url(${p.banner})` : p.banner_color || c1 || "#5865f2" }} />
               <div style={{ position: "relative", height: 40 }}>
                 <div style={{ position: "absolute", top: -40, left: 12, width: 80, height: 80 }}>
@@ -197,7 +212,7 @@ export function ProfilePanel({ userId }: { userId: string | null }) {
             </Block>
           )}
           {back}
-        </>
+        </div>
       )}
     </PanelSection>
     </Focusable>
