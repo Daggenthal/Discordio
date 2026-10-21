@@ -70,15 +70,62 @@ class OverlayManager:
         if visible is None:  # couldn't tell: the old rule, mangoapp running at all
             visible = system.process_running("mangoapp")
         if self.hold:
-            # The performance overlay is being turned off for the call: stay
-            # on gamescope (no flip-flopping), unless it's still showing a
-            # while later, i.e. Steam didn't take the change.
-            if visible and time.monotonic() - self.hold_since > 8:
-                return "steam"
+            # The performance overlay is off for the call: gamescope's slot is ours.
             return "gamescope"
         # gamescope shows one external overlay; while the performance
         # overlay has it, draw inside Steam's overlay instead.
         return "steam" if visible else "gamescope"
+
+    # --- hiding the performance overlay during a call
+    #
+    # Steam shows / hides the performance overlay by rewriting MangoHud's
+    # config file, which mangoapp watches. Hiding it the same way (and
+    # putting the file back afterwards) works whatever Steam's internal
+    # settings API looks like on this build.
+
+    HIDE = "no_display\n"
+
+    def _saved_path(self):
+        return self.runtime / "mangohud-saved.conf"
+
+    def _hide_perf(self):
+        path = system.mangohud_config_path()
+        if not path:
+            return "mangoapp isn't running"
+        p = Path(path)
+        try:
+            current = p.read_text()
+        except Exception as e:
+            return f"can't read {path}: {e}"
+        lines = [l.strip() for l in current.splitlines()]
+        if not any(lines) or "no_display" in lines:
+            return "already off"
+        self.runtime.mkdir(parents=True, exist_ok=True)
+        self._saved_path().write_text(f"{path}\n{current}")
+        p.write_text(self.HIDE)
+        return "hidden"
+
+    def _restore_perf(self):
+        saved = self._saved_path()
+        if not saved.exists():
+            return "nothing to restore"
+        try:
+            path, _, content = saved.read_text().partition("\n")
+            p = Path(path)
+            # Only if it's still the way we left it: if you (or Steam)
+            # changed the performance overlay during the call, that wins.
+            if p.exists() and p.read_text() == self.HIDE:
+                p.write_text(content)
+                result = "restored"
+            else:
+                result = "changed during the call, left as is"
+        except Exception as e:
+            result = f"couldn't restore: {e}"
+        try:
+            saved.unlink()
+        except Exception:
+            pass
+        return result
 
     async def _update_hold(self, s=None):
         hold = self.wants_hold(s)
@@ -86,6 +133,12 @@ class OverlayManager:
             return
         self.hold = hold
         self.hold_since = time.monotonic()
+        try:
+            result = self._hide_perf() if hold else self._restore_perf()
+            diag.set("perf_hold", diag.OK, f"call {'started' if hold else 'ended'}: performance overlay {result}")
+        except Exception as e:
+            diag.set("perf_hold", diag.WARN, f"couldn't change the performance overlay: {e}")
+        self.perf = system.perf_overlay_state()
         self.log.info("call %s: %s Steam's performance overlay", "started" if hold else "ended",
                       "hiding" if hold else "restoring")
         try:
@@ -99,6 +152,12 @@ class OverlayManager:
 
     async def run(self):
         system.kill_stale(self.runtime / "overlay.pid", str(self.dir / "overlay.py"))
+        # A call that was in progress when the plugin stopped: give it back.
+        try:
+            if self._saved_path().exists():
+                self.log.info("performance overlay: %s", self._restore_perf())
+        except Exception:
+            pass
         asyncio.get_running_loop().create_task(self._steam_layer())
         while True:
             try:

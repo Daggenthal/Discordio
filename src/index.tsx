@@ -41,7 +41,6 @@ import { startLoginHandoff } from "./lib/loginHandoff";
 import { reopenAfterUpdate } from "./lib/reopen";
 import { IncomingCallBanner, startCallNotifications } from "./components/IncomingCall";
 import { CaptchaBanner, startCaptchaNotifications } from "./components/CaptchaBanner";
-import { startPerfOverlayHold } from "./lib/perfOverlay";
 import { useEffect, useRef, useState } from "react";
 import { fire, on } from "./lib/events";
 import { UploadScreenshot } from "./components/UploadScreenshot";
@@ -327,7 +326,6 @@ export default definePlugin(() => {
   const stopCallNotifications = safe("Incoming call notifications", () => startCallNotifications());
   const stopCaptchaNotifications = safe("Human check notifications", () => startCaptchaNotifications());
   const stopLoginHandoff = safe("Login hand-off", () => startLoginHandoff());
-  const stopPerfHold = safe("Performance overlay during calls", () => startPerfOverlayHold());
   safe("Reopen after update", () =>
     call<[], any>("get_update_info").then((i) => reopenAfterUpdate(i?.current_build ? `build ${i.current_build}` : "")).catch(() => reopenAfterUpdate(""))
   );
@@ -394,7 +392,7 @@ export default definePlugin(() => {
     onDismount() {
       disposed = true;
       removeEventListener("message", notificationListener);
-      for (const fn of [unpatchMenu, appLifetimeUnregister, settingsChangeUnregister, cleanupPtt, stopMic, stopCallNotifications, stopCaptchaNotifications, stopLoginHandoff, stopPerfHold]) {
+      for (const fn of [unpatchMenu, appLifetimeUnregister, settingsChangeUnregister, cleanupPtt, stopMic, stopCallNotifications, stopCaptchaNotifications, stopLoginHandoff]) {
         try {
           fn?.();
         } catch (_) {}

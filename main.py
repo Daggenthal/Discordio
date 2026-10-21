@@ -202,6 +202,10 @@ class Plugin:
             await cls.capture.stop()
         if cls.overlay:
             await cls.overlay.stop()
+            try:
+                cls.overlay._restore_perf()  # unloading mid-call: give the FPS overlay back
+            except Exception:
+                pass
         if cls.view and cls.view.shared:
             try:
                 from discordio.steam_view import DESTROY_JS

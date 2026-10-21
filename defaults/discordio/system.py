@@ -92,6 +92,24 @@ def perf_overlay_state(decky=None):
     return False, "mangoapp isn't running"
 
 
+def mangohud_config_path():
+    """The MangoHud config file Steam writes for mangoapp, or None."""
+    for pid in os.listdir("/proc"):
+        if not pid.isdigit():
+            continue
+        try:
+            with open(f"/proc/{pid}/comm") as f:
+                if f.read().strip() != "mangoapp":
+                    continue
+            with open(f"/proc/{pid}/environ", "rb") as f:
+                env = dict(kv.split(b"=", 1) for kv in f.read().split(b"\0") if b"=" in kv)
+        except Exception:
+            continue
+        path = (env.get(b"MANGOHUD_CONFIGFILE") or b"").decode()
+        return path or None
+    return None
+
+
 def process_running(name):
     for pid in os.listdir("/proc"):
         if pid.isdigit():
