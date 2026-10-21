@@ -39,14 +39,36 @@ const IGNORED = [19, 20, 23, 24, 25, 27, 28, 29, 30, 31].reduce((m, b) => m | bi
 // on pads that don't set the digital "fully pulled" bit.
 const TRIGGER_PRESS = 12000; // of 32767
 
+// Everyone starts with no keybinds.
 export const DEFAULTS: Bindings = {
+  mic: { enabled: false, mode: "mute", mask: "0" },
+  answer: { enabled: false, mask: "0" },
+  decline: { enabled: false, mask: "0" },
+};
+// What earlier builds used without saving anything, kept for people who
+// already had Discordio (so their working shortcuts don't vanish).
+const OLD_DEFAULTS: Bindings = {
   mic: { enabled: false, mode: "mute", mask: "0" },
   answer: { enabled: true, mask: String(bit(B.MENU) | bit(B.RT)) },
   decline: { enabled: true, mask: String(bit(B.MENU) | bit(B.LT)) },
 };
+// Set once, the first time this version runs: no personal data, just "set
+// up already". Keybinds are stored on this Steam install (not the Discord
+// account), so they stay through logging out and switching accounts.
+const SETUP_FLAG = "DISCORDIO_SHORTCUTS_SETUP";
 
 function load(): Bindings {
   let out: Bindings = JSON.parse(JSON.stringify(DEFAULTS));
+  try {
+    if (!localStorage.getItem(SETUP_FLAG)) {
+      const saved = localStorage.getItem(KEY) || localStorage.getItem(OLD_MIC_KEY);
+      // Someone who used Discordio before (it left other settings behind)
+      // keeps the shortcuts they had; a new user starts blank.
+      const usedBefore = Object.keys(localStorage).some((k) => k.startsWith("DISCORDIO_") && k !== SETUP_FLAG);
+      if (!saved && usedBefore) localStorage.setItem(KEY, JSON.stringify(OLD_DEFAULTS));
+      localStorage.setItem(SETUP_FLAG, "1");
+    }
+  } catch (_) {}
   try {
     const v = JSON.parse(localStorage.getItem(KEY) || "null");
     if (v) out = { mic: { ...out.mic, ...v.mic }, answer: { ...out.answer, ...v.answer }, decline: { ...out.decline, ...v.decline } };
