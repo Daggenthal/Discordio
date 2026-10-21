@@ -117,7 +117,18 @@
     const me = () => { try { return C().UserStore.getCurrentUser(); } catch (_) { return null; } };
     const voiceChannelId = () => { try { return store("SelectedChannelStore").getVoiceChannelId(); } catch (_) { return null; } };
 
+    // Who's talking, per voice context: a Go Live stream's audio ("stream")
+    // raised and cleared its own speaking events, which could leave someone
+    // stuck as talking in the "default" (voice) context.
     const speaking = new Set();
+    function isSpeaking(userId, muted) {
+        if (muted) return false;
+        try {
+            const S = store("SpeakingStore");
+            if (S && S.isSpeaking) return !!S.isSpeaking(userId, "default");
+        } catch (_) { }
+        return speaking.has(userId);
+    }
 
     function voiceMembers(channelId) {
         const VS = store("VoiceStateStore");
@@ -135,7 +146,8 @@
                 muted: !!(s.selfMute || s.mute), deafened: !!(s.selfDeaf || s.deaf),
                 server_muted: !!s.mute, server_deafened: !!s.deaf,
                 local_muted: localMuted, volume,
-                live: !!s.selfStream, video: !!s.selfVideo, speaking: speaking.has(s.userId),
+                live: !!s.selfStream, video: !!s.selfVideo,
+                speaking: isSpeaking(s.userId, !!(s.selfMute || s.mute || s.selfDeaf || s.deaf)),
             };
         });
     }
@@ -1326,9 +1338,17 @@
         const f = flux();
         for (const type of STATE_EVENTS) f.subscribe(type, () => pushState());
         f.subscribe("SPEAKING", (e) => {
+            if (e.context && e.context !== "default") return;
             if (e.speakingFlags) speaking.add(e.userId); else speaking.delete(e.userId);
             pushState();
         });
+        // A missed "stopped talking" event would otherwise stick until the
+        // next change (someone muting). Re-check once a second during a call;
+        // an unchanged state isn't sent again.
+        setInterval(() => {
+            if (!voiceChannelId()) { speaking.clear(); return; }
+            pushState();
+        }, 1000);
         f.subscribe("MESSAGE_CREATE", onMessage);
         watchCaptcha();
         for (const t of ["CALL_CREATE", "CALL_UPDATE", "CALL_DELETE"]) f.subscribe(t, (e) => onCall({ ...e, type: t }));
