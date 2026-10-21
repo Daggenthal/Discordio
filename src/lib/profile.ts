@@ -1,10 +1,32 @@
-import { Router } from "@decky/ui";
+import { useEffect, useState } from "react";
+import { fire, on } from "./events";
 
-// Which profile the full-screen profile card shows, and which QAM section
-// to reopen afterwards.
-let target: { userId: string | null; section: string | null } | null = null;
+// The profile shown inside the Quick Access Menu (it covers the rest of
+// Discordio until you go back, which keeps everything else as it was).
+export type ProfileTarget = { userId: string | null };
+let target: ProfileTarget | null = null;
 export const profileTarget = () => target;
-export function openProfile(userId: string | null, section: string | null = null) {
-  target = { userId, section };
-  Router.Navigate("/discordio-profile");
+let returnFocus: HTMLElement | null = null;
+export function openProfile(userId: string | null) {
+  if (!target) returnFocus = document.activeElement as HTMLElement | null;
+  target = { userId };
+  fire("profile-changed");
+}
+export function closeProfile() {
+  target = null;
+  fire("profile-changed");
+  // Back to the button that opened it.
+  const el = returnFocus;
+  returnFocus = null;
+  setTimeout(() => {
+    try {
+      el?.focus();
+      el?.scrollIntoView({ block: "center" });
+    } catch (_) {}
+  }, 80);
+}
+export function useProfileTarget() {
+  const [t, setT] = useState(target);
+  useEffect(() => on("profile-changed", () => setT(target)), []);
+  return t;
 }

@@ -435,7 +435,7 @@ function FriendRow({ f, open, onToggle }: { f: Friend; open: boolean; onToggle: 
             </DialogButton>
             <DialogButton
               style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
-              onClick={() => openProfile(f.id, "Friends")}
+              onClick={() => openProfile(f.id)}
             >
               <FaUser /> Profile
             </DialogButton>

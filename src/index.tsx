@@ -31,8 +31,8 @@ import { AudioDevicesPanel } from "./components/AudioDevicesPanel";
 import { WelcomeBanner } from "./components/WelcomeBanner";
 import { Badges } from "./components/Badges";
 import { MediaViewer } from "./components/MediaViewer";
-import { ProfileView } from "./components/ProfileView";
-import { openProfile } from "./lib/profile";
+import { ProfilePanel } from "./components/ProfileView";
+import { openProfile, useProfileTarget } from "./lib/profile";
 import { startWatchNotices } from "./lib/watch";
 import { STATUSES } from "./components/StatusPanel";
 import { MicProcessingPanel } from "./components/MicProcessingPanel";
@@ -285,8 +285,13 @@ const Content = () => {
     [],
   );
 
+  // A profile opens inside the menu, covering the rest until Back (which
+  // keeps every section as it was).
+  const profile = useProfileTarget();
   return (
     <>
+      {profile && <SafeSection name="Profile"><ProfilePanel userId={profile.userId} /></SafeSection>}
+      <div style={{ display: profile ? "none" : undefined }}>
       <div ref={topRef} />
       <SafeSection name="Update banner"><UpdateBanner /></SafeSection>
       <SafeSection name="Welcome"><WelcomeBanner /></SafeSection>
@@ -351,6 +356,7 @@ const Content = () => {
       <PanelSection>
         <BackToTop />
       </PanelSection>
+      </div>
     </>
   );
 };
@@ -414,9 +420,6 @@ export default definePlugin(() => {
   safe("Register the media viewer route", () =>
     routerHook.addRoute("/discordio-view", () => <MediaViewer />)
   );
-  safe("Register the profile route", () =>
-    routerHook.addRoute("/discordio-profile", () => <ProfileView />)
-  );
 
   let settingsChangeUnregister: any;
   let lastDisplayIsExternal: boolean | undefined;
@@ -456,7 +459,6 @@ export default definePlugin(() => {
         routerHook.removeRoute("/discord");
         try {
           routerHook.removeRoute("/discordio-view");
-          routerHook.removeRoute("/discordio-profile");
         } catch (_) {}
       } catch (_) {}
     },

@@ -1,9 +1,7 @@
 import { call } from "@decky/api";
-import { Focusable, Navigation, Router } from "@decky/ui";
+import { DialogButton, Focusable, PanelSection, PanelSectionRow } from "@decky/ui";
 import { useEffect, useRef, useState } from "react";
-import { profileTarget } from "../lib/profile";
-import { expandLater } from "../lib/events";
-import { openDiscordio } from "../lib/reopen";
+import { closeProfile } from "../lib/profile";
 
 type Profile = {
   id: string; me: boolean; name: string; username: string | null; avatar: string | null; decoration: string | null;
@@ -18,176 +16,169 @@ type Profile = {
 
 const STATUS: Record<string, string> = { online: "#23a55a", idle: "#f0b232", dnd: "#f23f43", offline: "#80848e", invisible: "#80848e" };
 const PLAYING: Record<number, string> = { 0: "Playing", 1: "Streaming", 2: "Listening to", 3: "Watching", 5: "Competing in" };
-const BTN = { UP: 9, DOWN: 10, LEFT: 11, RIGHT: 12, LT: 7, RT: 8 };
 
-// A Discord-style profile card, full screen. B goes back to the Quick
-// Access Menu; left / right pick a badge to read it; up / down scroll.
-export function ProfileView() {
-  const t = profileTarget();
+// A block the controller can stop on, so long profiles scroll with the
+// D-pad; it lights up while selected.
+function Block({ children, pad = true }: { children: any; pad?: boolean }) {
+  const [f, setF] = useState(false);
+  return (
+    <PanelSectionRow>
+      <Focusable
+        onActivate={() => {}}
+        {...({ onGamepadFocus: () => setF(true), onGamepadBlur: () => setF(false) } as any)}
+        style={{
+          borderRadius: 8, padding: pad ? "6px 8px" : 0, margin: pad ? "0 -8px" : 0,
+          background: f ? "rgba(255,255,255,0.1)" : "transparent",
+          boxShadow: f ? "0 0 0 2px rgba(255,255,255,0.8)" : "none",
+        }}
+      >
+        {children}
+      </Focusable>
+    </PanelSectionRow>
+  );
+}
+
+const head = { fontSize: 12, fontWeight: 700, opacity: 0.75, marginBottom: 3 } as const;
+
+// Discord-style profile, inside the Quick Access Menu.
+export function ProfilePanel({ userId }: { userId: string | null }) {
   const [p, setP] = useState<Profile | null>(null);
-  const [badge, setBadge] = useState(-1);
-  const scroller = useRef<HTMLDivElement>(null);
+  const [badge, setBadge] = useState<number | null>(null);
+  const backRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    call<[string | null], Profile>("get_profile", t?.userId ?? null)
+    setP(null);
+    call<[string | null], Profile>("get_profile", userId)
       .then(setP)
       .catch((e) => setP({ error: String(e) } as any));
-  }, []);
+    setTimeout(() => {
+      try {
+        backRef.current?.scrollIntoView({ block: "start" });
+        backRef.current?.querySelector<HTMLElement>("button, .DialogButton")?.focus();
+      } catch (_) {}
+    }, 120);
+  }, [userId]);
 
-  const back = () => {
-    if (t?.section) expandLater(t.section);
-    try {
-      Navigation.NavigateBack();
-    } catch (_) {
-      Router.Navigate("/library/home");
-    }
-    setTimeout(openDiscordio, 350);
-  };
-  const scroll = (dy: number) => scroller.current?.scrollBy({ top: dy, behavior: "smooth" });
-
-  const [c1, c2] = p?.theme ?? ["#232428", "#232428"];
-  const accent = p?.banner_color || c1 || "#5865f2";
-  const section = { fontSize: 15, fontWeight: 700, margin: "18px 0 6px", color: "#fff" } as const;
+  const [c1, c2] = p?.theme ?? ["#2b2d31", "#2b2d31"];
+  const ring = p?.theme ? c1 : "#2b2d31";
+  const back = (
+    <PanelSectionRow>
+      <DialogButton onClick={closeProfile}>← Back</DialogButton>
+    </PanelSectionRow>
+  );
 
   return (
-    <Focusable
-      style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.88)", display: "flex", justifyContent: "center" }}
-      noFocusRing
-      onCancelButton={back}
-      onCancelActionDescription="Back"
-      onGamepadDirection={(e: any) => {
-        const b = e?.detail?.button;
-        if (b === BTN.DOWN) scroll(160);
-        if (b === BTN.UP) scroll(-160);
-        if (p?.badges.length) {
-          if (b === BTN.RIGHT) setBadge(Math.min(p.badges.length - 1, badge + 1));
-          if (b === BTN.LEFT) setBadge(Math.max(-1, badge - 1));
-        }
-      }}
-      onButtonDown={(e: any) => {
-        const b = e?.detail?.button;
-        if (b === BTN.RT) scroll(400);
-        if (b === BTN.LT) scroll(-400);
-      }}
-    >
-      <div ref={scroller} style={{ width: 620, maxWidth: "94vw", height: "100%", overflowY: "auto", padding: "28px 0" }}>
-        {!p && <div style={{ color: "#fff", opacity: 0.7, marginTop: 80, textAlign: "center" }}>Loading profile...</div>}
-        {p?.error && <div style={{ color: "#ff6b6b", marginTop: 80, textAlign: "center" }}>Couldn't load the profile: {p.error}</div>}
-        {p && !p.error && (
-          <div
-            style={{
-              borderRadius: 16, overflow: "hidden", color: "#dbdee1",
-              background: p.theme ? `linear-gradient(180deg, ${c1}, ${c2})` : "#232428",
-              boxShadow: "0 8px 40px rgba(0,0,0,0.6)",
-            }}
-          >
-            {/* Banner */}
-            <div style={{ height: 210, background: p.banner ? `center / cover no-repeat url(${p.banner})` : accent }} />
-            {/* Avatar with decoration and status, custom status beside it */}
-            <div style={{ position: "relative", height: 70, padding: "0 22px" }}>
-              <div style={{ position: "absolute", top: -64, left: 22, width: 128, height: 128 }}>
-                <div style={{ width: 128, height: 128, borderRadius: "50%", border: `7px solid ${p.theme ? c1 : "#232428"}`, boxSizing: "border-box", overflow: "hidden", background: "#111" }}>
-                  {p.avatar && <img src={p.avatar} style={{ width: "100%", height: "100%", objectFit: "cover" }} />}
+    <PanelSection title={p?.me ? "Your Profile" : "Profile"}>
+      <div ref={backRef}>{back}</div>
+      {!p && <PanelSectionRow><div style={{ fontSize: 12, opacity: 0.7 }}>Loading profile...</div></PanelSectionRow>}
+      {p?.error && <PanelSectionRow><div style={{ fontSize: 12, color: "#ff6b6b" }}>Couldn't load the profile: {p.error}</div></PanelSectionRow>}
+      {p && !p.error && (
+        <>
+          {/* Card top: banner, avatar with decoration, name, tag and badges */}
+          <PanelSectionRow>
+            <div style={{ borderRadius: 12, overflow: "hidden", background: p.theme ? `linear-gradient(180deg, ${c1}, ${c2})` : "#2b2d31" }}>
+              <div style={{ height: 96, background: p.banner ? `center / cover no-repeat url(${p.banner})` : p.banner_color || c1 || "#5865f2" }} />
+              <div style={{ position: "relative", height: 40 }}>
+                <div style={{ position: "absolute", top: -40, left: 12, width: 80, height: 80 }}>
+                  <div style={{ width: 80, height: 80, borderRadius: "50%", border: `5px solid ${ring}`, boxSizing: "border-box", overflow: "hidden", background: "#111" }}>
+                    {p.avatar && <img src={p.avatar} style={{ width: "100%", height: "100%", objectFit: "cover" }} />}
+                  </div>
+                  {p.decoration && <img src={p.decoration} style={{ position: "absolute", inset: -9, width: 98, height: 98, pointerEvents: "none" }} />}
+                  <span style={{ position: "absolute", right: 2, bottom: 2, width: 18, height: 18, borderRadius: "50%", background: STATUS[p.status] || STATUS.offline, border: `4px solid ${ring}`, boxSizing: "border-box" }} />
                 </div>
-                {p.decoration && <img src={p.decoration} style={{ position: "absolute", inset: -14, width: 156, height: 156, pointerEvents: "none" }} />}
-                <span
-                  style={{
-                    position: "absolute", right: 6, bottom: 6, width: 26, height: 26, borderRadius: "50%",
-                    background: STATUS[p.status] || STATUS.offline, border: `6px solid ${p.theme ? c1 : "#232428"}`, boxSizing: "border-box",
-                  }}
-                />
               </div>
-              {p.custom && (p.custom.text || p.custom.emoji) && (
-                <div
-                  style={{
-                    position: "absolute", left: 168, right: 22, top: 10, background: "rgba(0,0,0,0.35)", borderRadius: 14,
-                    padding: "10px 14px", fontSize: 15, color: "#fff", display: "flex", gap: 8, alignItems: "center",
-                  }}
-                >
-                  {p.custom.emoji && (p.custom.emoji.startsWith("http") ? <img src={p.custom.emoji} style={{ width: 20, height: 20 }} /> : <span>{p.custom.emoji}</span>)}
-                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" } as any}>{p.custom.text}</span>
+              <div style={{ padding: "4px 12px 12px", color: "#fff" }}>
+                <div style={{ fontSize: 20, fontWeight: 800, wordBreak: "break-word" }}>{p.name}</div>
+                <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6, marginTop: 4, fontSize: 12 }}>
+                  {p.username && <span style={{ opacity: 0.9 }}>{p.username}</span>}
+                  {p.pronouns && <span style={{ opacity: 0.7 }}>· {p.pronouns}</span>}
+                  {p.tag?.text && (
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "rgba(0,0,0,0.25)", borderRadius: 6, padding: "1px 6px", fontWeight: 700 }}>
+                      {p.tag.badge && <img src={p.tag.badge} style={{ width: 13, height: 13 }} />}
+                      {p.tag.text}
+                    </span>
+                  )}
                 </div>
-              )}
+                {p.custom && (p.custom.text || p.custom.emoji) && (
+                  <div style={{ marginTop: 8, background: "rgba(0,0,0,0.25)", borderRadius: 10, padding: "7px 10px", fontSize: 12, lineHeight: 1.4, display: "flex", gap: 6 }}>
+                    {p.custom.emoji && (p.custom.emoji.startsWith("http") ? <img src={p.custom.emoji} style={{ width: 16, height: 16, flex: "none" }} /> : <span>{p.custom.emoji}</span>)}
+                    <span style={{ wordBreak: "break-word" }}>{p.custom.text}</span>
+                  </div>
+                )}
+              </div>
             </div>
-            <div style={{ padding: "6px 24px 24px" }}>
-              <div style={{ fontSize: 30, fontWeight: 800, color: "#fff" }}>{p.name}</div>
-              <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, marginTop: 6, fontSize: 16 }}>
-                {p.username && <span>{p.username}</span>}
-                {p.pronouns && <span style={{ opacity: 0.7 }}>· {p.pronouns}</span>}
-                {p.tag?.text && (
-                  <span style={{ display: "inline-flex", alignItems: "center", gap: 5, background: "rgba(255,255,255,0.08)", borderRadius: 8, padding: "3px 8px", fontWeight: 600 }}>
-                    {p.tag.badge && <img src={p.tag.badge} style={{ width: 16, height: 16 }} />}
-                    {p.tag.text}
-                  </span>
-                )}
-                {!!p.badges.length && (
-                  <span style={{ display: "inline-flex", gap: 4, background: "rgba(255,255,255,0.08)", borderRadius: 8, padding: "3px 6px" }}>
-                    {p.badges.map((b, i) => (
-                      <span key={b.id} style={{ borderRadius: 6, padding: 2, outline: i === badge ? "2px solid #fff" : "none" }}>
-                        {b.icon && <img src={b.icon} style={{ width: 22, height: 22, display: "block" }} />}
-                      </span>
-                    ))}
-                  </span>
-                )}
+          </PanelSectionRow>
+          {/* Badges: move onto one to read it */}
+          {!!p.badges.length && (
+            <PanelSectionRow>
+              <Focusable style={{ display: "flex", flexWrap: "wrap", gap: 4 }} flow-children="row">
+                {p.badges.map((b, i) => (
+                  <Focusable
+                    key={b.id}
+                    onActivate={() => setBadge(badge === i ? null : i)}
+                    {...({ onGamepadFocus: () => setBadge(i) } as any)}
+                    style={{
+                      width: 30, height: 30, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center",
+                      border: badge === i ? "2px solid #fff" : "2px solid transparent", boxSizing: "border-box",
+                      background: badge === i ? "rgba(255,255,255,0.15)" : "transparent",
+                    }}
+                  >
+                    {b.icon && <img src={b.icon} style={{ width: 20, height: 20 }} />}
+                  </Focusable>
+                ))}
+              </Focusable>
+              {badge !== null && p.badges[badge] && (
+                <div style={{ fontSize: 12, marginTop: 6, lineHeight: 1.35 }}>{p.badges[badge].description}</div>
+              )}
+            </PanelSectionRow>
+          )}
+          {p.playing.map((a, i) => (
+            <Block key={`a${i}`}>
+              <div style={head}>Activity</div>
+              <div style={{ fontSize: 13 }}>
+                {PLAYING[a.type] ?? "Playing"} <b>{a.name}</b>
+                {a.details && <div style={{ opacity: 0.7, fontSize: 12 }}>{a.details}</div>}
+                {a.state && <div style={{ opacity: 0.7, fontSize: 12 }}>{a.state}</div>}
               </div>
-              {badge >= 0 && p.badges[badge] && (
-                <div style={{ marginTop: 8, fontSize: 14, color: "#fff", background: "rgba(0,0,0,0.35)", borderRadius: 8, padding: "8px 12px" }}>
-                  {p.badges[badge].description}
-                </div>
-              )}
-              {p.playing.length > 0 && (
-                <>
-                  <div style={section}>Activity</div>
-                  {p.playing.map((a, i) => (
-                    <div key={i} style={{ fontSize: 15 }}>
-                      {PLAYING[a.type] ?? "Playing"} <b style={{ color: "#fff" }}>{a.name}</b>
-                      {a.details && <div style={{ opacity: 0.7, fontSize: 13 }}>{a.details}</div>}
-                      {a.state && <div style={{ opacity: 0.7, fontSize: 13 }}>{a.state}</div>}
-                    </div>
-                  ))}
-                </>
-              )}
-              {p.bio && (
-                <>
-                  <div style={section}>Bio</div>
-                  <div style={{ fontSize: 16, lineHeight: 1.5, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{p.bio}</div>
-                </>
-              )}
-              {p.member_since && (
-                <>
-                  <div style={section}>Member Since</div>
-                  <div style={{ fontSize: 16 }}>{p.member_since}</div>
-                </>
-              )}
+            </Block>
+          ))}
+          {/* Bio in paragraphs, each a stop, so a long one scrolls */}
+          {p.bio &&
+            p.bio.split(/\n{2,}/).map((para, i) => (
+              <Block key={`b${i}`}>
+                {i === 0 && <div style={head}>Bio</div>}
+                <div style={{ fontSize: 13, lineHeight: 1.45, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{para}</div>
+              </Block>
+            ))}
+          {p.member_since && (
+            <Block>
+              <div style={head}>Member Since</div>
+              <div style={{ fontSize: 13 }}>{p.member_since}</div>
               {!p.me && (p.mutual_friends || p.mutual_servers) ? (
-                <div style={{ fontSize: 14, opacity: 0.75, marginTop: 14 }}>
+                <div style={{ fontSize: 12, opacity: 0.7, marginTop: 4 }}>
                   {[p.mutual_friends ? `${p.mutual_friends} mutual friend${p.mutual_friends > 1 ? "s" : ""}` : "",
                     p.mutual_servers ? `${p.mutual_servers} mutual server${p.mutual_servers > 1 ? "s" : ""}` : ""].filter(Boolean).join(" · ")}
                 </div>
               ) : null}
-              {p.connections.length > 0 && (
-                <>
-                  <div style={section}>Connections</div>
-                  {p.connections.map((c, i) => (
-                    <div key={i} style={{ background: "rgba(255,255,255,0.06)", borderRadius: 12, padding: "12px 16px", marginBottom: 8, fontSize: 16 }}>
-                      <span style={{ opacity: 0.7 }}>{c.label}</span> · <b style={{ color: "#fff" }}>{c.name}</b> {c.verified ? "✔" : ""}
-                    </div>
-                  ))}
-                </>
-              )}
-              {p.note && (
-                <>
-                  <div style={section}>Note (only visible to you)</div>
-                  <div style={{ fontSize: 15, whiteSpace: "pre-wrap" }}>{p.note}</div>
-                </>
-              )}
-              <div style={{ fontSize: 13, opacity: 0.55, marginTop: 22 }}>
-                {p.badges.length ? "◀ ▶ read badges · " : ""}▲ ▼ scroll · B to go back
+            </Block>
+          )}
+          {p.connections.map((c, i) => (
+            <Block key={`c${i}`}>
+              {i === 0 && <div style={head}>Connections</div>}
+              <div style={{ fontSize: 13 }}>
+                <span style={{ opacity: 0.7 }}>{c.label}</span> · <b>{c.name}</b> {c.verified ? "✔" : ""}
               </div>
-            </div>
-          </div>
-        )}
-      </div>
-    </Focusable>
+            </Block>
+          ))}
+          {p.note && (
+            <Block>
+              <div style={head}>Note (only visible to you)</div>
+              <div style={{ fontSize: 13, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{p.note}</div>
+            </Block>
+          )}
+          {back}
+        </>
+      )}
+    </PanelSection>
   );
 }
