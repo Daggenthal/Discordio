@@ -1,29 +1,31 @@
 import { useEffect, useState } from "react";
-import { fire, on } from "./events";
+import { beginRestore, fire, on } from "./events";
 
-// The profile shown inside the Quick Access Menu (it covers the rest of
-// Discordio until you go back, which keeps everything else as it was).
-export type ProfileTarget = { userId: string | null };
+// The profile shown inside the Quick Access Menu. While it's open the rest
+// of Discordio isn't rendered (hidden parts could still take the
+// controller's focus); Back rebuilds it as it was and returns the focus to
+// whatever opened the profile (marked with data-dio-key).
+export type ProfileTarget = { userId: string | null; key: string | null };
 let target: ProfileTarget | null = null;
 export const profileTarget = () => target;
-let returnFocus: HTMLElement | null = null;
-export function openProfile(userId: string | null) {
-  if (!target) returnFocus = document.activeElement as HTMLElement | null;
-  target = { userId };
+export function openProfile(userId: string | null, key: string | null = null) {
+  target = { userId, key };
   fire("profile-changed");
 }
 export function closeProfile() {
+  const key = target?.key;
   target = null;
+  beginRestore();
   fire("profile-changed");
-  // Back to the button that opened it.
-  const el = returnFocus;
-  returnFocus = null;
+  if (!key) return;
   setTimeout(() => {
     try {
-      el?.focus();
-      el?.scrollIntoView({ block: "center" });
+      const el = document.querySelector<HTMLElement>(`[data-dio-key="${key}"]`);
+      const btn = el?.matches("button, .DialogButton, [tabindex]") ? el : el?.querySelector<HTMLElement>("button, .DialogButton, [tabindex]");
+      (btn || el)?.focus();
+      (btn || el)?.scrollIntoView({ block: "center" });
     } catch (_) {}
-  }, 80);
+  }, 250);
 }
 export function useProfileTarget() {
   const [t, setT] = useState(target);

@@ -2,7 +2,7 @@ import { addEventListener, call, removeEventListener, toaster } from "@decky/api
 import { ButtonItem, DialogButton, Focusable, PanelSectionRow, TextField, ToggleField } from "@decky/ui";
 import { useEffect, useRef, useState } from "react";
 import { FaPhone } from "react-icons/fa";
-import { fire, on } from "../lib/events";
+import { fire, on, remember, restored as restoredState } from "../lib/events";
 import { Shot, ShotGrid } from "./UploadScreenshot";
 import { Emoji, EmojiPicker } from "./EmojiPicker";
 import { GifPicker } from "./GifPicker";
@@ -71,12 +71,21 @@ export function MessagesPanel() {
   const [convs, setConvs] = useState<Conversation[] | null>(null);
   // Back from the full-screen viewer: the same conversation, same message.
   const [restored] = useState(() => takeRestore());
-  const [open, setOpen] = useState<Conversation | null>(() => {
+  const [open, setOpenRaw] = useState<Conversation | null>(() => {
+    const back = restoredState<Conversation | null>("conversation");
+    if (back) return back;
     if (restored) return restored.conv;
     const p = pendingOpen;
     pendingOpen = null;
     return p;
   });
+  const setOpen = (c: Conversation | null) => {
+    remember("conversation", c);
+    setOpenRaw(c);
+  };
+  useEffect(() => {
+    remember("conversation", open);
+  }, []);
   useEffect(
     () =>
       on("open-conversation", () => {

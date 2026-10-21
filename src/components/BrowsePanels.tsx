@@ -5,7 +5,7 @@ import { openChannelConversation, openConversationWith } from "./MessagesPanel";
 import { useEffect, useState } from "react";
 import { ColorButton } from "./ColorButton";
 import { Avatar, MemberRow, Member } from "./VoiceChatViews";
-import { fire } from "../lib/events";
+import { fire, remember, restored } from "../lib/events";
 import { watchInOverlay, watchStream } from "../lib/watch";
 import { Favorite, isFavorite, toggleFavorite, useFavorites } from "../lib/favorites";
 import { FaEye, FaSignInAlt, FaStar } from "react-icons/fa";
@@ -299,7 +299,11 @@ const PAGE = 25;
 export function FriendsPanel() {
   const [friends, setFriends] = useState<Friend[] | null>(null);
   const [showOffline, setShowOffline] = useState(false);
-  const [openId, setOpenId] = useState<string | null>(null);
+  const [openId, setOpenIdRaw] = useState<string | null>(() => restored<string | null>("friend") ?? null);
+  const setOpenId = (v: string | null) => {
+    remember("friend", v);
+    setOpenIdRaw(v);
+  };
   const [search, setSearch] = useState("");
   const [shown, setShown] = useState(PAGE);
 
@@ -435,7 +439,8 @@ function FriendRow({ f, open, onToggle }: { f: Friend; open: boolean; onToggle: 
             </DialogButton>
             <DialogButton
               style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
-              onClick={() => openProfile(f.id)}
+              data-dio-key={`friend:${f.id}`}
+              onClick={() => openProfile(f.id, `friend:${f.id}`)}
             >
               <FaUser /> Profile
             </DialogButton>

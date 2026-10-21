@@ -5,6 +5,7 @@ import { ChoiceSlider } from "./ChoiceSlider";
 import { watchInOverlay, watchStream } from "../lib/watch";
 import { PipControls } from "./PipControls";
 import { openProfile } from "../lib/profile";
+import { remember, restored } from "../lib/events";
 import { GoLivePanel } from "./GoLivePanel";
 import { useEffect, useRef, useState } from "react";
 import { FaMicrophoneSlash, FaVolumeMute, FaVideo, FaPhoneSlash } from "react-icons/fa";
@@ -91,7 +92,11 @@ let lastSeenCall: string | null = null;
 export function VoiceChannelView() {
   const voice = useVoice();
   const anchor = useRef<HTMLDivElement>(null);
-  const [openId, setOpenId] = useState<string | null>(null);
+  const [openId, setOpenIdRaw] = useState<string | null>(() => restored<string | null>("member") ?? null);
+  const setOpenId = (v: string | null) => {
+    remember("member", v);
+    setOpenIdRaw(v);
+  };
 
 
   // When you join a call (or switch to another), bring the Call section into
@@ -240,9 +245,11 @@ function MemberItem({
       {open && !isMe && (
         <Focusable style={{ paddingLeft: 12, borderLeft: "2px solid rgba(255,255,255,0.15)", marginLeft: 4 }}>
           <PanelSectionRow>
-            <ButtonItem layout="below" onClick={() => openProfile(m.id)}>
-              View Profile
-            </ButtonItem>
+            <div data-dio-key={`member:${m.id}`}>
+              <ButtonItem layout="below" onClick={() => openProfile(m.id, `member:${m.id}`)}>
+                View Profile
+              </ButtonItem>
+            </div>
           </PanelSectionRow>
           {m.live && (
             <PanelSectionRow>

@@ -47,7 +47,7 @@ import { reopenAfterUpdate } from "./lib/reopen";
 import { IncomingCallBanner, startCallNotifications } from "./components/IncomingCall";
 import { CaptchaBanner, startCaptchaNotifications } from "./components/CaptchaBanner";
 import { useEffect, useRef, useState } from "react";
-import { fire, on, takeExpand } from "./lib/events";
+import { fire, on, remember, restored, takeExpand } from "./lib/events";
 import { UploadScreenshot } from "./components/UploadScreenshot";
 import { OpenDiscordButton } from "./components/buttons/OpenCloseDiscordButton";
 import { DiagnosticsPanel } from "./components/DiagnosticsPanel";
@@ -110,7 +110,14 @@ const Collapsible = ({
   children: any;
   defaultOpen: boolean;
 }) => {
-  const [open, setOpen] = useState(() => takeExpand(title) || defaultOpen);
+  const [open, setOpenRaw] = useState(() => restored<boolean>(`section:${title}`) ?? (takeExpand(title) || defaultOpen));
+  const setOpen = (v: boolean) => {
+    remember(`section:${title}`, v);
+    setOpenRaw(v);
+  };
+  useEffect(() => {
+    remember(`section:${title}`, open);
+  }, []);
   // e.g. joining a voice channel collapses Servers, so Call / Go Live is in view.
   useEffect(() => on(`collapse:${title}`, () => setOpen(false)), [title]);
   // "Back to Top" tidies up: everything closes.
@@ -173,7 +180,8 @@ const SelectableProfile = ({ state }: { state: any }) => {
   const [focused, setFocused] = useState(false);
   return (
     <Focusable
-      onActivate={() => openProfile(null)}
+      data-dio-key="me"
+      onActivate={() => openProfile(null, "me")}
       onOKActionDescription="View Profile"
       {...({ onGamepadFocus: () => setFocused(true), onGamepadBlur: () => setFocused(false) } as any)}
       style={{
@@ -291,7 +299,7 @@ const Content = () => {
   return (
     <>
       {profile && <SafeSection name="Profile"><ProfilePanel userId={profile.userId} /></SafeSection>}
-      <div style={{ display: profile ? "none" : undefined }}>
+      {!profile && <div>
       <div ref={topRef} />
       <SafeSection name="Update banner"><UpdateBanner /></SafeSection>
       <SafeSection name="Welcome"><WelcomeBanner /></SafeSection>
@@ -356,7 +364,7 @@ const Content = () => {
       <PanelSection>
         <BackToTop />
       </PanelSection>
-      </div>
+      </div>}
     </>
   );
 };
