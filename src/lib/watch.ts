@@ -40,6 +40,32 @@ export const watchInOverlay = async (userId: string, name: string) => {
   if (!res?.error) fire("pip-changed");
 };
 
+// Someone's webcam in your call, full screen (B goes back) or in the overlay.
+export const watchCamera = async (userId: string, name: string) => {
+  const res: any = await call("watch_camera", userId, false, true);
+  if (res?.error) {
+    toaster.toast({ title: "Discordio", body: res.error });
+    return;
+  }
+  fullScreen = name;
+  setTimeout(() => Router.Navigate("/discord"), 400);
+};
+
+export const watchCameraInOverlay = async (userId: string, name: string) => {
+  const cur: any = await call("get_pip").catch(() => null);
+  if (cur?.on && cur.user_id === userId && cur.kind === "camera") {
+    await stopWatching();
+    toaster.toast({ title: "Discordio", body: `Stopped showing ${name}'s camera` });
+    return;
+  }
+  const res: any = await call("watch_camera", userId, true, false);
+  toaster.toast({
+    title: "Discordio",
+    body: res?.error ? res.error : `Showing ${name}'s camera in the overlay. Stop it from the Call section.`,
+  });
+  if (!res?.error) fire("pip-changed");
+};
+
 export const stopWatching = async () => {
   fullScreen = null;
   await call("stop_watching");
@@ -49,7 +75,8 @@ export const stopWatching = async () => {
 // Tell you when the person stops streaming. Registered once at load.
 export function startWatchNotices() {
   const onPip = (d: any) => {
-    if (d?.ended) toaster.toast({ title: "Discordio", body: `${d.name || "They"} stopped streaming` });
+    if (d?.ended)
+      toaster.toast({ title: "Discordio", body: d.camera ? `${d.name || "Their"}'s camera turned off` : `${d.name || "They"} stopped streaming` });
     else if (d?.error) toaster.toast({ title: "Discordio", body: `Couldn't show the stream: ${d.error}` });
     fire("pip-changed");
   };

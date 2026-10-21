@@ -5,7 +5,7 @@ import { on } from "../lib/events";
 import { stopWatching } from "../lib/watch";
 import { ChoiceSlider } from "./ChoiceSlider";
 
-type Pip = { on: boolean; name?: string | null; frames?: number; live?: boolean; volume?: number };
+type Pip = { on: boolean; name?: string | null; frames?: number; live?: boolean; volume?: number; kind?: string };
 
 const POSITIONS = [
   { value: "top-left", short: "TL", label: "Top left" },
@@ -47,7 +47,10 @@ export function PipControls() {
     <>
       <PanelSectionRow>
         <div style={{ fontSize: 12, opacity: 0.8 }}>
-          📺 Watching {pip.name || "a stream"} in the overlay{pip.live ? "" : " (waiting for video...)"}
+          {pip.kind === "camera"
+            ? `📷 Showing ${pip.name || "someone"}'s camera in the overlay`
+            : `📺 Watching ${pip.name || "a stream"} in the overlay`}
+          {pip.live ? "" : " (waiting for video...)"}
         </div>
       </PanelSectionRow>
       {look && (
@@ -72,6 +75,8 @@ export function PipControls() {
           </PanelSectionRow>
         </>
       )}
+      {pip.kind !== "camera" && (
+        <>
       <PanelSectionRow>
         {/* 0-200 % in 10 % steps; 1-based (Steam's slider ignores input at 0). */}
         <SliderField
@@ -88,6 +93,8 @@ export function PipControls() {
           }}
         />
       </PanelSectionRow>
+        </>
+      )}
       <PanelSectionRow>
         <ButtonItem layout="below" onClick={stopWatching}>
           Stop Watching

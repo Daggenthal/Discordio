@@ -2,7 +2,7 @@ import { call } from "@decky/api";
 import { ButtonItem, PanelSectionRow, ToggleField, Focusable } from "@decky/ui";
 import { toaster } from "@decky/api";
 import { ChoiceSlider } from "./ChoiceSlider";
-import { watchInOverlay, watchStream } from "../lib/watch";
+import { watchCamera, watchCameraInOverlay, watchInOverlay, watchStream } from "../lib/watch";
 import { PipControls } from "./PipControls";
 import { openProfile, useProfileTarget } from "../lib/profile";
 import { ProfilePanel } from "./ProfileView";
@@ -20,6 +20,7 @@ export type Member = {
   deafened: boolean;
   live: boolean;
   video?: boolean;
+  video_off?: boolean;
   server_muted?: boolean;
   server_deafened?: boolean;
   local_muted?: boolean;
@@ -81,7 +82,7 @@ export const MemberRow = ({ m }: { m: Member }) => (
         LIVE
       </span>
     )}
-    {m.video && <FaVideo size={12} />}
+    {m.video && <FaVideo size={12} style={{ opacity: m.video_off ? 0.35 : 1 }} />}
     {m.deafened ? <FaVolumeMute size={13} color="#ed4245" /> : m.muted ? <FaMicrophoneSlash size={13} color="#ed4245" /> : null}
   </div>
 );
@@ -160,6 +161,7 @@ export function VoiceChannelView() {
           onToggle={() => setOpenId(openId === m.id ? null : m.id)}
         />
       ))}
+      <CamerasToggle members={voice.members} me={voice.me} />
       <PipControls />
       <CallHealth />
       <GoLivePanel inCall />
@@ -268,6 +270,30 @@ function MemberItem({
               </ButtonItem>
             </PanelSectionRow>
           )}
+          {m.video && !m.video_off && (
+            <PanelSectionRow>
+              <ButtonItem layout="below" onClick={() => watchCamera(m.id, m.name)}>
+                Watch Camera
+              </ButtonItem>
+            </PanelSectionRow>
+          )}
+          {m.video && !m.video_off && (
+            <PanelSectionRow>
+              <ButtonItem layout="below" description="A small picture over your game" onClick={() => watchCameraInOverlay(m.id, m.name)}>
+                Camera in Overlay
+              </ButtonItem>
+            </PanelSectionRow>
+          )}
+          {m.video && (
+            <PanelSectionRow>
+              <ToggleField
+                label="Show Camera"
+                description="Off: only you stop seeing it, and it stops downloading"
+                checked={!m.video_off}
+                onChange={(v) => run("set_camera_hidden", m.id, !v)}
+              />
+            </PanelSectionRow>
+          )}
           <PanelSectionRow>
             <ToggleField
               label="Local Mute"
@@ -327,5 +353,34 @@ function MemberItem({
         </Focusable>
       )}
     </>
+  );
+}
+
+// Everyone's webcams off (or back on) at once. Stays on for later calls and
+// for cameras turned on later; one person's camera can still be turned back
+// on from their controls.
+function CamerasToggle({ members, me }: { members: Member[]; me?: string | null }) {
+  const [hidden, setHidden] = useState<boolean | null>(null);
+  useEffect(() => {
+    call<[], { hidden: boolean }>("get_cameras_hidden").then((r) => setHidden(!!r?.hidden)).catch(() => {});
+  }, []);
+  if (hidden === null) return null;
+  const on = members.filter((m) => m.video && m.id !== me).length;
+  return (
+    <PanelSectionRow>
+      <ToggleField
+        label="Hide All Cameras"
+        description={
+          (on ? `${on} camera${on === 1 ? "" : "s"} on in this call. ` : "") +
+          "Hidden cameras don't download. You can still show one from that person's controls."
+        }
+        checked={hidden}
+        onChange={async (v) => {
+          setHidden(v);
+          const r: any = await call("set_cameras_hidden", v);
+          if (r?.error) toaster.toast({ title: "Discordio", body: r.error });
+        }}
+      />
+    </PanelSectionRow>
   );
 }

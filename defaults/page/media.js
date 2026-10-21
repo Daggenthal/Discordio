@@ -172,6 +172,12 @@
         const score = (v) => (!v.track.muted ? 2 : 0) + (v.unmutedAt >= (since || 0) || v.at >= (since || 0) ? 1 : 0);
         return live.sort((a, b) => score(b) - score(a) || Math.max(b.unmutedAt, b.at) - Math.max(a.unmutedAt, a.at)).map((v) => v.track);
     }
+    // The ids a remote video arrived with (MediaStream ids, track id), to
+    // tell whose camera or stream it is.
+    function trackIds(track) {
+        const v = videoTracks.find((x) => x.track === track);
+        return v ? v.ids || [] : [];
+    }
     function latestRemoteVideo(since) {
         const live = videoTracks.filter((v) => v.track.readyState === "live");
         const sending = live.filter((v) => !v.track.muted);
@@ -192,7 +198,8 @@
                 // picture-in-picture.
                 pc.addEventListener("track", (e) => {
                     if (e.track && e.track.kind === "video" && !pc.__discordio) {
-                        const v = { track: e.track, at: Date.now(), unmutedAt: e.track.muted ? 0 : Date.now() };
+                        const v = { track: e.track, at: Date.now(), unmutedAt: e.track.muted ? 0 : Date.now(),
+                            ids: (e.streams || []).map((s) => s.id).concat([e.track.id]) };
                         e.track.addEventListener("unmute", () => { v.unmutedAt = Date.now(); });
                         videoTracks.push(v);
                         if (videoTracks.length > 40) videoTracks.shift();
@@ -339,5 +346,5 @@
         } catch (_) { }
     }
 
-    D.media = { playedSince: (t) => lastSoundAt >= t, keepFlowing, status, rtcStats, pin, latestRemoteVideo, remoteVideoCandidates };
+    D.media = { playedSince: (t) => lastSoundAt >= t, trackIds, keepFlowing, status, rtcStats, pin, latestRemoteVideo, remoteVideoCandidates };
 })();

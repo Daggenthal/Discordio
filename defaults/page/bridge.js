@@ -140,7 +140,8 @@
         const M = store("MediaEngineStore");
         return Object.values(states).map((s) => {
             const u = C().UserStore.getUser(s.userId);
-            let localMuted = false, volume = 100;
+            let localMuted = false, volume = 100, videoOff = false;
+            try { videoOff = !!(M && M.isLocalVideoDisabled && M.isLocalVideoDisabled(s.userId, "default")); } catch (_) { }
             try { localMuted = !!(M && M.isLocalMute && M.isLocalMute(s.userId, "default")); } catch (_) { }
             try { if (M && M.getLocalVolume) volume = Math.round(M.getLocalVolume(s.userId, "default")); } catch (_) { }
             return {
@@ -148,7 +149,7 @@
                 muted: !!(s.selfMute || s.mute), deafened: !!(s.selfDeaf || s.deaf),
                 server_muted: !!s.mute, server_deafened: !!s.deaf,
                 local_muted: localMuted, volume,
-                live: !!s.selfStream, video: !!s.selfVideo,
+                live: !!s.selfStream, video: !!s.selfVideo, video_off: videoOff,
                 speaking: isSpeaking(s.userId, !!(s.selfMute || s.mute || s.selfDeaf || s.deaf)),
             };
         });
@@ -693,9 +694,18 @@
             try { c.stop(); } catch (_) { }
         }
     }
+    // Tracks that carry this person's id first (when Discord labels them
+    // that way), then the usual order.
+    function candidatesFor(since, userId) {
+        const list = remoteCandidates(since);
+        const media = (window.DISCORDIO || {}).media;
+        if (!userId || !media || !media.trackIds) return list;
+        const mine = (t) => media.trackIds(t).some((id) => String(id).includes(userId));
+        return list.filter(mine).concat(list.filter((t) => !mine(t)));
+    }
     async function findStreamVideo(since, st, tries) {
         for (let i = 0; i < (tries || 40) && st.on; i++) {
-            for (const t of remoteCandidates(since)) {
+            for (const t of candidatesFor(since, st.userId)) {
                 if (!st.on) return null;
                 if (await hasFrames(t, 700)) return t;
             }
@@ -709,11 +719,12 @@
         fr.onerror = reject;
         fr.readAsDataURL(blob);
     });
-    function pipStart({ since, width, fps, name }) {
+    function pipStart({ since, width, fps, name, userId, kind }) {
         fps = Number(fps) || 30;
         pipStop(true);
         width = Math.max(160, Math.min(960, width || 480));
-        const st = { on: true, seq: 0, fps: Math.max(2, Math.min(60, fps || 30)) };
+        const st = { on: true, seq: 0, fps: Math.max(2, Math.min(60, fps || 30)), userId: userId || null };
+        const what = kind === "camera" ? "camera" : "stream";
         pip = st;
         (async () => {
             const canvas = typeof OffscreenCanvas !== "undefined" ? new OffscreenCanvas(width, Math.round(width * 9 / 16)) : null;
@@ -733,11 +744,11 @@
                 const track = await findStreamVideo((since || 0) - 2000, st, started ? 15 : 40);
                 if (!st.on) break;
                 if (!track) {
-                    if (!started) { emit("pip", { error: "the stream's video didn't arrive" }); st.on = false; break; }
+                    if (!started) { emit("pip", { error: `the ${what}'s video didn't arrive` }); st.on = false; break; }
                     // The streamer paused (a phone locked, an app in the
                     // background): keep waiting for the picture to come back
                     // for as long as we're watching.
-                    if (!watching) break;
+                    if (!watching && !watchingCam) break;
                     lost++;
                     await sleep(Math.min(3000, 500 * lost));
                     continue;
@@ -745,6 +756,7 @@
                 lost = 0;
                 const clone = track.clone();
                 st.track = clone;
+                if (kind === "camera" && !started) { try { log(`camera video ids: ${((window.DISCORDIO.media.trackIds || (() => []))(track)).join(", ")}`); } catch (_) { } }
                 if (!started) { started = true; emit("pip", { started: true, how: window.MediaStreamTrackProcessor ? "track" : "video" }); }
                 let last = 0;
                 if (window.MediaStreamTrackProcessor) {
@@ -796,7 +808,8 @@
     // Full-screen player inside the Discord view: just the stream, no Discord
     // around it. The Discord tab's B button stops watching and goes back.
     let player = null;
-    function showPlayer({ since, name }) {
+    function showPlayer({ since, name, userId, kind }) {
+        const what = kind === "camera" ? "camera" : "stream";
         hidePlayer();
         const el = document.createElement("div");
         el.id = "discordio-player";
@@ -804,14 +817,14 @@
         el.innerHTML = '<video autoplay playsinline muted style="width:100%;height:100%;object-fit:contain"></video>' +
             '<div class="dio-p-msg" style="position:absolute;color:#fff;font:600 22px sans-serif;opacity:.85;text-align:center"></div>' +
             '<div style="position:absolute;left:24px;bottom:20px;display:flex;gap:10px;align-items:center;color:#fff;font:600 16px sans-serif;text-shadow:0 1px 3px #000">' +
-            '<span style="background:#ed4245;border-radius:4px;padding:2px 7px;font-size:13px">LIVE</span><span class="dio-p-name"></span>' +
+            `<span style="background:${what === "camera" ? "#5865f2" : "#ed4245"};border-radius:4px;padding:2px 7px;font-size:13px">${what === "camera" ? "CAMERA" : "LIVE"}</span><span class="dio-p-name"></span>` +
             '<span style="opacity:.7;font-weight:400">· press B to stop watching</span></div>';
         el.querySelector(".dio-p-name").textContent = name || "";
         document.body.appendChild(el);
-        const st = { el, on: true };
+        const st = { el, on: true, userId: userId || null };
         player = st;
         const msg = (t) => { const m = el.querySelector(".dio-p-msg"); if (m) m.textContent = t || ""; };
-        msg("Waiting for the stream's video...");
+        msg(`Waiting for the ${what}'s video...`);
         (async () => {
             const v = el.querySelector("video");
             let lastFrame = 0;
@@ -822,13 +835,13 @@
                 if (!st.on) return;
                 if (!track) {
                     if (first) {
-                        msg("The stream's video didn't arrive. Press B to go back.");
-                        emit("pip", { error: "the stream's video didn't arrive (player)" });
+                        msg(`The ${what}'s video didn't arrive. Press B to go back.`);
+                        emit("pip", { error: `the ${what}'s video didn't arrive (player)` });
                         return;
                     }
-                    if (!watching) { msg("The stream ended. Press B to go back."); return; }
+                    if (!watching && !watchingCam) { msg(`The ${what} ended. Press B to go back.`); return; }
                     // Paused on their side (a phone locked): wait for it.
-                    msg("Stream paused. Waiting for it to come back...");
+                    msg(`${what === "camera" ? "Camera" : "Stream"} paused. Waiting for it to come back...`);
                     await sleep(1500);
                     continue;
                 }
@@ -841,8 +854,8 @@
                 // Went black: find the video again.
                 while (st.on && track.readyState === "live" && (!v.requestVideoFrameCallback || performance.now() - lastFrame < 3000)) await sleep(500);
                 if (!st.on) return;
-                if (watching) msg("Reconnecting...");
-                else { msg("The stream ended. Press B to go back."); return; }
+                if (watching || watchingCam) msg("Reconnecting...");
+                else { msg(`The ${what} ended. Press B to go back.`); return; }
             }
         })();
         return { ok: true };
@@ -873,6 +886,7 @@
     function stopWatching() {
         pipStop();
         hidePlayer();
+        watchingCam = null;
         const key = watching;
         watching = null;
         if (!key) return { ok: true };
@@ -892,6 +906,7 @@
             stream = all.find((x) => x.ownerId === userId) || null;
         } catch (_) { }
         if (!stream) throw new Error("They aren't streaming right now");
+        watchingCam = null;
         const key = streamKey(stream);
         // Watching a server stream means being in its voice channel.
         if (stream.channelId && voiceChannelId() !== stream.channelId) {
@@ -910,6 +925,92 @@
         if (asPlayer) showPlayer({ since, name });
         // Show the stream full-size in Discord's call page.
         try { openCallPage(stream.channelId); } catch (_) { }
+        return { ok: true, name };
+    }
+
+    // ------------------------------------------------------------ cameras
+    // People's webcams in your call. Hiding one (Discord's "Disable Video"
+    // for you only) also stops it downloading. "Hide all cameras" keeps
+    // every camera off, except ones you turn back on one by one.
+    let watchingCam = null; // user id whose camera is being watched
+    let camsHidden = false;
+    const camsAllowed = new Set();
+    const cameraOff = (userId) => {
+        try { const M = store("MediaEngineStore"); return !!(M && M.isLocalVideoDisabled && M.isLocalVideoDisabled(userId, "default")); } catch (_) { return false; }
+    };
+    function setCameraOff(userId, off) {
+        const A = props("setDisableLocalVideo");
+        if (!A || !A.setDisableLocalVideo) throw new Error("Discord's camera setting wasn't found");
+        if (cameraOff(userId) === !!off) return;
+        try { A.setDisableLocalVideo(userId, off ? "MANUAL_DISABLED" : "MANUAL_ENABLED", "default"); } catch (e) { warn("camera toggle", e); }
+        // Older Discord: a plain true / false.
+        if (cameraOff(userId) !== !!off) {
+            try { A.setDisableLocalVideo(userId, !!off, "default"); } catch (_) { }
+        }
+    }
+    function cameraOwners() {
+        const vc = voiceChannelId();
+        if (!vc) return [];
+        const u = me();
+        try {
+            return Object.values(store("VoiceStateStore").getVoiceStatesForChannel(vc) || {})
+                .filter((s) => s.selfVideo && (!u || s.userId !== u.id)).map((s) => s.userId);
+        } catch (_) { return []; }
+    }
+    function setCameraHidden(userId, hidden) {
+        if (hidden) camsAllowed.delete(userId); else camsAllowed.add(userId);
+        if (hidden && watchingCam === userId) stopWatching();
+        setCameraOff(userId, !!hidden);
+        return { ok: true, hidden: cameraOff(userId) };
+    }
+    function setCamerasHidden(hidden) {
+        camsHidden = !!hidden;
+        camsAllowed.clear();
+        let n = 0;
+        for (const id of cameraOwners()) {
+            if (watchingCam === id && hidden) continue; // keep the one you're watching
+            try { setCameraOff(id, camsHidden); n++; } catch (_) { }
+        }
+        return { ok: true, hidden: camsHidden, changed: n };
+    }
+    // Cameras turned on later (or people joining) stay hidden too.
+    setInterval(() => {
+        if (camsHidden) {
+            for (const id of cameraOwners()) {
+                if (id === watchingCam || camsAllowed.has(id) || cameraOff(id)) continue;
+                try { setCameraOff(id, true); } catch (_) { }
+            }
+        }
+        // Their camera went off, or they left: stop showing it.
+        if (watchingCam && !cameraOwners().includes(watchingCam)) {
+            const who = watchingCam;
+            watchingCam = null;
+            pipStop(true);
+            if (player) { const el = player.el.querySelector(".dio-p-msg"); if (el) el.textContent = "Their camera turned off. Press B to go back."; }
+            emit("watch_ended", { camera: true, user_id: who });
+        }
+    }, 2000);
+    async function watchCamera(userId, inOverlay, fps, asPlayer) {
+        if (!cameraOwners().includes(userId)) throw new Error("Their camera isn't on");
+        // One picture at a time: stop a stream or another camera first.
+        stopWatching();
+        camsAllowed.add(userId);
+        const since = Date.now();
+        if (cameraOff(userId)) {
+            setCameraOff(userId, false);
+        } else {
+            // Restart their video, so it's the newest one arriving (the way
+            // to tell it apart from other cameras and streams).
+            setCameraOff(userId, true);
+            await sleep(500);
+            setCameraOff(userId, false);
+        }
+        watchingCam = userId;
+        let name = null;
+        try { const u = C().UserStore.getUser(userId); name = friendName(u) || userName(u); } catch (_) { }
+        if (inOverlay) pipStart({ since, name, fps, userId, kind: "camera" });
+        if (asPlayer) showPlayer({ since, name, userId, kind: "camera" });
+        try { openCallPage(voiceChannelId()); } catch (_) { }
         return { ok: true, name };
     }
 
@@ -1534,6 +1635,9 @@
     m("watchStream", ({ userId, overlay, fps, player }) => watchStream(userId, !!overlay, fps, !!player));
     m("pipFps", ({ fps }) => pipFps(fps));
     m("stopWatching", () => stopWatching());
+    m("watchCamera", ({ userId, overlay, fps, player }) => watchCamera(userId, !!overlay, fps, !!player));
+    m("setCameraHidden", ({ userId, hidden }) => setCameraHidden(userId, !!hidden));
+    m("setCamerasHidden", ({ hidden }) => setCamerasHidden(!!hidden));
     m("pipStop", () => pipStop());
     m("hidePlayer", () => { hidePlayer(); return { ok: true }; });
     m("getStatus", () => myStatus());

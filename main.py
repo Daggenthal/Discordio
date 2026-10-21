@@ -460,6 +460,11 @@ class Plugin:
             await cls.bridge.push("config", {"captureUrl": f"ws://127.0.0.1:{cls.capture.port}/webrtc"})
         await cls._unlock_audio("page connected")
         try:
+            if cls.settings.load().get("cameras_hidden"):
+                await cls._req("setCamerasHidden", {"hidden": True}, timeout=5)
+        except Exception as e:
+            log.info(f"couldn't apply Hide All Cameras: {e}")
+        try:
             await cls._req("warmSounds", {}, timeout=5)
         except Exception as e:
             log.info(f"couldn't preload Discord sounds: {e}")
@@ -1030,6 +1035,48 @@ class Plugin:
             await cls._pretend_visible(False)
         return res
 
+    @classmethod
+    async def watch_camera(cls, user_id, overlay=False, player=False):
+        """Someone's webcam in your call: full screen, or in the overlay."""
+        fps = cls.settings.load().get("pip_fps", 30)
+        if player and cls.pip:
+            cls.pip_paused = True
+        if overlay:
+            await cls._pretend_visible(True)
+        res = await cls._req("watchCamera", {"userId": user_id, "overlay": bool(overlay), "fps": fps,
+                                             "player": bool(player)}, timeout=15)
+        if overlay and isinstance(res, dict) and not res.get("error"):
+            cls.pip = {"on": True, "starting": time.time(), "seq": 0, "data": None, "name": res.get("name"),
+                       "user_id": user_id, "kind": "camera"}
+            cls.pip_paused = False
+            diag.set("pip", diag.PENDING, "waiting for the camera's video")
+        elif overlay:
+            await cls._pretend_visible(False)
+        elif player and isinstance(res, dict) and not res.get("error"):
+            cls.pip = None  # the overlay picture (if any) was replaced
+            cls.pip_paused = False
+            await cls._pretend_visible(False)
+        return res
+
+    @classmethod
+    async def set_camera_hidden(cls, user_id, hidden):
+        """Turn one person's camera off or on, for you only."""
+        if hidden and (cls.pip or {}).get("user_id") == user_id and (cls.pip or {}).get("kind") == "camera":
+            cls.pip = None
+            await cls._pretend_visible(False)
+        return await cls._req("setCameraHidden", {"userId": user_id, "hidden": bool(hidden)})
+
+    @classmethod
+    async def get_cameras_hidden(cls):
+        return {"hidden": bool(cls.settings.load().get("cameras_hidden", False))}
+
+    @classmethod
+    async def set_cameras_hidden(cls, hidden):
+        """Hide everyone's camera (they stop downloading), now and later."""
+        cls.settings.update(cameras_hidden=bool(hidden))
+        res = await cls._req("setCamerasHidden", {"hidden": bool(hidden)}, default={})
+        return {"hidden": bool(hidden), **(res if isinstance(res, dict) else {})}
+
     pretending = False
 
     @classmethod
@@ -1073,9 +1120,14 @@ class Plugin:
     @classmethod
     async def _on_watch_ended(cls, _d):
         was = cls.pip
+        camera = bool((_d or {}).get("camera"))
+        if camera and was and was.get("kind") != "camera":
+            return  # a camera ended, but you're watching a stream now
+        if not camera and was and was.get("kind") == "camera":
+            return
         cls.pip = None
         await cls._pretend_visible(False)
-        await decky.emit("pip", {"on": False, "ended": True, "name": (was or {}).get("name")})
+        await decky.emit("pip", {"on": False, "ended": True, "camera": camera, "name": (was or {}).get("name")})
 
     @classmethod
     async def get_pip(cls):
@@ -1083,10 +1135,11 @@ class Plugin:
         if not p:
             return {"on": False}
         vol = 100
-        if p.get("user_id"):
+        if p.get("user_id") and p.get("kind") != "camera":
             r = await cls._req("getUserVolume", {"userId": p["user_id"], "context": "stream"}, timeout=5, default={})
             vol = (r or {}).get("volume", 100) if isinstance(r, dict) else 100
-        return {"on": True, "name": p.get("name"), "user_id": p.get("user_id"), "frames": p.get("seq", 0),
+        return {"on": True, "name": p.get("name"), "user_id": p.get("user_id"), "kind": p.get("kind", "stream"),
+                "frames": p.get("seq", 0),
                 "live": cls._pip_fresh(), "volume": vol}
 
     @classmethod
