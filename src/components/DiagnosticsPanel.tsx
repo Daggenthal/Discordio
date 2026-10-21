@@ -1,6 +1,7 @@
 import { ButtonItem, PanelSection, PanelSectionRow, ToggleField } from "@decky/ui";
 import { PageUsage } from "./PageUsage";
 import { SectionHeader } from "./SectionHeader";
+import { DevTools } from "./DevTools";
 import { OpenDiscordButton } from "./buttons/OpenCloseDiscordButton";
 import { on } from "../lib/events";
 import { SystemInfo, steamSystemInfo } from "./SystemInfo";
@@ -227,6 +228,7 @@ export function DiagnosticsPanel() {
               Export report
             </ButtonItem>
           </PanelSectionRow>
+          <DevTools />
           <PanelSectionRow>
             <OpenDiscordButton />
           </PanelSectionRow>
