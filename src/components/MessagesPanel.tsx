@@ -139,6 +139,18 @@ function ConversationView({ conv, onBack }: { conv: Conversation; onBack: () => 
   const [picking, setPicking] = useState<string | null>(null);
   const [shots, setShots] = useState(false);
   const top = useRef<HTMLDivElement>(null);
+  const reply = useRef<HTMLDivElement>(null);
+
+  // Move the controller's focus as well as the view, so the next press
+  // continues from there instead of snapping back.
+  const focusIn = (el: HTMLElement | null) => {
+    try {
+      el?.scrollIntoView({ behavior: "smooth", block: "center" });
+      el?.querySelector<HTMLElement>("input, button, .DialogButton")?.focus();
+    } catch (_) {}
+  };
+  const jumpToReply = () => focusIn(reply.current);
+  const jumpToTop = () => focusIn(top.current);
 
   // Opening a conversation brings it into view.
   useEffect(() => {
@@ -203,6 +215,11 @@ function ConversationView({ conv, onBack }: { conv: Conversation; onBack: () => 
         </div>
       </PanelSectionRow>
       <PanelSectionRow>
+        <ButtonItem layout="below" onClick={jumpToReply}>
+          Jump to Reply ↓
+        </ButtonItem>
+      </PanelSectionRow>
+      <PanelSectionRow>
         <div style={{ fontWeight: 700, fontSize: 14 }}>{history?.label || conv.label}</div>
       </PanelSectionRow>
       {!history && <Hint>Loading messages...</Hint>}
@@ -229,6 +246,7 @@ function ConversationView({ conv, onBack }: { conv: Conversation; onBack: () => 
       )}
       <PanelSectionRow>
         {/* Selecting the field with A opens Steam's on-screen keyboard. */}
+        <div ref={reply}>
         <TextField
           label="Reply"
           value={text}
@@ -236,6 +254,7 @@ function ConversationView({ conv, onBack }: { conv: Conversation; onBack: () => 
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e: any) => e.key === "Enter" && send()}
         />
+        </div>
       </PanelSectionRow>
       <PanelSectionRow>
         <ButtonItem layout="below" disabled={sending || !text.trim()} onClick={send}>
@@ -246,6 +265,16 @@ function ConversationView({ conv, onBack }: { conv: Conversation; onBack: () => 
         <ButtonItem layout="below" onClick={() => setShots(!shots)}>
           {shots ? "Cancel Screenshot" : "📷 Send a Screenshot"}
         </ButtonItem>
+      </PanelSectionRow>
+      <PanelSectionRow>
+        <Focusable style={{ display: "flex", gap: "8px" }}>
+          <DialogButton style={{ flex: 1, minWidth: 0 }} onClick={jumpToTop}>
+            ↑ Back to Top
+          </DialogButton>
+          <DialogButton style={{ flex: 1, minWidth: 0 }} onClick={() => fire("collapse:Messages")}>
+            Collapse Messages
+          </DialogButton>
+        </Focusable>
       </PanelSectionRow>
       {shots && (
         <ShotGrid
@@ -380,11 +409,34 @@ function MessageRow({
     if (res?.error) toaster.toast({ title: "Discordio", body: `Couldn't react: ${res.error}` });
     onReacted();
   };
+  const [focused, setFocused] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  // Steam doesn't highlight or scroll to a plain Focusable, so do both here:
+  // without it the selection was invisible and the list jumped in big steps.
+  const onFocus = () => {
+    setFocused(true);
+    try {
+      ref.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    } catch (_) {}
+  };
   return (
     <>
       <PanelSectionRow>
-        <Focusable onActivate={onPick} onOKActionDescription={picking ? "Close" : "React"}>
-          <div style={{ display: "flex", gap: 8, alignItems: "flex-start", ...small }}>
+        <Focusable
+          onActivate={onPick}
+          onOKActionDescription={picking ? "Close" : "React"}
+          {...({ onGamepadFocus: onFocus, onGamepadBlur: () => setFocused(false) } as any)}
+        >
+          <div
+            ref={ref}
+            style={{
+              display: "flex", gap: 8, alignItems: "flex-start", ...small,
+              padding: "4px 6px", margin: "0 -6px", borderRadius: 6,
+              background: focused ? "rgba(255,255,255,0.12)" : "transparent",
+              outline: focused ? "2px solid rgba(255,255,255,0.7)" : "2px solid transparent",
+              scrollMarginBlock: "40px",
+            }}
+          >
             <Avatar src={m.author.avatar} size={22} />
             <div style={{ minWidth: 0 }}>
               <b style={{ color: m.mine ? "#949cf7" : undefined }}>{m.author.name}</b>{" "}

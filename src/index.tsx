@@ -123,6 +123,7 @@ const Collapsible = ({
 
 const SettingsPanel = () => {
   const ui = useUiSettings();
+  const [showUpdates, setShowUpdates] = useState(false);
   return (
     <Collapsible title="Settings" defaultOpen={false}>
       <PanelSectionRow>
@@ -151,6 +152,15 @@ const SettingsPanel = () => {
       </PanelSectionRow>
       <SafeSection name="Stream quality"><StreamQualityPanel /></SafeSection>
       <SafeSection name="Account"><AccountPanel /></SafeSection>
+      <PanelSectionRow>
+        <div style={{ fontWeight: 700, fontSize: "13px", marginTop: "6px" }}>Updates</div>
+      </PanelSectionRow>
+      <PanelSectionRow>
+        <ButtonItem layout="below" onClick={() => setShowUpdates(!showUpdates)}>
+          {showUpdates ? "Hide Updates" : "Show Updates"}
+        </ButtonItem>
+      </PanelSectionRow>
+      {showUpdates && <SafeSection name="Updates"><UpdatePanel /></SafeSection>}
     </Collapsible>
   );
 };
@@ -232,9 +242,6 @@ const Content = () => {
         </>
       )}
       <SafeSection name="Settings"><SettingsPanel /></SafeSection>
-      <PanelSection title="Updates">
-        <SafeSection name="Updates"><UpdatePanel /></SafeSection>
-      </PanelSection>
       <SafeSection name="Diagnostics"><DiagnosticsPanel /></SafeSection>
     </>
   );

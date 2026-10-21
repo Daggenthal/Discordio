@@ -62,9 +62,12 @@ export function ShotGrid({ selected, onPick }: { selected: string | null; onPick
   if (shots.length === 0) return <Hint>No screenshots found. Press Steam + R1 in a game to take one.</Hint>;
   return (
     <>
-      <PanelSectionRow>
-        <Focusable style={{ display: "flex", flexWrap: "wrap", gap: "6px" }} flow-children="row">
-          {shots.map((sh) => (
+      {/* One focus row per 3 screenshots: a single wrapping row only
+          moved left / right, and down skipped past the whole grid. */}
+      {Array.from({ length: Math.ceil(shots.length / 3) }, (_, r) => shots.slice(r * 3, r * 3 + 3)).map((row, r) => (
+      <PanelSectionRow key={r}>
+        <Focusable style={{ display: "flex", gap: "6px" }} flow-children="row">
+          {row.map((sh) => (
             <DialogButton
               key={sh.id}
               onClick={() => onPick(sh)}
@@ -82,6 +85,7 @@ export function ShotGrid({ selected, onPick }: { selected: string | null; onPick
           ))}
         </Focusable>
       </PanelSectionRow>
+      ))}
       {shots.length < total && (
         <PanelSectionRow>
           <ButtonItem layout="below" onClick={() => more(shots.length)}>
