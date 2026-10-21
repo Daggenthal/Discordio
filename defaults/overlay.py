@@ -289,7 +289,7 @@ class Overlay:
         # Fit inside a 16:9 box (380 x 214 at 100%), so a tall phone stream
         # doesn't fill the screen, scaled by the size setting (10-200 %).
         try:
-            pct = max(10, min(200, int(settings.get("pip_size", 100)))) / 100
+            pct = max(10, min(300, int(settings.get("pip_size", 100)))) / 100
         except (TypeError, ValueError):
             pct = 1.0
         bw, bh = 380 * s * pct, 214 * s * pct

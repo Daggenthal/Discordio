@@ -1034,7 +1034,7 @@ class Plugin:
         try:
             # Percent of the normal size, 10 to 200 in steps of 10.
             if size is not None:
-                changes["pip_size"] = max(10, min(200, int(round(float(size) / 10)) * 10))
+                changes["pip_size"] = max(10, min(300, int(round(float(size) / 10)) * 10))
         except (TypeError, ValueError):
             pass
         if changes:
@@ -1550,7 +1550,7 @@ def _pip_percent(v):
     if isinstance(v, str):
         return {"small": 70, "normal": 100, "large": 140}.get(v, 100)
     try:
-        return max(10, min(200, int(v)))
+        return max(10, min(300, int(v)))
     except (TypeError, ValueError):
         return 100
 

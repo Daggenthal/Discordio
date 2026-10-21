@@ -731,9 +731,16 @@
                 const track = await findStreamVideo((since || 0) - 2000, st, started ? 15 : 40);
                 if (!st.on) break;
                 if (!track) {
-                    if (!started || ++lost > 3) { emit("pip", { error: "the stream's video didn't arrive" }); st.on = false; break; }
+                    if (!started) { emit("pip", { error: "the stream's video didn't arrive" }); st.on = false; break; }
+                    // The streamer paused (a phone locked, an app in the
+                    // background): keep waiting for the picture to come back
+                    // for as long as we're watching.
+                    if (!watching) break;
+                    lost++;
+                    await sleep(Math.min(3000, 500 * lost));
                     continue;
                 }
+                lost = 0;
                 const clone = track.clone();
                 st.track = clone;
                 if (!started) { started = true; emit("pip", { started: true, how: window.MediaStreamTrackProcessor ? "track" : "video" }); }
@@ -812,9 +819,16 @@
                 const track = await findStreamVideo((since || 0) - 2000, st, first ? 40 : 15);
                 if (!st.on) return;
                 if (!track) {
-                    msg("The stream's video didn't arrive. Press B to go back.");
-                    if (first) emit("pip", { error: "the stream's video didn't arrive (player)" });
-                    return;
+                    if (first) {
+                        msg("The stream's video didn't arrive. Press B to go back.");
+                        emit("pip", { error: "the stream's video didn't arrive (player)" });
+                        return;
+                    }
+                    if (!watching) { msg("The stream ended. Press B to go back."); return; }
+                    // Paused on their side (a phone locked): wait for it.
+                    msg("Stream paused. Waiting for it to come back...");
+                    await sleep(1500);
+                    continue;
                 }
                 first = false;
                 v.srcObject = new MediaStream([track]);

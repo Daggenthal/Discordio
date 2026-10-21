@@ -54,9 +54,9 @@ export function PipControls() {
               label={`Stream Size: ${Number(look.size) || 100}%`}
               description="100% is the normal size"
               min={1}
-              max={20}
+              max={30}
               step={1}
-              value={Math.max(1, Math.min(20, Math.round((Number(look.size) || 100) / 10)))}
+              value={Math.max(1, Math.min(30, Math.round((Number(look.size) || 100) / 10)))}
               onChange={(v) => set(undefined, String(v * 10) as any)}
             />
           </PanelSectionRow>
