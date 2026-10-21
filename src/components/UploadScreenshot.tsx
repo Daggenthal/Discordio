@@ -66,7 +66,7 @@ export function ShotGrid({ selected, onPick }: { selected: string | null; onPick
           moved left / right, and down skipped past the whole grid. */}
       {Array.from({ length: Math.ceil(shots.length / 3) }, (_, r) => shots.slice(r * 3, r * 3 + 3)).map((row, r) => (
       <PanelSectionRow key={r}>
-        <Focusable style={{ display: "flex", gap: "6px" }} flow-children="row">
+        <Focusable style={{ display: "flex", gap: "6px" }} flow-children="row" navEntryPreferPosition={2 as any}>
           {row.map((sh) => (
             <DialogButton
               key={sh.id}

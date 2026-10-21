@@ -986,8 +986,9 @@
         postScreenshot(channelId || await dmChannel(userId), data, filename));
     m("textChannels", ({ guildId }) => textChannels(guildId));
     m("history", ({ channelId, limit }) => history(channelId, limit));
-    m("sendMessage", ({ channelId, userId, content }) =>
-        (channelId ? Promise.resolve(channelId) : dmChannel(userId)).then((id) => sendMessage(id, content)));
+    m("sendMessage", ({ channelId, userId, content, replyTo }) =>
+        (channelId ? Promise.resolve(channelId) : dmChannel(userId)).then((id) => sendMessage(id, content, replyTo)));
+    m("gifs", ({ query }) => gifs(query));
     m("goLive", ({ quality, uiOnly }) => goLive(false, quality, !!uiOnly));
     m("pageVisible", () => ({ visible: document.visibilityState === "visible", info: pageInfo() }));
     m("stopLive", () => goLive(true));
@@ -1090,10 +1091,23 @@
                 me: !!r.me,
             };
         });
+        // The message this one replies to, as a one-line quote.
+        let replyTo = null;
+        const ref = msg.messageReference || msg.message_reference;
+        if (ref && ref.message_id) {
+            let r = msg.referencedMessage || msg.referenced_message || null;
+            if (r && r.message) r = r.message; // Discord wraps it as { state, message }
+            if (!r || !r.author) { try { r = store("MessageStore").getMessage(ref.channel_id || msg.channel_id, ref.message_id); } catch (_) { r = null; } }
+            if (r && r.author) {
+                const ru = C().UserStore.getUser(r.author.id) || r.author;
+                const t = messageText(r) || "(attachment)";
+                replyTo = { id: r.id, name: friendName(ru) || userName(ru), text: t.length > 80 ? t.slice(0, 79) + "…" : t };
+            } else replyTo = { id: ref.message_id, name: null, text: "Original message not loaded" };
+        }
         return {
             id: msg.id, channel_id: msg.channel_id,
             author: { id: a.id, name: friendName(u) || userName(u), avatar: avatarUrl(u) },
-            text, media, reactions,
+            text, media, reactions, replyTo,
             time: msgTime(msg.timestamp),
             mine: !!(me() && a.id === me().id),
         };
@@ -1133,6 +1147,38 @@
             return ids.filter((id) => !u || id !== u.id)
                 .map((id) => friendName(C().UserStore.getUser(id)) || "Someone").slice(0, 3);
         } catch (_) { return []; }
+    }
+
+    // ------------------------------------------------------------- GIFs
+    // Discord's own GIF picker: your favorites, trending, and search (Tenor
+    // through Discord's API). Sending one posts its link, as Discord does.
+    function favoriteGifs() {
+        try {
+            const P = store("UserSettingsProtoStore");
+            const g = P && P.frecencyWithoutFetchingLatest && P.frecencyWithoutFetchingLatest.favoriteGifs;
+            const map = (g && g.gifs) || {};
+            return Object.entries(map)
+                .map(([url, v]) => ({ url, src: v.src, width: v.width, height: v.height, order: v.order || 0, video: v.format === 2 || /\.mp4|\.webm/.test(v.src || "") }))
+                .filter((x) => x.src)
+                .sort((a, b) => b.order - a.order);
+        } catch (_) { return []; }
+    }
+    const gifOut = (g) => {
+        const src = g.src || g.gif_src;
+        return src ? { url: g.url, src, width: g.width, height: g.height, video: /\.mp4|\.webm/.test(src) } : null;
+    };
+    async function gifs(query) {
+        const locale = (navigator.language || "en-US");
+        if (query) {
+            const r = await C().RestAPI.get({ url: "/gifs/search", query: { q: query, provider: "tenor", media_format: "mp4", locale, limit: 40 } });
+            return { gifs: (r.body || []).map(gifOut).filter(Boolean) };
+        }
+        let trending = [];
+        try {
+            const r = await C().RestAPI.get({ url: "/gifs/trending-gifs", query: { provider: "tenor", media_format: "mp4", locale, limit: 30 } });
+            trending = (r.body || []).map(gifOut).filter(Boolean);
+        } catch (e) { warn("trending gifs", e); }
+        return { favorites: favoriteGifs(), trending };
     }
 
     // ----------------------------------------------------------- emojis
@@ -1251,8 +1297,14 @@
         return String((BigInt(Date.now() - 1420070400000) << 22n) + BigInt(Math.floor(Math.random() * 4096)));
     }
 
-    async function sendMessage(channelId, content) {
+    async function sendMessage(channelId, content, replyTo) {
         content = String(content || "").trim();
+        let ref = null;
+        if (replyTo) {
+            let guild = null;
+            try { guild = (C().ChannelStore.getChannel(channelId) || {}).guild_id || null; } catch (_) { }
+            ref = { guild_id: guild || undefined, channel_id: channelId, message_id: String(replyTo) };
+        }
         if (!content) throw new Error("Nothing to send");
         if (content.length > 2000) throw new Error("Discord messages can be at most 2000 characters");
         const actions = props("sendMessage", "editMessage");
@@ -1262,13 +1314,15 @@
                 // leaving it out was the "reading 'nonce'" error.
                 await actions.sendMessage(channelId,
                     { content, tts: false, invalidEmojis: [], validNonShortcutEmojis: [] },
-                    undefined, { nonce: nonce() });
+                    undefined, ref
+                        ? { nonce: nonce(), messageReference: ref, allowedMentions: { parse: ["users", "roles", "everyone"], replied_user: true } }
+                        : { nonce: nonce() });
                 return { ok: true, method: "action" };
             } catch (e) {
                 warn("sendMessage action failed, using the REST API:", e);
             }
         }
-        await C().RestAPI.post({ url: `/channels/${channelId}/messages`, body: { content, nonce: nonce(), tts: false } });
+        await C().RestAPI.post({ url: `/channels/${channelId}/messages`, body: { content, nonce: nonce(), tts: false, ...(ref ? { message_reference: ref } : {}) } });
         return { ok: true, method: "rest" };
     }
 

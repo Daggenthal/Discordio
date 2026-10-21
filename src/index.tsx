@@ -152,7 +152,9 @@ const ProfileLine = ({ state }: { state: any }) => {
       <span style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
         <span style={{ ...ellipsis, fontWeight: 600 }}>{state?.me?.username}</span>
         {(custom || st) && (
-          <span style={{ ...ellipsis, fontSize: 12, opacity: 0.75, marginTop: 4 }}>{custom || st?.label}</span>
+          <span style={{ fontSize: 12, opacity: 0.75, marginTop: 4, whiteSpace: "normal", overflowWrap: "anywhere", lineHeight: 1.35 }}>
+            {custom || st?.label}
+          </span>
         )}
       </span>
     </span>

@@ -8,6 +8,9 @@ type EmojiList = { nitro?: boolean; recent: Emoji[]; favorites: Emoji[]; servers
 
 const QUICK: Emoji[] = ["👍", "❤️", "😂", "😮", "😢", "🔥"].map((e) => ({ id: null, name: e, emoji: e }));
 const PER_ROW = 6;
+// Entering a row keeps the same column (Steam otherwise jumps back to
+// whatever was last focused in that row, which looked like a diagonal move).
+const MAINTAIN_X = 2;
 const PAGE = 36;
 
 // One fetch per conversation, reused for a few minutes.
@@ -36,7 +39,7 @@ function Rows({ list, onPick, mine }: { list: Emoji[]; onPick: (e: Emoji) => voi
       {rows.map((row, r) => (
         <PanelSectionRow key={r}>
           {/* One focus row per line, so up / down move between lines. */}
-          <Focusable style={{ display: "flex", gap: 4 }} flow-children="row">
+          <Focusable style={{ display: "flex", gap: 4 }} flow-children="row" navEntryPreferPosition={MAINTAIN_X as any}>
             {row.map((e) => (
               <DialogButton
                 key={e.id || e.name}
@@ -64,7 +67,9 @@ export function EmojiPicker({
   existing,
   onPick,
   onClose,
+  onReply,
 }: {
+  onReply?: () => void;
   channelId: string;
   existing: (Emoji & { me?: boolean })[];
   onPick: (e: Emoji, remove: boolean) => void;
@@ -87,6 +92,11 @@ export function EmojiPicker({
 
   return (
     <>
+      {onReply && (
+        <PanelSectionRow>
+          <DialogButton onClick={onReply}>↩ Reply</DialogButton>
+        </PanelSectionRow>
+      )}
       {!!existing.length && (
         <>
           <PanelSectionRow><div style={small}>On this message</div></PanelSectionRow>

@@ -720,6 +720,10 @@ class Plugin:
         return await cls._req("logout", timeout=15)
 
     @classmethod
+    async def get_gifs(cls, query=None):
+        return await cls._req("gifs", {"query": (query or "").strip() or None}, timeout=15, private=False)
+
+    @classmethod
     async def get_emojis(cls, channel_id=None):
         # Emoji names aren't private, and there can be thousands: keep them
         # out of the diagnostics name list (only server names are collected).
@@ -762,8 +766,8 @@ class Plugin:
         return await cls._req("callChannel", {"channelId": channel_id}, timeout=15)
 
     @classmethod
-    async def send_message(cls, channel_id, content):
-        res = await cls._req("sendMessage", {"channelId": channel_id, "content": content}, timeout=15)
+    async def send_message(cls, channel_id, content, reply_to=None):
+        res = await cls._req("sendMessage", {"channelId": channel_id, "content": content, "replyTo": reply_to}, timeout=15)
         if isinstance(res, dict) and not res.get("error"):
             cls.messages.mark_read(channel_id)
         return res

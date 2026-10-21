@@ -41,7 +41,7 @@ export function StatusPanel({ status }: { status?: { status: string; custom: str
             <Dot color={current.color} />
             <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {current.label}
-              {status?.custom ? <span style={{ opacity: 0.7 }}> · {status.custom}</span> : null}
+              <span style={{ opacity: 0.6 }}> · Change Status</span>
             </span>
             <span style={{ opacity: 0.5 }}>{open ? "▾" : "▸"}</span>
           </span>

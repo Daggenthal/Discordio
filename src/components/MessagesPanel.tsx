@@ -5,6 +5,7 @@ import { FaPhone } from "react-icons/fa";
 import { fire, on } from "../lib/events";
 import { Shot, ShotGrid } from "./UploadScreenshot";
 import { Emoji, EmojiPicker } from "./EmojiPicker";
+import { GifPicker } from "./GifPicker";
 import { ColorButton } from "./ColorButton";
 import { Avatar } from "./VoiceChatViews";
 import { ChoiceSlider } from "./ChoiceSlider";
@@ -27,6 +28,7 @@ type Message = {
   mine: boolean;
   media?: Media[];
   reactions?: Reaction[];
+  replyTo?: { id: string; name: string | null; text: string } | null;
 };
 type History = { channel_id: string; label: string; messages: Message[]; error?: string; typing?: string[] };
 
@@ -139,6 +141,8 @@ function ConversationView({ conv, onBack }: { conv: Conversation; onBack: () => 
   const [sending, setSending] = useState(false);
   const [picking, setPicking] = useState<string | null>(null);
   const [shots, setShots] = useState(false);
+  const [gifs, setGifs] = useState(false);
+  const [replyTo, setReplyTo] = useState<{ id: string; name: string; text: string } | null>(null);
   const top = useRef<HTMLDivElement>(null);
   const reply = useRef<HTMLDivElement>(null);
 
@@ -186,10 +190,11 @@ function ConversationView({ conv, onBack }: { conv: Conversation; onBack: () => 
     if (!text.trim()) return;
     setSending(true);
     try {
-      const res: any = await call("send_message", conv.channel_id, text);
+      const res: any = await call("send_message", conv.channel_id, text, replyTo?.id ?? null);
       if (res?.error) toaster.toast({ title: "Discordio", body: `Not sent: ${res.error}` });
       else {
         setText("");
+        setReplyTo(null);
         load();
       }
     } finally {
@@ -236,6 +241,11 @@ function ConversationView({ conv, onBack }: { conv: Conversation; onBack: () => 
             setPicking(null);
             load();
           }}
+          onReply={() => {
+            setPicking(null);
+            setReplyTo({ id: m.id, name: m.author.name, text: m.text || (m.media?.length ? "(attachment)" : "") });
+            setTimeout(jumpToReply, 100);
+          }}
         />
       ))}
       {!!history?.typing?.length && (
@@ -243,6 +253,18 @@ function ConversationView({ conv, onBack }: { conv: Conversation; onBack: () => 
           <div style={{ ...small, opacity: 0.7, fontStyle: "italic" }}>
             {history.typing.join(", ")} {history.typing.length > 1 ? "are" : "is"} typing...
           </div>
+        </PanelSectionRow>
+      )}
+      {replyTo && (
+        <PanelSectionRow>
+          <Focusable style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{ flex: 1, minWidth: 0, ...small, opacity: 0.8, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              ↩ Replying to <b>{replyTo.name}</b>{replyTo.text ? `: ${replyTo.text}` : ""}
+            </div>
+            <DialogButton style={{ minWidth: 0, width: "auto", padding: "4px 12px" }} onClick={() => setReplyTo(null)}>
+              Cancel
+            </DialogButton>
+          </Focusable>
         </PanelSectionRow>
       )}
       <PanelSectionRow>
@@ -263,10 +285,29 @@ function ConversationView({ conv, onBack }: { conv: Conversation; onBack: () => 
         </ButtonItem>
       </PanelSectionRow>
       <PanelSectionRow>
-        <ButtonItem layout="below" onClick={() => setShots(!shots)}>
-          {shots ? "Cancel Screenshot" : "📷 Send a Screenshot"}
-        </ButtonItem>
+        <Focusable style={{ display: "flex", gap: "8px" }}>
+          <DialogButton style={{ flex: 1, minWidth: 0 }} onClick={() => { setGifs(!gifs); setShots(false); }}>
+            {gifs ? "Close GIFs" : "GIF"}
+          </DialogButton>
+          <DialogButton style={{ flex: 2, minWidth: 0 }} onClick={() => { setShots(!shots); setGifs(false); }}>
+            {shots ? "Cancel Screenshot" : "📷 Screenshot"}
+          </DialogButton>
+        </Focusable>
       </PanelSectionRow>
+      {gifs && (
+        <GifPicker
+          onClose={() => setGifs(false)}
+          onPick={async (g) => {
+            setGifs(false);
+            const res: any = await call("send_message", conv.channel_id, g.url, replyTo?.id ?? null);
+            toaster.toast({ title: "Discordio", body: res?.error ? `Not sent: ${res.error}` : "GIF sent" });
+            if (!res?.error) {
+              setReplyTo(null);
+              load();
+            }
+          }}
+        />
+      )}
       <PanelSectionRow>
         <Focusable style={{ display: "flex", gap: "8px" }}>
           <DialogButton style={{ flex: 1, minWidth: 0 }} onClick={jumpToTop}>
@@ -396,7 +437,9 @@ function MessageRow({
   picking,
   onPick,
   onReacted,
+  onReply,
 }: {
+  onReply: () => void;
   m: Message;
   channelId: string;
   picking: boolean;
@@ -439,6 +482,11 @@ function MessageRow({
           >
             <Avatar src={m.author.avatar} size={22} />
             <div style={{ minWidth: 0 }}>
+              {m.replyTo && (
+                <div style={{ opacity: 0.6, fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  ↪ {m.replyTo.name ? <b>{m.replyTo.name}</b> : null} {m.replyTo.text}
+                </div>
+              )}
               <b style={{ color: m.mine ? "#949cf7" : undefined }}>{m.author.name}</b>{" "}
               <span style={{ opacity: 0.5, fontSize: 10 }}>{ago(m.time / 1000)}</span>
               {m.text ? <div>{m.text}</div> : !m.media?.length && <i style={{ opacity: 0.6 }}>(no text)</i>}
@@ -470,6 +518,7 @@ function MessageRow({
           existing={(m.reactions || []).map((r) => ({ id: r.id, name: r.name, emoji: r.emoji, url: r.url, me: r.me }))}
           onPick={react}
           onClose={onPick}
+          onReply={onReply}
         />
       )}
     </>
