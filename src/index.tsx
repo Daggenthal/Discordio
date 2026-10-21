@@ -265,6 +265,14 @@ const SettingsPanel = () => {
       </PanelSectionRow>
       <PanelSectionRow>
         <ToggleField
+          label="Hide Usernames"
+          description="Hides Discord usernames on profiles and in Account, for screenshots that don't show how to add you"
+          checked={ui.hideUsernames}
+          onChange={(v) => setUiSetting("hideUsernames", v)}
+        />
+      </PanelSectionRow>
+      <PanelSectionRow>
+        <ToggleField
           label="Show Badges"
           description="Your Discord badges under your name"
           checked={ui.showBadges}

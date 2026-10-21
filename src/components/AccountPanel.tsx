@@ -3,6 +3,7 @@ import { ButtonItem, PanelSectionRow, Router } from "@decky/ui";
 import { useEffect, useState } from "react";
 import { Avatar } from "./VoiceChatViews";
 import { fire } from "../lib/events";
+import { useUiSettings } from "../lib/settings";
 
 type Account = { id: string; name: string; avatar: string | null; current: boolean; valid: boolean };
 type Accounts = { me: { id: string; name: string; avatar: string | null } | null; saved: Account[]; canSwitch: boolean; error?: string };
@@ -10,6 +11,7 @@ type Accounts = { me: { id: string; name: string; avatar: string | null } | null
 // Who you're logged in as, switching between the accounts Discord
 // remembers, adding one, and logging out.
 export function AccountPanel() {
+  const ui = useUiSettings();
   const [a, setA] = useState<Accounts | null>(null);
   const [handle, setHandle] = useState<string | null>(null);
   useEffect(() => {
@@ -73,7 +75,7 @@ export function AccountPanel() {
           </div>
         </PanelSectionRow>
       )}
-      {handle && (
+      {handle && !ui.hideUsernames && (
         <PanelSectionRow>
           <div style={{ fontSize: 13, lineHeight: 1.4 }}>
             Your Username: <b style={{ fontSize: 15 }}>{handle}</b>

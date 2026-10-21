@@ -2,6 +2,7 @@ import { call } from "@decky/api";
 import { DialogButton, Focusable, PanelSection, PanelSectionRow } from "@decky/ui";
 import { useEffect, useRef, useState } from "react";
 import { closeProfile } from "../lib/profile";
+import { useUiSettings } from "../lib/settings";
 
 type Profile = {
   id: string; me: boolean; name: string; username: string | null; avatar: string | null; decoration: string | null;
@@ -46,6 +47,7 @@ const head = { fontSize: 12, fontWeight: 700, opacity: 0.75, marginBottom: 3 } a
 
 // Discord-style profile, inside the Quick Access Menu.
 export function ProfilePanel({ userId, inline }: { userId: string | null; inline?: boolean }) {
+  const ui = useUiSettings();
   const [p, setP] = useState<Profile | null>(null);
   const [badge, setBadge] = useState<number | null>(null);
   const backRef = useRef<HTMLDivElement>(null);
@@ -129,7 +131,7 @@ export function ProfilePanel({ userId, inline }: { userId: string | null; inline
               <div style={{ padding: "4px 14px 12px", color: "#fff" }}>
                 <div style={{ fontSize: 20, fontWeight: 800, wordBreak: "break-word" }}>{p.name}</div>
                 <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6, marginTop: 4, fontSize: 12 }}>
-                  {p.username && <span style={{ opacity: 0.9 }}>{p.username}</span>}
+                  {p.username && !ui.hideUsernames && <span style={{ opacity: 0.9 }}>{p.username}</span>}
                   {p.pronouns && <span style={{ opacity: 0.7 }}>· {p.pronouns}</span>}
                   {p.tag?.text && (
                     <span style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "rgba(0,0,0,0.25)", borderRadius: 6, padding: "1px 6px", fontWeight: 700 }}>

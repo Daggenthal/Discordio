@@ -5,6 +5,7 @@ export type UiSettings = {
   autoOpenServers: boolean;
   autoOpenFriends: boolean;
   showBadges: boolean;
+  hideUsernames: boolean;
 };
 
 const DEFAULTS: UiSettings = {
@@ -12,6 +13,7 @@ const DEFAULTS: UiSettings = {
   // Off by default: long friend lists flood the QAM.
   autoOpenFriends: false,
   showBadges: true,
+  hideUsernames: false,
 };
 
 const KEY = "DISCORDIO_UI_SETTINGS";
