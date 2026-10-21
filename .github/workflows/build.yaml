@@ -61,7 +61,7 @@ jobs:
 
       - name: Check the release zip has every part
         run: |
-          for f in main.py capture.py overlay.py overlay_web.js screenshot.py page/bridge.js page/media.js page/mic.js page/capture.js page/nav.js discordio/bridge.py discordio/gamepad.py dist/index.js plugin.json \
+          for f in main.py capture.py overlay.py overlay_web.js page/bridge.js page/media.js page/mic.js page/capture.js page/nav.js discordio/bridge.py discordio/gamepad.py dist/index.js plugin.json \
                    bin/libxml2.so.2 bin/gstreamer-1.0/libgstwebrtc.so; do
             test -f "out/unzipped/Discordio/$f" || { echo "missing $f in the plugin zip"; exit 1; }
           done

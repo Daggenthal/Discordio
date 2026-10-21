@@ -1398,37 +1398,6 @@ class Plugin:
         return snap if snap["show_private"] else diag.redact(snap)
 
     @classmethod
-    async def capture_ui(cls, frames=1, fps=5, delay=3):
-        """Experimental: whole-screen screenshot(s) through gamescope, Quick
-        Access Menu and overlays included, into ~/Pictures/Discordio."""
-        _, uid, home = system.session_user(decky)
-        stamp = time.strftime("%Y%m%d-%H%M%S")
-        out = Path(home) / "Pictures" / "Discordio" / (f"gif-{stamp}" if int(frames) > 1 else "")
-        await asyncio.sleep(max(0, min(10, float(delay))))
-        env = {**system.user_env(decky), **system.steam_display(decky)}
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                system.python(), str(PLUGIN_DIR / "screenshot.py"), str(out),
-                str(max(1, min(120, int(frames)))), str(fps),
-                env=env, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
-            raw, _ = await asyncio.wait_for(proc.communicate(), timeout=max(30, int(frames) / max(0.5, float(fps)) * 3 + 20))
-        except Exception as e:
-            return {"error": f"capture failed: {e}"}
-        lines = [l for l in raw.decode(errors="replace").splitlines() if l.strip()]
-        try:
-            res = json.loads(lines[-1])
-        except Exception:
-            return {"error": "capture failed: " + (" ".join(lines[-3:]) or "no output")}
-        # Yours, not root's.
-        for p in [str(Path(home) / "Pictures"), str(Path(home) / "Pictures" / "Discordio"), str(out)] + res.get("files", []):
-            try:
-                os.chown(p, uid, uid)
-            except Exception:
-                pass
-        log.info(f"UI capture: {res}")
-        return res
-
-    @classmethod
     async def get_system_info(cls):
         info = await asyncio.get_running_loop().run_in_executor(None, _system_info)
         info["discordio_update_channel"] = cls.settings.load().get("update_channel", "stable")
