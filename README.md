@@ -79,8 +79,19 @@ I'm Daggenthal. I have a background in IT, I like tinkering with Linux gaming ha
 
 ## Credits
 
-Discordio began as a fork of [Deckcord](https://github.com/marios8543/Deckcord) by marios8543 (with contributions from AAGaming00, Epictek and jessebofill). The backend, page bridge, microphone bridge and capture helper have since been rewritten from scratch; a few QAM pieces, such as the main menu entry, still come from it. Discordio uses [Vencord](https://vencord.dev/)'s webpack helpers to reach Discord's internals.
+Discordio contains some code from [Deckcord](https://github.com/marios8543/Deckcord), made by [@marios8543](https://github.com/marios8543/), so please feel free to check out the original inspiration if you want to try theirs out!
+
+For compliance's sake, these are the parts that still come from Deckcord:
+
+- [`src/patches/menuPatch.tsx`](src/patches/menuPatch.tsx): the Discord entry in Steam's main menu
+- [`src/components/buttons/MuteButton.tsx`](src/components/buttons/MuteButton.tsx) and [`src/components/buttons/DeafenButton.tsx`](src/components/buttons/DeafenButton.tsx): the mute and deafen buttons
+- [`src/components/buttons/OpenCloseDiscordButton.tsx`](src/components/buttons/OpenCloseDiscordButton.tsx): the Open Discord button
+- [`src/hooks/useDeckcordState.ts`](src/hooks/useDeckcordState.ts): parts of the hook that shares Discord's state with the Quick Access Menu
+
+Everything else (the backend, page bridge, microphone bridge, capture helper and overlay) has been rewritten from scratch. Again, this project would not have been possible without the starting inspiration of Deckcord, and many thanks go to its author and the contributors they thank: AAGaming00, Epictek and jessebofill!
+
+Discordio also uses [Vencord](https://vencord.dev/)'s webpack helpers to reach Discord's internals.
 
 ## License
 
-Discordio is MIT licensed, see [LICENSE](LICENSE). The remaining code from Deckcord stays under its BSD 3-Clause license, see [LICENSE-Deckcord](LICENSE-Deckcord).
+Discordio is MIT licensed, see [LICENSE](LICENSE). The files from Deckcord listed under Credits stay under its BSD 3-Clause license, see [LICENSE-Deckcord](LICENSE-Deckcord).
