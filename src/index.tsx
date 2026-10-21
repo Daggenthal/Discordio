@@ -28,6 +28,7 @@ import { SafeSection } from "./components/SafeSection";
 import { useUiSettings, setUiSetting } from "./lib/settings";
 import { startMicBridge } from "./lib/mic";
 import { AudioDevicesPanel } from "./components/AudioDevicesPanel";
+import { WelcomeBanner } from "./components/WelcomeBanner";
 import { MicProcessingPanel } from "./components/MicProcessingPanel";
 import { AudioCheckPanel } from "./components/AudioCheckPanel";
 import { StreamQualityPanel } from "./components/GoLivePanel";
@@ -162,6 +163,7 @@ const Content = () => {
   return (
     <>
       <SafeSection name="Update banner"><UpdateBanner /></SafeSection>
+      <SafeSection name="Welcome"><WelcomeBanner /></SafeSection>
       {ready && <SafeSection name="Incoming call"><IncomingCallBanner /></SafeSection>}
       {ready && <SafeSection name="Human check"><CaptchaBanner /></SafeSection>}
       <PanelSection>

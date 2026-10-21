@@ -6,22 +6,34 @@ Discord in SteamOS Game Mode, as a Decky Loader plugin. Voice, servers, friends,
 
 ## Features
 
-- **Discord in Game Mode:** a full Discord view, opened from the Steam main menu or the Quick Access Menu, with controller navigation (D-pad moves, A selects, B backs out, Y searches, X mutes, bumpers switch servers, triggers scroll, View toggles the on-screen help).
-- **Call controls in the QAM:** who's in your call (with mute, deafen and LIVE), mute, deafen, disconnect, push to talk on any controller button.
-- **Servers and friends:** browse your servers' voice channels and join one, or call an online friend, straight from the QAM.
-- **Go Live:** stream your game with a live preview of exactly what viewers see, resolution from 480p to 4K or source, 5 to 60 fps, and a clear note when a setting needs Nitro.
-- **In-game overlay:** your voice channel on top of games, with a speaking highlight. Works alongside Steam's performance overlay.
-- **Audio devices:** pick the microphone and speaker / headset Discord uses.
-- **Screenshots:** send your latest Steam screenshot to a recent channel or DM.
-- **Notifications:** DMs and mentions as Steam toasts, and the game you're playing as your Discord status.
-- **Updates from Game Mode:** the QAM checks for new builds and installs them through Decky.
-- **Diagnostics:** live health of every part, recent errors, a step-by-step self-test, fix-it buttons and an exportable report.
+- **Discord in Game Mode:** a full Discord view, opened from the Steam main menu or the Quick Access Menu (QAM), with controller navigation (D-pad moves, A selects, B backs out, Y searches, X mutes, bumpers switch servers, triggers scroll, View toggles the on-screen help).
+- **Calls from the QAM:** who's in your call with speaking, mute, deafen and LIVE badges; mute, deafen, disconnect; per-person Local Mute and Voice Volume; Server Mute, Server Deafen and Server Disconnect when you have the permission.
+- **Incoming calls:** a Steam notification and a banner with Answer and Decline, plus controller shortcuts (default: hold Options/Start and pull R2 to answer, L2 to decline). Shortcuts are rebindable and work on any controller.
+- **Servers, friends and favorites:** voice and text channels for every server, a searchable friends list with online counts, join a friend's call, watch their stream, and pin favorite voice channels to the top.
+- **Messages:** recent conversations, images, GIFs and videos, emoji reactions, "is typing", and sending a Steam screenshot straight into a conversation.
+- **Go Live:** stream your game without Discord ever appearing on screen. Resolution from 480p to 4K and 5 to 60 fps, with Nitro-only settings marked and Nitro detected automatically.
+- **In-game overlay:** your voice channel on top of games with a speaking highlight. Can turn itself on only during calls; size, opacity, and "only show who's talking" options. Works alongside Steam's performance overlay.
+- **Audio Settings:** microphone and speaker choice, noise suppression, echo cancellation, automatic gain, mic sensitivity, a microphone test with "hear yourself", and a test sound.
+- **Status:** Online, Idle, Do Not Disturb or Invisible, plus a custom status. Do Not Disturb silences Discordio's popups.
+- **Accounts:** switch between saved accounts, add another, or log out.
+- **Updates from Game Mode:** pick the Stable or Beta channel; Discordio checks when you open it, shows a banner, installs through Decky and reopens itself.
+- **Diagnostics:** live health of every part, a self-test, fix-it buttons and an exportable report. Names and IDs are hidden from diagnostics and reports by default.
 
-Discord applies its own limits on stream quality: without Nitro, Go Live is capped at 720p 30 fps.
+## Before you start
+
+- **Discord's terms of service.** Discordio runs Discord's own web app, with [Vencord](https://vencord.dev/) loaded to reach its internals. Client modifications are against Discord's terms of service. Discord rarely acts on them, but it can, and using Discordio is at your own risk. Consider an alt account if that worries you.
+- **The human check.** Discord sometimes asks you to prove you're human (a captcha), especially right after logging in on a new device. Discordio tells you when that happens; open Discord and complete it once.
+- **Game Mode only.** Discordio is built for SteamOS Game Mode. Desktop Mode has the regular Discord app.
+- **Nitro limits.** Without Nitro, Discord caps Go Live at 720p 30 fps.
+- **Microphone permission.** The first time Discord asks for the mic, Steam may ask you to allow it.
 
 ## Install
 
-In Game Mode: Decky settings → Developer → Install Plugin from URL, with the `Discordio.zip` link from the newest [release](https://github.com/Daggenthal/Discordio/releases). After that, the Updates section in the QAM keeps it current.
+1. Install [Decky Loader](https://decky.xyz/).
+2. In Game Mode, open Decky settings, turn on Developer mode, then Developer → Install Plugin from URL, and paste the `Discordio.zip` link from the newest [release](https://github.com/Daggenthal/Discordio/releases).
+3. Open Discordio in the QAM and press **Open Discord** to log in (the QR code works with the Discord app on your phone).
+
+After that, the Updates section keeps it current. Stable gets tested releases; Beta gets every build as soon as it's made.
 
 Deckcord and Discordio can't run side by side; remove Deckcord first.
 
@@ -29,9 +41,9 @@ Deckcord and Discordio can't run side by side; remove Deckcord first.
 
 Open Discordio in the QAM and go to **Diagnostics**:
 
-1. The summary line says whether anything is wrong, and **Show diagnostics** lists every part (Steam UI, Discord view, Vencord, bridge, account, microphone, screen capture, overlay, updates) with its current state.
+1. The summary line says whether anything is wrong, and **Show Diagnostics** lists every part (Steam UI, Discord view, Vencord, bridge, account, microphone, screen capture, overlay, updates) with its current state.
 2. **Run self-test** checks each part in order and stops at the first one that's broken, with the reason.
-3. **Export report** writes `discordio-report.txt` to your home folder with health, errors, settings and recent logs. Attach it when asking for help.
+3. **Export report** writes `discordio-report.txt` to your home folder with health, errors, settings and recent logs. Usernames, server names and IDs are replaced with `<name>` and `<id>` unless you turn on "Show names in diagnostics", so the report is safe to attach when asking for help.
 4. Fix-it buttons restart the Discord view or the screen capture, or re-detect the capture method.
 
 ## How it works
@@ -51,7 +63,13 @@ pnpm install
 scripts/package.sh             # out/Discordio.zip, uses the system's GStreamer for Go Live
 ```
 
-The GitHub Actions build (`.github/workflows/build.yaml`) uses the Decky CLI, bundles GStreamer, and publishes every build on `main` as a pre-release that the in-QAM updater picks up.
+The GitHub Actions build (`.github/workflows/build.yaml`) uses the Decky CLI, bundles GStreamer, and publishes every build on `main` as a pre-release (the Beta channel).
+
+To release a build on the Stable channel, run the **Promote a build to stable** workflow in the Actions tab with the build number, or:
+
+```sh
+gh release edit build-N --prerelease=false --latest
+```
 
 ## About Me
 
