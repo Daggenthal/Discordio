@@ -646,7 +646,7 @@ function MessageRow({
               )}
               <b style={{ color: m.mine ? "#949cf7" : undefined }}>{m.author.name}</b>{" "}
               <span style={{ opacity: 0.5, fontSize: 10 }}>{ago(m.time / 1000)}{m.edited ? " · edited" : ""}</span>
-              {m.text ? <div>{m.text}</div> : !m.media?.length && <i style={{ opacity: 0.6 }}>(no text)</i>}
+              {m.text ? <div><RichText text={m.text} /></div> : !m.media?.length && <i style={{ opacity: 0.6 }}>(no text)</i>}
               {m.media?.map((x, i) => <MediaView key={i} m={x} />)}
               {!!m.reactions?.length && (
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
@@ -683,4 +683,31 @@ function MessageRow({
       )}
     </>
   );
+}
+
+// Message text with Discord's custom emojis drawn (animated ones animate).
+// A message that's only emojis shows them bigger, like Discord.
+const EMOJI = /<(a?):(\w+):(\d+)>/g;
+function RichText({ text }: { text: string }) {
+  const parts: any[] = [];
+  let last = 0;
+  let m: RegExpExecArray | null;
+  const onlyEmoji = text.replace(EMOJI, "").trim() === "";
+  const size = onlyEmoji ? 34 : 20;
+  EMOJI.lastIndex = 0;
+  while ((m = EMOJI.exec(text))) {
+    if (m.index > last) parts.push(text.slice(last, m.index));
+    parts.push(
+      <img
+        key={m.index}
+        src={`https://cdn.discordapp.com/emojis/${m[3]}.${m[1] ? "gif" : "webp"}?size=64&quality=lossless`}
+        alt={`:${m[2]}:`}
+        title={`:${m[2]}:`}
+        style={{ width: size, height: size, verticalAlign: onlyEmoji ? "middle" : "-5px", objectFit: "contain", margin: "0 1px" }}
+      />
+    );
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) parts.push(text.slice(last));
+  return <>{parts}</>;
 }

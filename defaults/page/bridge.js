@@ -1589,12 +1589,14 @@
         return `#${ch.name}${g ? " in " + g.name : ""}`;
     }
 
-    function messageText(msg) {
+    // keepEmoji: leave custom emojis as <a:name:id> for the QAM to draw
+    // (animated); otherwise they read as :name:.
+    function messageText(msg, keepEmoji) {
         let text = msg.content || "";
         // Mentions show as names, not <@id>.
         text = text.replace(/<@!?(\d+)>/g, (_, id) => "@" + userName(C().UserStore.getUser(id)));
         text = text.replace(/<#(\d+)>/g, (_, id) => { const c = C().ChannelStore.getChannel(id); return c ? "#" + c.name : "#channel"; });
-        text = text.replace(/<a?:(\w+):\d+>/g, ":$1:");
+        if (!keepEmoji) text = text.replace(/<a?:(\w+):\d+>/g, ":$1:");
         if (!text && msg.attachments && msg.attachments.length) text = `[${msg.attachments.length > 1 ? msg.attachments.length + " attachments" : "attachment"}]`;
         if (!text && msg.embeds && msg.embeds.length) text = "[embed]";
         if (!text && msg.sticker_items && msg.sticker_items.length) text = "[sticker]";
@@ -1641,7 +1643,7 @@
         const a = msg.author || {};
         const u = C().UserStore.getUser(a.id) || a;
         const media = mediaOf(msg);
-        let text = messageText(msg);
+        let text = messageText(msg, true);
         // A message that is just a GIF / image link shows the picture instead.
         if (media.length && media.some((m) => m.link && text.trim() === m.link)) text = "";
         if (media.length && /^\[(attachment|\d+ attachments|embed|sticker)\]$/.test(text)) text = "";
@@ -1696,7 +1698,8 @@
             const m = simplifyMessage(msg);
             // Popups have no room for pictures: say what was sent.
             const label = (m.media || []).map((x) => ({ gif: "GIF", gifv: "GIF", image: "image", video: "video", sticker: "sticker" })[x.kind] || "file");
-            const text = m.text || (label.length ? `[${label[0]}${label.length > 1 ? ` +${label.length - 1}` : ""}]` : "");
+            const plain = (m.text || "").replace(/<a?:(\w+):\d+>/g, ":$1:");
+            const text = plain || (label.length ? `[${label[0]}${label.length > 1 ? ` +${label.length - 1}` : ""}]` : "");
             const guild = ch && ch.guild_id ? C().GuildStore.getGuild(ch.guild_id) : null;
             emit("message", { ...m, text, channel_label: channelLabel(ch), is_dm: !!isDM, mentioned,
                 guild_id: guild ? guild.id : null, guild_name: guild ? guild.name : null,
