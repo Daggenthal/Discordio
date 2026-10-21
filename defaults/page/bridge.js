@@ -1662,10 +1662,33 @@
     // ------------------------------------------------------------- GIFs
     // Discord's own GIF picker: your favorites, trending, and search (Tenor
     // through Discord's API). Sending one posts its link, as Discord does.
+    // Recent emojis and favorite GIFs live in Discord's "frecency" settings,
+    // which it only downloads when its own picker opens (e.g. not yet after
+    // logging in again). Ask for them first.
+    let frecencyAsked = 0;
+    async function ensureFrecency() {
+        if (Date.now() - frecencyAsked < 60000) return;
+        frecencyAsked = Date.now();
+        try {
+            const A = C().UserSettingsActionCreators || props("FrecencyUserSettingsActionCreators");
+            const F = A && (A.FrecencyUserSettingsActionCreators || (A.loadIfNecessary ? A : null));
+            if (F && F.loadIfNecessary) await Promise.race([Promise.resolve(F.loadIfNecessary()), sleep(4000)]);
+            else warn("frecency settings loader not found");
+        } catch (e) { warn("frecency settings", e); }
+    }
+    function frecencySettings() {
+        try {
+            const A = C().UserSettingsActionCreators || props("FrecencyUserSettingsActionCreators");
+            const F = A && (A.FrecencyUserSettingsActionCreators || A);
+            const v = F && F.getCurrentValue && F.getCurrentValue();
+            if (v) return v;
+        } catch (_) { }
+        try { const P = store("UserSettingsProtoStore"); return P && P.frecencyWithoutFetchingLatest; } catch (_) { return null; }
+    }
     function favoriteGifs() {
         try {
-            const P = store("UserSettingsProtoStore");
-            const g = P && P.frecencyWithoutFetchingLatest && P.frecencyWithoutFetchingLatest.favoriteGifs;
+            const f = frecencySettings();
+            const g = f && f.favoriteGifs;
             const map = (g && g.gifs) || {};
             return Object.entries(map)
                 .map(([url, v]) => ({ url, src: v.src, width: v.width, height: v.height, order: v.order || 0, video: v.format === 2 || /\.mp4|\.webm/.test(v.src || "") }))
@@ -1678,6 +1701,7 @@
         return src ? { url: g.url, src, width: g.width, height: g.height, video: /\.mp4|\.webm/.test(src) } : null;
     };
     async function gifs(query) {
+        if (!query) await ensureFrecency();
         const locale = (navigator.language || "en-US");
         if (query) {
             const r = await C().RestAPI.get({ url: "/gifs/search", query: { q: query, provider: "tenor", media_format: "mp4", locale, limit: 40 } });
@@ -1701,7 +1725,8 @@
     // Which emojis the user can react with, the way Discord's picker does:
     // recent and favorites first, then every server's own emojis. Without
     // Nitro, custom emojis only work in their own server and can't be animated.
-    function emojis(channelId) {
+    async function emojis(channelId) {
+        await ensureFrecency();
         const E = store("EmojiStore");
         if (!E) throw new Error("Discord's emoji list wasn't found");
         const u = me();
@@ -1719,12 +1744,25 @@
             const f = E.emojiFrecencyWithoutFetchingLatest;
             recent = ((f && (f.frequently || (f.getFrequentlyWithoutFetchingLatest && f.getFrequentlyWithoutFetchingLatest()))) || []).map(emojiOut);
         } catch (_) { }
+        // Straight from the settings, if the store hasn't worked it out yet.
+        if (!recent.filter(Boolean).length) {
+            try {
+                const f = frecencySettings();
+                const map = (f && f.emojiFrecency && f.emojiFrecency.emojis) || {};
+                const U = props("getByName", "convertNameToSurrogate") || props("getByName");
+                recent = Object.entries(map)
+                    .sort((a, b) => ((b[1] && (b[1].score || b[1].frecency || b[1].totalUses)) || 0) - ((a[1] && (a[1].score || a[1].frecency || a[1].totalUses)) || 0))
+                    .slice(0, 40)
+                    .map(([k]) => {
+                        try { return emojiOut(/^\d+$/.test(k) ? E.getCustomEmojiById(k) : U && U.getByName(k)); } catch (_) { return null; }
+                    });
+            } catch (e) { warn("recent emojis", e); }
+        }
 
         let favorites = [];
         try {
-            const P = store("UserSettingsProtoStore");
-            const names = (P && P.frecencyWithoutFetchingLatest && P.frecencyWithoutFetchingLatest.favoriteEmojis &&
-                P.frecencyWithoutFetchingLatest.favoriteEmojis.emojis) || [];
+            const f = frecencySettings();
+            const names = (f && f.favoriteEmojis && f.favoriteEmojis.emojis) || [];
             const U = props("getByName", "convertNameToSurrogate") || props("getByName");
             favorites = names.map((n) => {
                 if (/^\d+$/.test(n)) {
