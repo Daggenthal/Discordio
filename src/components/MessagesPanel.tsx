@@ -40,6 +40,13 @@ export async function openConversationWith(friend: { id: string; name: string; a
   fire("open-conversation");
 }
 
+// Open a server text channel in the Messages section.
+export function openChannelConversation(ch: { id: string; name: string; guild?: string }) {
+  pendingOpen = { channel_id: ch.id, label: `#${ch.name}${ch.guild ? ` · ${ch.guild}` : ""}`, is_dm: false, avatar: null, unread: 0 };
+  fire("expand:Messages");
+  fire("open-conversation");
+}
+
 // DMs and mentions that came in: open one to read and reply.
 export function MessagesPanel() {
   const [convs, setConvs] = useState<Conversation[] | null>(null);
@@ -173,13 +180,13 @@ function ConversationView({ conv, onBack }: { conv: Conversation; onBack: () => 
             <DialogButton style={{ flex: 1, minWidth: 0 }} onClick={onBack}>
               ← Messages
             </DialogButton>
-            <ColorButton color="#23a55a" onClick={async () => {
+            {conv.is_dm && <ColorButton color="#23a55a" onClick={async () => {
                 const res: any = await call("call_channel", conv.channel_id);
                 toaster.toast({ title: "Discordio", body: res?.error ? `Couldn't call: ${res.error}` : `Calling ${history?.label || conv.label}` });
                 if (!res?.error) fire("collapse:Messages");
               }}>
               <FaPhone /> Call
-            </ColorButton>
+            </ColorButton>}
           </Focusable>
         </div>
       </PanelSectionRow>

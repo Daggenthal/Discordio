@@ -1,7 +1,7 @@
 import { call, toaster } from "@decky/api";
 import { ButtonItem, DialogButton, Focusable, PanelSectionRow, TextField, ToggleField } from "@decky/ui";
 import { FaComment, FaPhone } from "react-icons/fa";
-import { openConversationWith } from "./MessagesPanel";
+import { openChannelConversation, openConversationWith } from "./MessagesPanel";
 import { useEffect, useState } from "react";
 import { ColorButton } from "./ColorButton";
 import { Avatar, MemberRow, Member } from "./VoiceChatViews";
@@ -38,7 +38,47 @@ const Hint = ({ children, error }: { children: any; error?: boolean }) => (
 );
 
 // Voice channels of one server, with who's in each and a Join button.
-function GuildChannels({ guildId }: { guildId: string }) {
+function TextChannels({ guildId, guildName }: { guildId: string; guildName: string }) {
+  const [open, setOpen] = useState(false);
+  const [channels, setChannels] = useState<{ id: string; name: string }[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!open || channels) return;
+    query<{ id: string; name: string }[]>("text_channels", guildId).then(({ data, error }) => {
+      setError(error);
+      if (Array.isArray(data)) setChannels(data);
+    });
+  }, [open]);
+  return (
+    <>
+      <PanelSectionRow>
+        <ButtonItem layout="below" onClick={() => setOpen(!open)}>
+          {open ? "▾ Text Channels" : "▸ Text Channels"}
+        </ButtonItem>
+      </PanelSectionRow>
+      {open && error && <Hint error>{error}</Hint>}
+      {open && !error && !channels && <Hint>Loading text channels...</Hint>}
+      {open && channels && channels.length === 0 && <Hint>No text channels you can read here</Hint>}
+      {open &&
+        channels?.map((c) => (
+          <PanelSectionRow key={c.id}>
+            <ButtonItem
+              layout="inline"
+              label={`# ${c.name}`}
+              onClick={() => {
+                fire("collapse:Servers");
+                openChannelConversation({ id: c.id, name: c.name, guild: guildName });
+              }}
+            >
+              Open
+            </ButtonItem>
+          </PanelSectionRow>
+        ))}
+    </>
+  );
+}
+
+function GuildChannels({ guildId, guildName }: { guildId: string; guildName: string }) {
   const [channels, setChannels] = useState<VoiceChannel[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -62,10 +102,10 @@ function GuildChannels({ guildId }: { guildId: string }) {
 
   if (error) return <Hint error>{error}</Hint>;
   if (!channels) return <Hint>Loading voice channels...</Hint>;
-  if (!channels.length) return <Hint>No voice channels you can see here</Hint>;
 
   return (
     <>
+      {!channels.length && <Hint>No voice channels you can see here</Hint>}
       {channels.map((ch) => (
         <PanelSectionRow key={ch.id}>
           <ButtonItem
@@ -89,6 +129,7 @@ function GuildChannels({ guildId }: { guildId: string }) {
           )}
         </PanelSectionRow>
       ))}
+      <TextChannels guildId={guildId} guildName={guildName} />
     </>
   );
 }
@@ -148,10 +189,10 @@ export function ServersPanel() {
                 } catch (_) {}
               }}
             >
-              {open === g.id ? "Hide" : "Voice"}
+              {open === g.id ? "Hide" : "Open"}
             </ButtonItem>
           </PanelSectionRow>
-          {open === g.id && <GuildChannels guildId={g.id} />}
+          {open === g.id && <GuildChannels guildId={g.id} guildName={g.name} />}
         </div>
       ))}
     </>
