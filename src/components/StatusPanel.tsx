@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Emoji, EmojiPicker } from "./EmojiPicker";
 import { ChoiceSlider } from "./ChoiceSlider";
 import { fire } from "../lib/events";
+import { PlainButton } from "./SectionHeader";
 
 type StatusEmoji = { url?: string; text?: string; name?: string } | null;
 
@@ -74,8 +75,8 @@ export function StatusPanel({ status }: { status?: { status: string; custom: str
   return (
     <>
       <PanelSectionRow>
-        <ButtonItem layout="below" onClick={() => setOpen(!open)}>
-          <span style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, textAlign: "left" }}>
+        <PlainButton onClick={() => setOpen(!open)}>
+          <span style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, textAlign: "left", width: "100%" }}>
             <Dot color={current.color} />
             <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {current.label}
@@ -83,7 +84,7 @@ export function StatusPanel({ status }: { status?: { status: string; custom: str
             </span>
             <span style={{ opacity: 0.5 }}>{open ? "▾" : "▸"}</span>
           </span>
-        </ButtonItem>
+        </PlainButton>
       </PanelSectionRow>
       {open && (
         <>

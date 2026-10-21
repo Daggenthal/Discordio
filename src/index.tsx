@@ -30,7 +30,7 @@ import { startMicBridge } from "./lib/mic";
 import { AudioDevicesPanel } from "./components/AudioDevicesPanel";
 import { WelcomeBanner } from "./components/WelcomeBanner";
 import { Badges } from "./components/Badges";
-import { SectionHeader } from "./components/SectionHeader";
+import { PlainButton, SectionHeader } from "./components/SectionHeader";
 import { MediaViewer } from "./components/MediaViewer";
 import { ProfilePanel } from "./components/ProfileView";
 import { openProfile, useProfileTarget } from "./lib/profile";
@@ -230,15 +230,15 @@ const SelectableProfile = ({ state }: { state: any }) => {
 const BackToTop = ({ gap = 0 }: { gap?: number }) => (
   <PanelSectionRow>
     {gap > 0 && <div style={{ height: gap }} />}
-    <ButtonItem
-      layout="below"
+    <PlainButton
+      center
       onClick={() => {
         fire("collapse-all");
         setTimeout(() => fire("jump:top"), 50);
       }}
     >
       ↑ Back to Top
-    </ButtonItem>
+    </PlainButton>
   </PanelSectionRow>
 );
 
@@ -318,7 +318,7 @@ const Content = () => {
         try {
           const a = topRef.current;
           a?.scrollIntoView({ behavior: "smooth", block: "start" });
-          a?.parentElement?.querySelector<HTMLElement>("button, .DialogButton, input")?.focus();
+          a?.parentElement?.querySelector<HTMLElement>("button, .DialogButton, input, [tabindex]")?.focus();
         } catch (_) {}
       }),
     [],

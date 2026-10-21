@@ -27,3 +27,23 @@ export function SectionHeader({ title, open, onToggle, badge }: { title: string;
     </Focusable>
   );
 }
+
+// A plain, borderless row that acts as a button (no grey box), with the
+// same selection highlight as the section titles.
+export function PlainButton({ children, onClick, center }: { children: any; onClick: () => void; center?: boolean }) {
+  const [focused, setFocused] = useState(false);
+  return (
+    <Focusable
+      onActivate={onClick}
+      {...({ onGamepadFocus: () => setFocused(true), onGamepadBlur: () => setFocused(false) } as any)}
+      style={{
+        display: "flex", alignItems: "center", justifyContent: center ? "center" : "flex-start", gap: 8,
+        padding: "10px 10px", margin: "0 -10px", borderRadius: 6, fontSize: 15, color: "#fff",
+        background: focused ? "rgba(255,255,255,0.14)" : "transparent",
+        boxShadow: focused ? "inset 0 0 0 2px rgba(255,255,255,0.75)" : "none",
+      }}
+    >
+      {children}
+    </Focusable>
+  );
+}
