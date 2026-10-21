@@ -19,12 +19,19 @@ export const watchStream = async (userId: string, name: string) => {
 
 export const endFullScreen = async () => {
   fullScreen = null;
-  await call("stop_watching").catch(() => {});
+  await call("end_full_screen").catch(() => {});
   fire("pip-changed");
 };
 
 // Or as a small picture in the in-game overlay, while you keep playing.
 export const watchInOverlay = async (userId: string, name: string) => {
+  // Pressing it again for the same stream closes the picture.
+  const cur: any = await call("get_pip").catch(() => null);
+  if (cur?.on && cur.user_id === userId) {
+    await stopWatching();
+    toaster.toast({ title: "Discordio", body: `Stopped watching ${name}'s stream` });
+    return;
+  }
   const res: any = await call("watch_stream", userId, true, false);
   toaster.toast({
     title: "Discordio",

@@ -612,7 +612,7 @@ class Plugin:
                          "pip_size": s.get("pip_size", "normal"),
                          "pip_fps": s.get("pip_fps", 30)},
             "pip": ({"seq": cls.pip.get("seq"), "w": cls.pip.get("w"), "h": cls.pip.get("h"), "name": cls.pip.get("name")}
-                    if cls._pip_fresh() else None),
+                    if cls._pip_fresh() and not cls.pip_paused else None),
         }, headers={"Access-Control-Allow-Origin": "*", "Cache-Control": "no-store"})
 
     # ------------------------------------------------------------ helpers
@@ -912,6 +912,10 @@ class Plugin:
         full screen in the Discord view, or as a picture-in-picture in the
         in-game overlay while you keep playing."""
         fps = cls.settings.load().get("pip_fps", 30)
+        if player and cls.pip:
+            # Full screen over the corner picture: hide the corner one until
+            # you're back (end_full_screen), same stream either way.
+            cls.pip_paused = True
         if overlay:
             # Like Go Live: Discord only receives a stream's video while it
             # thinks the stream is on screen, so the hidden page has to look
@@ -920,7 +924,9 @@ class Plugin:
         res = await cls._req("watchStream", {"userId": user_id, "overlay": bool(overlay), "fps": fps,
                                              "player": bool(player)}, timeout=15)
         if overlay and isinstance(res, dict) and not res.get("error"):
-            cls.pip = {"on": True, "starting": time.time(), "seq": 0, "data": None, "name": res.get("name")}
+            cls.pip = {"on": True, "starting": time.time(), "seq": 0, "data": None, "name": res.get("name"),
+                       "user_id": user_id}
+            cls.pip_paused = False
             diag.set("pip", diag.PENDING, "waiting for the stream's video")
         elif overlay:
             await cls._pretend_visible(False)
@@ -942,9 +948,21 @@ class Plugin:
     @classmethod
     async def stop_watching(cls):
         cls.pip = None
+        cls.pip_paused = False
         res = await cls._req("stopWatching", {}, timeout=10)
         await cls._pretend_visible(False)
         return res
+
+    pip_paused = False
+
+    @classmethod
+    async def end_full_screen(cls):
+        """B in the full-screen player: back to the corner picture if one was
+        showing, otherwise stop watching."""
+        if cls.pip:
+            cls.pip_paused = False
+            return await cls._req("hidePlayer", {}, timeout=10)
+        return await cls.stop_watching()
 
     @classmethod
     async def _on_watch_ended(cls, _d):
@@ -958,7 +976,8 @@ class Plugin:
         p = cls.pip
         if not p:
             return {"on": False}
-        return {"on": True, "name": p.get("name"), "frames": p.get("seq", 0), "live": cls._pip_fresh()}
+        return {"on": True, "name": p.get("name"), "user_id": p.get("user_id"), "frames": p.get("seq", 0),
+                "live": cls._pip_fresh()}
 
     @classmethod
     async def set_pip_look(cls, position=None, size=None, fps=None):

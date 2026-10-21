@@ -636,6 +636,35 @@
         const m = (window.DISCORDIO || {}).media;
         return m && m.latestRemoteVideo ? m.latestRemoteVideo(since) : null;
     };
+    const remoteCandidates = (since) => {
+        const m = (window.DISCORDIO || {}).media;
+        return m && m.remoteVideoCandidates ? m.remoteVideoCandidates(since) : [];
+    };
+    // Is this track actually delivering pictures? A stream watched before
+    // can leave a track behind that's "live" but black.
+    async function hasFrames(track, ms) {
+        if (!window.MediaStreamTrackProcessor) return !track.muted;
+        const c = track.clone();
+        const r = new MediaStreamTrackProcessor({ track: c }).readable.getReader();
+        try {
+            const res = await Promise.race([r.read(), sleep(ms).then(() => null)]);
+            if (res && res.value) { res.value.close(); return true; }
+            return false;
+        } catch (_) { return false; } finally {
+            try { r.cancel(); } catch (_) { }
+            try { c.stop(); } catch (_) { }
+        }
+    }
+    async function findStreamVideo(since, st, tries) {
+        for (let i = 0; i < (tries || 40) && st.on; i++) {
+            for (const t of remoteCandidates(since)) {
+                if (!st.on) return null;
+                if (await hasFrames(t, 700)) return t;
+            }
+            await sleep(400);
+        }
+        return null;
+    }
     const blobToB64 = (blob) => new Promise((resolve, reject) => {
         const fr = new FileReader();
         fr.onload = () => resolve(String(fr.result).split(",")[1] || "");
@@ -649,15 +678,6 @@
         const st = { on: true, seq: 0, fps: Math.max(2, Math.min(60, fps || 30)) };
         pip = st;
         (async () => {
-            let track = null;
-            for (let i = 0; i < 80 && st.on && !track; i++) {
-                track = remoteVideo((since || 0) - 2000);
-                if (!track) await sleep(250);
-            }
-            if (!st.on) return;
-            if (!track) { emit("pip", { error: "the stream's video didn't arrive" }); st.on = false; return; }
-            const clone = track.clone();
-            st.track = clone;
             const canvas = typeof OffscreenCanvas !== "undefined" ? new OffscreenCanvas(width, Math.round(width * 9 / 16)) : null;
             if (!canvas) { emit("pip", { error: "this browser can't draw the frames" }); return; }
             const ctx = canvas.getContext("2d");
@@ -669,32 +689,46 @@
                 const blob = await canvas.convertToBlob({ type: "image/jpeg", quality: 0.72 });
                 emit("pip_frame", { seq: ++st.seq, data: await blobToB64(blob), w: width, h, name: name || null });
             };
-            emit("pip", { started: true, how: window.MediaStreamTrackProcessor ? "track" : "video" });
-            let last = 0;
-            if (window.MediaStreamTrackProcessor) {
-                const reader = new MediaStreamTrackProcessor({ track: clone }).readable.getReader();
-                st.reader = reader;
-                while (st.on) {
-                    let r;
-                    try { r = await reader.read(); } catch (_) { break; }
-                    if (r.done) break;
-                    const frame = r.value;
-                    const now = performance.now();
-                    if (now - last >= 1000 / st.fps - 2) {
-                        last = now;
-                        try { await send(frame, frame.displayWidth, frame.displayHeight); } catch (e) { warn("pip frame", e); }
+            let started = false, lost = 0;
+            while (st.on) {
+                // Find the stream's video (again, if it went black).
+                const track = await findStreamVideo((since || 0) - 2000, st, started ? 15 : 40);
+                if (!st.on) break;
+                if (!track) {
+                    if (!started || ++lost > 3) { emit("pip", { error: "the stream's video didn't arrive" }); st.on = false; break; }
+                    continue;
+                }
+                const clone = track.clone();
+                st.track = clone;
+                if (!started) { started = true; emit("pip", { started: true, how: window.MediaStreamTrackProcessor ? "track" : "video" }); }
+                let last = 0;
+                if (window.MediaStreamTrackProcessor) {
+                    const reader = new MediaStreamTrackProcessor({ track: clone }).readable.getReader();
+                    st.reader = reader;
+                    while (st.on) {
+                        let r;
+                        try { r = await Promise.race([reader.read(), sleep(3000).then(() => null)]); } catch (_) { break; }
+                        if (!r || r.done) break; // stalled or ended: look for the video again
+                        const frame = r.value;
+                        const now = performance.now();
+                        if (now - last >= 1000 / st.fps - 2) {
+                            last = now;
+                            try { await send(frame, frame.displayWidth, frame.displayHeight); } catch (e) { warn("pip frame", e); }
+                        }
+                        frame.close();
                     }
-                    frame.close();
+                    try { reader.cancel(); } catch (_) { }
+                } else {
+                    const v = document.createElement("video");
+                    v.muted = true; v.playsInline = true; v.srcObject = new MediaStream([clone]);
+                    try { await v.play(); } catch (_) { }
+                    while (st.on && clone.readyState === "live") {
+                        await sleep(1000 / st.fps);
+                        try { await send(v, v.videoWidth, v.videoHeight); } catch (_) { }
+                    }
+                    v.srcObject = null;
                 }
-            } else {
-                const v = document.createElement("video");
-                v.muted = true; v.playsInline = true; v.srcObject = new MediaStream([clone]);
-                try { await v.play(); } catch (_) { }
-                while (st.on) {
-                    await sleep(1000 / st.fps);
-                    try { await send(v, v.videoWidth, v.videoHeight); } catch (_) { }
-                }
-                v.srcObject = null;
+                try { clone.stop(); } catch (_) { }
             }
             if (pip === st) { pip = null; emit("pip", { stopped: true }); }
         })();
@@ -734,18 +768,30 @@
         const msg = (t) => { const m = el.querySelector(".dio-p-msg"); if (m) m.textContent = t || ""; };
         msg("Waiting for the stream's video...");
         (async () => {
-            let track = null;
-            for (let i = 0; i < 80 && st.on && !track; i++) {
-                track = remoteVideo((since || 0) - 2000);
-                if (!track) await sleep(250);
-            }
-            if (!st.on) return;
-            if (!track) { msg("The stream's video didn't arrive. Press B to go back."); emit("pip", { error: "the stream's video didn't arrive (player)" }); return; }
             const v = el.querySelector("video");
-            v.srcObject = new MediaStream([track]);
-            try { await v.play(); } catch (_) { }
-            msg("");
-            track.addEventListener("ended", () => st.on && msg("The stream ended. Press B to go back."));
+            let lastFrame = 0;
+            const tick = () => { lastFrame = performance.now(); if (st.on && v.requestVideoFrameCallback) v.requestVideoFrameCallback(tick); };
+            let first = true;
+            while (st.on) {
+                const track = await findStreamVideo((since || 0) - 2000, st, first ? 40 : 15);
+                if (!st.on) return;
+                if (!track) {
+                    msg("The stream's video didn't arrive. Press B to go back.");
+                    if (first) emit("pip", { error: "the stream's video didn't arrive (player)" });
+                    return;
+                }
+                first = false;
+                v.srcObject = new MediaStream([track]);
+                try { await v.play(); } catch (_) { }
+                msg("");
+                lastFrame = performance.now();
+                if (v.requestVideoFrameCallback) v.requestVideoFrameCallback(tick);
+                // Went black: find the video again.
+                while (st.on && track.readyState === "live" && (!v.requestVideoFrameCallback || performance.now() - lastFrame < 3000)) await sleep(500);
+                if (!st.on) return;
+                if (watching) msg("Reconnecting...");
+                else { msg("The stream ended. Press B to go back."); return; }
+            }
         })();
         return { ok: true };
     }
@@ -1294,6 +1340,7 @@
     m("pipFps", ({ fps }) => pipFps(fps));
     m("stopWatching", () => stopWatching());
     m("pipStop", () => pipStop());
+    m("hidePlayer", () => { hidePlayer(); return { ok: true }; });
     m("getStatus", () => myStatus());
     m("setStatus", ({ status, custom }) => setStatus(status, custom));
     m("setLocalMute", ({ userId, muted }) => setLocalMute(userId, muted));

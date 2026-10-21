@@ -165,6 +165,12 @@
     const videoTracks = [];  // { track, at }
     // The remote video that most recently started sending frames: watching a
     // stream unmutes its track (Discord may have created it earlier).
+    // All live remote videos, most likely to be the stream first.
+    function remoteVideoCandidates(since) {
+        const live = videoTracks.filter((v) => v.track.readyState === "live");
+        const score = (v) => (!v.track.muted ? 2 : 0) + (v.unmutedAt >= (since || 0) || v.at >= (since || 0) ? 1 : 0);
+        return live.sort((a, b) => score(b) - score(a) || Math.max(b.unmutedAt, b.at) - Math.max(a.unmutedAt, a.at)).map((v) => v.track);
+    }
     function latestRemoteVideo(since) {
         const live = videoTracks.filter((v) => v.track.readyState === "live");
         const sending = live.filter((v) => !v.track.muted);
@@ -332,5 +338,5 @@
         } catch (_) { }
     }
 
-    D.media = { keepFlowing, status, rtcStats, pin, latestRemoteVideo };
+    D.media = { keepFlowing, status, rtcStats, pin, latestRemoteVideo, remoteVideoCandidates };
 })();
