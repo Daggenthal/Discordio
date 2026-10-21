@@ -127,7 +127,7 @@ export function OverlayPanel() {
         <PanelSectionRow>
           <ToggleField
             label="Hide Performance Overlay in Calls"
-            description="Only one overlay can show at a time, so the FPS overlay turns off during calls and comes back after."
+            description="Only one overlay can show at a time, so the FPS overlay turns off during calls and comes back after. Message popups always hide it for a few seconds, then put it back."
             checked={s.hide_perf !== false}
             onChange={async (v) => setS(await call<[boolean], OverlaySettings>("set_overlay_hide_perf", v))}
           />

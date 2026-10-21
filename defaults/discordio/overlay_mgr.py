@@ -56,10 +56,14 @@ class OverlayManager:
     def wants_hold(self, s=None):
         """A call is ringing or in progress and the overlay is showing for it."""
         s = s or self.settings.load()
+        # A notice always borrows the screen for its few seconds; the setting
+        # only decides whether a call keeps the performance overlay hidden.
+        if time.time() < self.notice_until:
+            return True
         if not s.get("overlay_hide_perf", True):
             return False
         try:
-            return bool(self.enabled(s) and (self.call_active() or time.time() < self.notice_until))
+            return bool(self.enabled(s) and self.call_active())
         except Exception:
             return False
 
@@ -132,10 +136,6 @@ class OverlayManager:
         """Make room for a notice: overlay on and the performance overlay
         off for that long, then back as it was. False if it can't be shown."""
         s = self.settings.load()
-        if not s.get("overlay_hide_perf", True):
-            visible, _ = self.perf
-            if visible:
-                return False  # the performance overlay has the screen, and we may not hide it
         self.notice_until = time.time() + seconds
         await self._update_hold(s)
         return True
