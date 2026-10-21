@@ -10,7 +10,8 @@ import { watchInOverlay, watchStream } from "../lib/watch";
 import { Favorite, isFavorite, toggleFavorite, useFavorites } from "../lib/favorites";
 import { FaEye, FaSignInAlt, FaStar } from "react-icons/fa";
 import { FriendRequests } from "./FriendRequests";
-import { openProfile } from "../lib/profile";
+import { openProfile, useProfileTarget } from "../lib/profile";
+import { ProfilePanel } from "./ProfileView";
 import { FaUser } from "react-icons/fa";
 import { ActionRow, MutedIcon, UnreadBadge, markRead, setPopupMute } from "./Unread";
 
@@ -297,6 +298,7 @@ const STATUS_COLOR: Record<string, string> = {
 const PAGE = 25;
 
 export function FriendsPanel() {
+  const profileT = useProfileTarget();
   // The list as it was loaded last, so coming back from a profile shows it
   // (and the friend you were on) right away.
   const [friends, setFriendsRaw] = useState<Friend[] | null>(() => restored<Friend[]>("friends-list") ?? null);
@@ -347,6 +349,8 @@ export function FriendsPanel() {
   }
 
   const q = search.trim().toLowerCase();
+  // A friend's profile shows here, in place of the list; Back returns to it.
+  if (profileT?.where === "friends") return <ProfilePanel userId={profileT.userId} inline />;
   // Searching looks through everyone, offline included.
   const matching = friends.filter((f) => (q ? f.name.toLowerCase().includes(q) : showOffline || f.status !== "offline"));
   const list = matching.slice(0, shown);
@@ -463,7 +467,7 @@ function FriendRow({ f, open, onToggle }: { f: Friend; open: boolean; onToggle: 
             <div data-dio-key={`friend:${f.id}`} style={{ flex: 1, minWidth: 0, display: "flex" }}>
               <DialogButton
                 style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "10px 4px", fontSize: 14 }}
-                onClick={() => openProfile(f.id, `friend:${f.id}`)}
+                onClick={() => openProfile(f.id, `friend:${f.id}`, "friends")}
               >
                 <FaUser /> Profile
               </DialogButton>

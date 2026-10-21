@@ -38,10 +38,14 @@ function Block({ children, pad = true }: { children: any; pad?: boolean }) {
   );
 }
 
+// Inside a list (a friend's profile) it doesn't need its own section title.
+const Wrap = ({ inline, title, children }: { inline: boolean; title: string; children: any }) =>
+  inline ? <>{children}</> : <PanelSection title={title}>{children}</PanelSection>;
+
 const head = { fontSize: 12, fontWeight: 700, opacity: 0.75, marginBottom: 3 } as const;
 
 // Discord-style profile, inside the Quick Access Menu.
-export function ProfilePanel({ userId }: { userId: string | null }) {
+export function ProfilePanel({ userId, inline }: { userId: string | null; inline?: boolean }) {
   const [p, setP] = useState<Profile | null>(null);
   const [badge, setBadge] = useState<number | null>(null);
   const backRef = useRef<HTMLDivElement>(null);
@@ -94,7 +98,7 @@ export function ProfilePanel({ userId }: { userId: string | null }) {
       }}
       onCancelActionDescription="Back"
     >
-    <PanelSection title={p?.me ? "Your Profile" : "Profile"}>
+    <Wrap inline={!!inline} title={p?.me ? "Your Profile" : "Profile"}>
       <div ref={backRef} style={{ height: 8 }} />
       {!p && <PanelSectionRow><div style={{ fontSize: 12, opacity: 0.7 }}>Loading profile...</div></PanelSectionRow>}
       {p?.error && <PanelSectionRow><div style={{ fontSize: 12, color: "#ff6b6b" }}>Couldn't load the profile: {p.error}</div></PanelSectionRow>}
@@ -103,7 +107,7 @@ export function ProfilePanel({ userId }: { userId: string | null }) {
         // the way Discord does so the text stays readable.
         <div
           style={{
-            borderRadius: 12, overflow: "hidden", paddingBottom: 6,
+            borderRadius: 12, overflow: "hidden", padding: "0 14px 12px", margin: "4px 0",
             background: p.theme
               ? `linear-gradient(rgba(0,0,0,0.45), rgba(0,0,0,0.45)), linear-gradient(180deg, ${c1}, ${c2})`
               : "#2b2d31",
@@ -111,7 +115,7 @@ export function ProfilePanel({ userId }: { userId: string | null }) {
         >
           {/* Card top: banner, avatar with decoration, name, tag and badges */}
           <PanelSectionRow>
-            <div style={{ borderRadius: 12, overflow: "hidden" }}>
+            <div style={{ overflow: "hidden", margin: "0 -14px" }}>
               <div style={{ height: 96, background: p.banner ? `center / cover no-repeat url(${p.banner})` : p.banner_color || c1 || "#5865f2" }} />
               <div style={{ position: "relative", height: 40 }}>
                 <div style={{ position: "absolute", top: -40, left: 12, width: 80, height: 80 }}>
@@ -122,7 +126,7 @@ export function ProfilePanel({ userId }: { userId: string | null }) {
                   <span style={{ position: "absolute", right: 2, bottom: 2, width: 18, height: 18, borderRadius: "50%", background: STATUS[p.status] || STATUS.offline, border: `4px solid ${ring}`, boxSizing: "border-box" }} />
                 </div>
               </div>
-              <div style={{ padding: "4px 12px 12px", color: "#fff" }}>
+              <div style={{ padding: "4px 14px 12px", color: "#fff" }}>
                 <div style={{ fontSize: 20, fontWeight: 800, wordBreak: "break-word" }}>{p.name}</div>
                 <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6, marginTop: 4, fontSize: 12 }}>
                   {p.username && <span style={{ opacity: 0.9 }}>{p.username}</span>}
@@ -214,7 +218,7 @@ export function ProfilePanel({ userId }: { userId: string | null }) {
           {back}
         </div>
       )}
-    </PanelSection>
+    </Wrap>
     </Focusable>
   );
 }

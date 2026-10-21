@@ -300,7 +300,8 @@ const Content = () => {
 
   // A profile opens inside the menu, covering the rest until Back (which
   // keeps every section as it was).
-  const profile = useProfileTarget();
+  const target = useProfileTarget();
+  const profile = target?.where === "me" ? target : null;
   return (
     <>
       {profile && <SafeSection name="Profile"><ProfilePanel userId={profile.userId} /></SafeSection>}

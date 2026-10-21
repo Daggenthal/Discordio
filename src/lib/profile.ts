@@ -5,17 +5,20 @@ import { beginRestore, fire, on } from "./events";
 // of Discordio isn't rendered (hidden parts could still take the
 // controller's focus); Back rebuilds it as it was and returns the focus to
 // whatever opened the profile (marked with data-dio-key).
-export type ProfileTarget = { userId: string | null; key: string | null };
+// where: "me" covers the whole menu; "friends" / "call" show the profile in
+// place of that list only, so going back leaves you in that list.
+export type ProfileTarget = { userId: string | null; key: string | null; where: "me" | "friends" | "call" };
 let target: ProfileTarget | null = null;
 export const profileTarget = () => target;
-export function openProfile(userId: string | null, key: string | null = null) {
-  target = { userId, key };
+export function openProfile(userId: string | null, key: string | null = null, where: "me" | "friends" | "call" = "me") {
+  target = { userId, key, where };
   fire("profile-changed");
 }
 export function closeProfile() {
   const key = target?.key;
+  const where = target?.where;
   target = null;
-  beginRestore();
+  if (where === "me") beginRestore();
   fire("profile-changed");
   if (!key) return;
   // The menu is rebuilt and lists (like friends) load again, and Steam may

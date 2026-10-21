@@ -4,7 +4,8 @@ import { toaster } from "@decky/api";
 import { ChoiceSlider } from "./ChoiceSlider";
 import { watchInOverlay, watchStream } from "../lib/watch";
 import { PipControls } from "./PipControls";
-import { openProfile } from "../lib/profile";
+import { openProfile, useProfileTarget } from "../lib/profile";
+import { ProfilePanel } from "./ProfileView";
 import { remember, restored } from "../lib/events";
 import { GoLivePanel } from "./GoLivePanel";
 import { useEffect, useRef, useState } from "react";
@@ -90,6 +91,7 @@ export const MemberRow = ({ m }: { m: Member }) => (
 let lastSeenCall: string | null = null;
 
 export function VoiceChannelView() {
+  const profileT = useProfileTarget();
   const voice = useVoice();
   const anchor = useRef<HTMLDivElement>(null);
   const [openId, setOpenIdRaw] = useState<string | null>(() => restored<string | null>("member") ?? null);
@@ -125,6 +127,7 @@ export function VoiceChannelView() {
     return () => clearTimeout(t);
   }, [voice?.channel_id]);
 
+  if (profileT?.where === "call") return <ProfilePanel userId={profileT.userId} inline />;
   if (!voice) {
     return (
       <PanelSectionRow>
@@ -246,7 +249,7 @@ function MemberItem({
         <Focusable style={{ paddingLeft: 12, borderLeft: "2px solid rgba(255,255,255,0.15)", marginLeft: 4 }}>
           <PanelSectionRow>
             <div data-dio-key={`member:${m.id}`}>
-              <ButtonItem layout="below" onClick={() => openProfile(m.id, `member:${m.id}`)}>
+              <ButtonItem layout="below" onClick={() => openProfile(m.id, `member:${m.id}`, "call")}>
                 View Profile
               </ButtonItem>
             </div>
