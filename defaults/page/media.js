@@ -21,6 +21,7 @@
     if (!D || D.media) return;
 
     const stats = { played: 0, blocked: 0, failed: 0, unlocks: 0, last: null };
+    let lastSoundAt = 0; // last time a sound file (not a live stream) started playing
     const blocked = new Map(); // element -> time it was blocked
     const contexts = new Set();
 
@@ -35,7 +36,7 @@
         const p = origPlay.apply(el, args);
         if (p && typeof p.then === "function") {
             p.then(
-                () => { stats.played++; blocked.delete(el); },
+                () => { stats.played++; blocked.delete(el); if (!el.srcObject) lastSoundAt = Date.now(); },
                 (e) => {
                     if (e && e.name === "NotAllowedError") {
                         stats.blocked++;
@@ -338,5 +339,5 @@
         } catch (_) { }
     }
 
-    D.media = { keepFlowing, status, rtcStats, pin, latestRemoteVideo, remoteVideoCandidates };
+    D.media = { playedSince: (t) => lastSoundAt >= t, keepFlowing, status, rtcStats, pin, latestRemoteVideo, remoteVideoCandidates };
 })();

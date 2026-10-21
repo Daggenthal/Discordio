@@ -452,6 +452,10 @@ class Plugin:
         if cls.capture.port:
             await cls.bridge.push("config", {"captureUrl": f"ws://127.0.0.1:{cls.capture.port}/webrtc"})
         await cls._unlock_audio("page connected")
+        try:
+            await cls._req("warmSounds", {}, timeout=5)
+        except Exception as e:
+            log.info(f"couldn't preload Discord sounds: {e}")
 
     _last_unlock = 0.0
 

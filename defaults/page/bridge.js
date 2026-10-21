@@ -1362,7 +1362,61 @@
     // The ringtone while someone calls you (Discord's own sound; its page is
     // hidden, so it didn't play it by itself). Not in Do Not Disturb.
     let ringtone = null;
-    function ringStart() {
+    // Discord's sound files load the first time they play, and now and then a
+    // sound just didn't come out. Play them once silently at startup so
+    // they're ready, and check that a ring or message ding really played.
+    function discordSound(name, volume) {
+        const P = props("playSound", "createSound");
+        if (!P || !P.createSound) return null;
+        const s = P.createSound(name, name, volume);
+        return s;
+    }
+    function warmSounds() {
+        for (const name of ["message1", "call_ringing"]) {
+            try {
+                const s = discordSound(name, 0.001);
+                if (!s) return false;
+                s.play && s.play();
+                setTimeout(() => { try { s.stop && s.stop(); } catch (_) { } }, 400);
+            } catch (_) { }
+        }
+        return true;
+    }
+    function soundOff(name) {
+        try {
+            const N = store("NotificationSettingsStore");
+            const off = N && N.getDisabledSounds ? N.getDisabledSounds() : [];
+            return (off || []).includes(name);
+        } catch (_) { return false; }
+    }
+    // Didn't hear anything? Unlock sound again and play it ourselves.
+    function makeSureItPlayed(since, retry, what) {
+        setTimeout(() => {
+            try {
+                const media = window.DISCORDIO && window.DISCORDIO.media;
+                if (!media || media.playedSince(since)) return;
+                log(`${what} didn't play, trying again`);
+                emit("sound_blocked", { sound: what });
+                setTimeout(retry, 250);
+            } catch (_) { }
+        }, 1500);
+    }
+    function messageDing(msg, ch) {
+        try {
+            if (soundOff("message1")) return;
+            const st = myStatus();
+            if (st && st.status === "dnd") return;
+            if (discordMuted(ch && ch.guild_id, msg.channel_id)) return;
+            const since = Date.now();
+            makeSureItPlayed(since, () => {
+                const s = discordSound("message1", 0.4);
+                s && s.play && s.play();
+            }, "message sound");
+        } catch (_) { }
+    }
+    m("warmSounds", () => ({ ok: warmSounds() }));
+
+    function ringStart(again) {
         if (ringtone) return;
         try { const st = myStatus(); if (st && st.status === "dnd") return; } catch (_) { }
         try {
@@ -1370,7 +1424,9 @@
             if (!P || !P.createSound) { warn("ringtone: Discord's sound player wasn't found"); return; }
             const s = P.createSound("call_ringing", "call_ringing", 0.7);
             ringtone = s;
+            const since = Date.now();
             if (s.loop) s.loop(); else if (s.play) s.play();
+            if (!again) makeSureItPlayed(since, () => { if (incoming && ringtone === s) { ringStop(); ringStart(true); } }, "ringtone");
         } catch (e) { warn("ringtone", e); ringtone = null; }
     }
     function ringStop() {
@@ -1695,6 +1751,7 @@
             const isDM = ch && !ch.guild_id;
             const mentioned = (msg.mentions || []).some((x) => (x.id || x) === u.id) || !!msg.mention_everyone;
             if (!isDM && !mentioned) return;
+            messageDing(msg, ch);
             const m = simplifyMessage(msg);
             // Popups have no room for pictures: say what was sent.
             const label = (m.media || []).map((x) => ({ gif: "GIF", gifv: "GIF", image: "image", video: "video", sticker: "sticker" })[x.kind] || "file");
