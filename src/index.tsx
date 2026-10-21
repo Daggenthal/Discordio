@@ -133,7 +133,7 @@ const Collapsible = ({
     <PanelSection>
       <PanelSectionRow>
         <div data-dio-key={`section:${title}`}>
-          <SectionHeader title={title} open={open} badge={badge} onToggle={() => setOpen(!open)} />
+          <SectionHeader title={label ?? title} open={open} badge={badge} onToggle={() => setOpen(!open)} />
         </div>
       </PanelSectionRow>
       {open && children}
@@ -377,7 +377,7 @@ const Content = () => {
             <SafeSection name="Mic button"><PushToTalkButton /></SafeSection>
             <SafeSection name="Call shortcuts"><CallShortcutsPanel /></SafeSection>
           </Collapsible>
-          <Collapsible title="Messages" badge={unread} defaultOpen={false} bottomCollapse={false}>
+          <Collapsible title="Messages" label="Recent Messages" badge={unread} defaultOpen={false} bottomCollapse={false}>
             <SafeSection name="Messages"><MessagesPanel /></SafeSection>
           </Collapsible>
           <Collapsible title="Servers" defaultOpen={ui.autoOpenServers}>
