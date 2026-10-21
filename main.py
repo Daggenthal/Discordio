@@ -811,6 +811,16 @@ class Plugin:
         return await cls._req("friendRequest", {"action": action, "userId": user_id, "username": username}, timeout=15)
 
     @classmethod
+    async def show_notice(cls, title, text):
+        """A popup where message popups appear. False if the overlay can't show
+        it right now (the QAM shows a Steam toast instead)."""
+        s = cls.settings.load()
+        if not (s.get("message_popups", True) and cls.overlay and cls.overlay.active_engine(s)):
+            return False
+        cls.messages.notice(title, text, hint="Discordio")
+        return True
+
+    @classmethod
     async def get_unread_total(cls):
         res = await cls._req("unreads", {"channelIds": [c["channel_id"] for c in cls.messages.list()]}, timeout=5, default={})
         if not isinstance(res, dict) or res.get("error"):

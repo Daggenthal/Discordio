@@ -53,6 +53,13 @@ class Messages:
         })
         del self.popups[:-MAX_POPUPS]
 
+    def notice(self, title, text, hint=""):
+        """A Discordio message (not from Discord) shown like a message popup."""
+        now = time.time()
+        self.popups.append({"id": f"notice-{now}", "channel_id": None, "name": title, "avatar": None,
+                            "context": "", "text": text[:300], "hint": hint, "shown_at": now})
+        del self.popups[:-MAX_POPUPS]
+
     def active_popups(self):
         s = self.settings.load()
         if not s.get("message_popups", True):

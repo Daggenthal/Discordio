@@ -31,17 +31,29 @@ export function startLoginHandoff() {
     if (!discordShowing) return; // not logging in on screen: stay where you are
     const name = s?.me?.username;
     try {
-      Router.Navigate("/library/home");
-      setTimeout(() => {
-        try {
-          Navigation.OpenQuickAccessMenu(999 as any); // the Decky tab
-        } catch (_) {}
-      }, 400);
-      toaster.toast({ title: "Discordio", body: name ? `Logged in as ${name}` : "Logged in to Discord" });
-      note("Login hand-off", true, "back to the library");
+      const game = (Router as any).MainRunningApp;
+      if (game) {
+        // A game is running: straight back into it.
+        Navigation.NavigateBack();
+      } else {
+        Router.Navigate("/library/home");
+        setTimeout(() => {
+          try {
+            Navigation.OpenQuickAccessMenu(999 as any); // the Decky tab
+          } catch (_) {}
+        }, 400);
+      }
+      note("Login hand-off", true, game ? `back to ${game.display_name}` : "back to the library");
     } catch (e) {
       note("Login hand-off", false, String(e));
     }
+    // Say so where message popups appear (the overlay), or as a Steam toast.
+    const text = `Logged in${name ? ` as ${name}` : ""}. Discordio will keep running in the background.`;
+    call<[string, string], boolean>("show_notice", "Login Successful", text)
+      .then((shown) => {
+        if (!shown) toaster.toast({ title: "Login Successful", body: text, duration: 8000 } as any);
+      })
+      .catch(() => toaster.toast({ title: "Login Successful", body: text }));
   };
   addEventListener("state", onState);
   return () => removeEventListener("state", onState);
