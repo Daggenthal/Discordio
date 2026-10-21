@@ -1,4 +1,5 @@
-import { ButtonItem, PanelSectionRow } from "@decky/ui";
+import { ButtonItem, DialogButton, Focusable, PanelSectionRow } from "@decky/ui";
+import { ColorButton } from "./ColorButton";
 import { ChoiceSlider } from "./ChoiceSlider";
 import { logSlider } from "../lib/diag";
 import { call, toaster } from "@decky/api";
@@ -38,12 +39,39 @@ const describe = (lim: Limits) => {
 
 // Resolution and frame rate for Go Live, with what your account allows.
 // Shown in the Call section and in Settings.
+// Discord's Nitro pink, for anything Nitro unlocks.
+const NITRO = "linear-gradient(90deg, #ff73fa, #b473f5)";
+export const NitroBadge = ({ text = "NITRO" }: { text?: string }) => (
+  <span
+    style={{
+      background: NITRO, color: "#fff", borderRadius: 4, padding: "1px 6px", fontSize: 10,
+      fontWeight: 800, letterSpacing: 0.4, whiteSpace: "nowrap",
+    }}
+  >
+    ✦ {text}
+  </span>
+);
+
+const hasNitro = (lim: Limits | null) => !!lim && !lim.error && lim.max_height === null;
+
+// Resolution and frame rate for Go Live, with what your account allows.
+// Shown in Settings, and when you press Go Live.
 export function StreamQualityPanel() {
   const [settings, setSettings] = useState<StreamSettings>({ resolution: "720", fps: 30 });
   const [limits, setLimits] = useState<Limits | null>(null);
   useEffect(() => {
     call<[], StreamSettings>("get_stream_settings").then((s) => s && setSettings(s)).catch(() => {});
-    call<[], Limits>("get_stream_limits").then(setLimits).catch(() => {});
+    call<[], Limits>("get_stream_limits")
+      .then(async (lim) => {
+        setLimits(lim);
+        // With Nitro, start from what Nitro allows (once, and never over a
+        // choice you've made yourself).
+        if (hasNitro(lim)) {
+          const s = await call<[], StreamSettings | null>("apply_nitro_default").catch(() => null);
+          if (s) setSettings(s);
+        }
+      })
+      .catch(() => {});
   }, []);
   const save = async (resolution?: string, fps?: number) => {
     setSettings((old) => ({ ...old, ...(resolution ? { resolution } : {}), ...(fps ? { fps } : {}) }));
@@ -56,16 +84,41 @@ export function StreamQualityPanel() {
     }
   };
   const selected = RESOLUTIONS.find((r) => r.data === settings.resolution) ?? RESOLUTIONS[1];
-  const needsUpgrade = overRes(selected.height, limits) || overFps(settings.fps, limits);
+  const resLocked = overRes(selected.height, limits);
+  const fpsLocked = overFps(settings.fps, limits);
+  const nitro = hasNitro(limits);
+  const lockedNote = (locked: boolean) =>
+    locked ? (
+      <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+        <NitroBadge text="NITRO ONLY" />
+        <span style={{ color: "#f0b232" }}>Discord will lower this to {limits ? describe(limits) : "your limit"}</span>
+      </span>
+    ) : undefined;
   return (
     <>
+      {limits && !limits.error && (
+        <PanelSectionRow>
+          <div style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+            {nitro ? (
+              <>
+                <NitroBadge /> <span>Every stream quality unlocked</span>
+              </>
+            ) : (
+              <span style={{ opacity: 0.8 }}>
+                {limits.reason}: up to {describe(limits)}. Options marked ✦ need <NitroBadge />
+              </span>
+            )}
+          </div>
+        </PanelSectionRow>
+      )}
       <PanelSectionRow>
         <ChoiceSlider
           label="Resolution"
+          description={lockedNote(resLocked)}
           choices={RESOLUTIONS.map((r) => ({
             value: r.data,
-            short: r.short,
-            label: overRes(r.height, limits) ? `${r.label} (needs Nitro)` : r.label,
+            short: overRes(r.height, limits) ? `${r.short}✦` : r.short,
+            label: r.label,
           }))}
           value={settings.resolution}
           onChange={(v) => save(v, undefined)}
@@ -74,24 +127,16 @@ export function StreamQualityPanel() {
       <PanelSectionRow>
         <ChoiceSlider
           label="Frame rate"
+          description={lockedNote(fpsLocked)}
           choices={FRAME_RATES.map((f) => ({
             value: f,
-            short: String(f),
-            label: overFps(f, limits) ? `${f} fps (needs Nitro)` : `${f} fps`,
+            short: overFps(f, limits) ? `${f}✦` : String(f),
+            label: `${f} fps`,
           }))}
           value={settings.fps}
           onChange={(v) => save(undefined, v)}
         />
       </PanelSectionRow>
-      {limits && !limits.error && (
-        <PanelSectionRow>
-          <div style={{ fontSize: "12px", lineHeight: "16px", color: needsUpgrade ? "#f0b232" : undefined, opacity: needsUpgrade ? 1 : 0.75 }}>
-            {limits.reason}: you can stream up to {describe(limits)}.
-            {needsUpgrade &&
-              " Discord will lower your stream to that. Higher settings need Nitro, or a server boosted to level 2."}
-          </div>
-        </PanelSectionRow>
-      )}
     </>
   );
 }
@@ -123,23 +168,49 @@ export function GoLivePanel({ inCall }: { inCall?: boolean } = {}) {
     }
   };
 
+  // Go Live first opens the quality choice; Start Streaming goes live.
+  const [choosing, setChoosing] = useState(false);
+  const start = async () => {
+    setChoosing(false);
+    await toggle();
+  };
+
   return (
     <>
-      <StreamQualityPanel />
       {inVoice && <StreamPreview />}
-      <PanelSectionRow>
-        <ButtonItem
-          layout="below"
-          disabled={!inVoice || busy}
-          onClick={toggle}
-          description={inVoice ? "Changes apply the next time you go live" : "Join a voice channel or call first"}
-        >
-          <span style={{ display: "inline-flex", alignItems: "center", gap: "8px" }}>
-            {live ? <FaStop /> : <FaVideo />}
-            {busy ? (live ? "Stopping..." : "Starting...") : live ? "Stop streaming" : "Go Live"}
-          </span>
-        </ButtonItem>
-      </PanelSectionRow>
+      {choosing && !live && (
+        <>
+          <PanelSectionRow>
+            <div style={{ fontWeight: 700, fontSize: 13 }}>Stream quality</div>
+          </PanelSectionRow>
+          <StreamQualityPanel />
+          <PanelSectionRow>
+            <Focusable style={{ display: "flex", gap: "8px" }}>
+              <DialogButton style={{ flex: 1, minWidth: 0 }} onClick={() => setChoosing(false)}>
+                Cancel
+              </DialogButton>
+              <ColorButton color="#5865f2" disabled={busy} onClick={start}>
+                <FaVideo /> Start Streaming
+              </ColorButton>
+            </Focusable>
+          </PanelSectionRow>
+        </>
+      )}
+      {!(choosing && !live) && (
+        <PanelSectionRow>
+          <ButtonItem
+            layout="below"
+            disabled={!inVoice || busy}
+            onClick={() => (live ? toggle() : setChoosing(true))}
+            description={inVoice ? undefined : "Join a voice channel or call first"}
+          >
+            <span style={{ display: "inline-flex", alignItems: "center", gap: "8px" }}>
+              {live ? <FaStop /> : <FaVideo />}
+              {busy ? (live ? "Stopping..." : "Starting...") : live ? "Stop streaming" : "Go Live"}
+            </span>
+          </ButtonItem>
+        </PanelSectionRow>
+      )}
       {status && (
         <PanelSectionRow>
           <div style={{ fontSize: "12px", color: status.error ? "#ff6b6b" : undefined, opacity: status.error ? 1 : 0.8, wordBreak: "break-word" }}>

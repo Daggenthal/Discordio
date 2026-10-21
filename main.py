@@ -728,8 +728,18 @@ class Plugin:
         return {"resolution": s["stream_resolution"], "fps": s["stream_fps"]}
 
     @classmethod
+    async def apply_nitro_default(cls):
+        """With Nitro: start from 1080p 60, once, unless you already picked a quality."""
+        s = cls.settings.load()
+        if s.get("quality_chosen") or s.get("nitro_default_applied"):
+            return None
+        cls.settings.update(stream_resolution="1080", stream_fps=60, nitro_default_applied=True)
+        log.info("Nitro: stream quality defaulted to 1080p 60")
+        return await cls.get_stream_settings()
+
+    @classmethod
     async def set_stream_settings(cls, resolution=None, fps=None):
-        changes = {}
+        changes = {"quality_chosen": True}
         if resolution is not None and str(resolution) in RESOLUTIONS:
             changes["stream_resolution"] = str(resolution)
         try:

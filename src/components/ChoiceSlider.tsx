@@ -16,7 +16,7 @@ export function ChoiceSlider<T>({
   onChange,
 }: {
   label: string;
-  description?: string;
+  description?: any;
   choices: Choice<T>[];
   value: T;
   onChange: (v: T) => void;
