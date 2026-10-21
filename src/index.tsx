@@ -111,6 +111,8 @@ const Collapsible = ({
   const [open, setOpen] = useState(() => takeExpand(title) || defaultOpen);
   // e.g. joining a voice channel collapses Servers, so Call / Go Live is in view.
   useEffect(() => on(`collapse:${title}`, () => setOpen(false)), [title]);
+  // "Back to Top" tidies up: everything closes.
+  useEffect(() => on("collapse-all", () => setOpen(false)), []);
   // e.g. a friend's Message button opens Messages.
   useEffect(() => on(`expand:${title}`, () => setOpen(true)), [title]);
   return (
@@ -167,7 +169,13 @@ const ProfileLine = ({ state }: { state: any }) => {
 const BackToTop = ({ gap = 0 }: { gap?: number }) => (
   <PanelSectionRow>
     {gap > 0 && <div style={{ height: gap }} />}
-    <ButtonItem layout="below" onClick={() => fire("jump:top")}>
+    <ButtonItem
+      layout="below"
+      onClick={() => {
+        fire("collapse-all");
+        setTimeout(() => fire("jump:top"), 50);
+      }}
+    >
       ↑ Back to Top
     </ButtonItem>
   </PanelSectionRow>

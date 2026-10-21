@@ -1,5 +1,6 @@
 import { ButtonItem, PanelSection, PanelSectionRow, ToggleField } from "@decky/ui";
 import { PageUsage } from "./PageUsage";
+import { on } from "../lib/events";
 import { SystemInfo, steamSystemInfo } from "./SystemInfo";
 import { addEventListener, call, removeEventListener, toaster } from "@decky/api";
 import { useEffect, useState } from "react";
@@ -50,6 +51,7 @@ const Dot = ({ state }: { state: string }) => (
 export function DiagnosticsPanel() {
   const [d, setD] = useState<Diagnostics | null>(null);
   const [open, setOpen] = useState(false);
+  useEffect(() => on("collapse-all", () => setOpen(false)), []);
   const [tests, setTests] = useState<TestResult[] | null>(null);
   const [testing, setTesting] = useState(false);
   const [qam, setQam] = useState<DiagEntry[]>(getDiag());
