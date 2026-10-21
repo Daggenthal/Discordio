@@ -832,17 +832,24 @@
 
     // ------------------------------------------------------------- badges
     let badgeCache = null;
-    const fmtDate = (d) => d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+    const fmtDate = (d) => d.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+    // "2y 3m", "3m", "12d"
     function since(dateLike) {
         const d = new Date(dateLike);
         if (isNaN(d)) return null;
-        let months = (new Date().getFullYear() - d.getFullYear()) * 12 + (new Date().getMonth() - d.getMonth());
-        if (new Date().getDate() < d.getDate()) months -= 1;
+        const now = new Date();
+        let months = (now.getFullYear() - d.getFullYear()) * 12 + (now.getMonth() - d.getMonth());
+        if (now.getDate() < d.getDate()) months -= 1;
         months = Math.max(0, months);
         const y = Math.floor(months / 12), m = months % 12;
-        const span = y ? `${y} year${y > 1 ? "s" : ""}${m ? `, ${m} month${m > 1 ? "s" : ""}` : ""}` : `${m} month${m === 1 ? "" : "s"}`;
-        return { date: fmtDate(d), span };
+        let short = [y ? `${y}y` : "", m ? `${m}m` : ""].filter(Boolean).join(" ");
+        if (!short) short = `${Math.max(0, Math.floor((now - d) / 86400000))}d`;
+        return { date: fmtDate(d), short, years: y };
     }
+    const NITRO_TIERS = { 1: "Bronze", 3: "Silver", 6: "Gold", 12: "Platinum", 24: "Diamond", 36: "Emerald", 60: "Ruby", 72: "Opal" };
+    const AGE_RANKS = ["Seed", "Sprout", "Sapling", "Bud", "Blossom", "Redwood", "Sequoia", "Bristlecone", "Stromatolite", "Primordial"];
+    // After a colon, start with a capital letter.
+    const tidy = (t) => String(t || "").replace(/(^|:\s*)([a-z])/g, (_, a, c) => a + c.toUpperCase());
     // Snowflake IDs carry their creation time.
     const createdAt = (id) => new Date(Number(BigInt(id) >> 22n) + 1420070400000);
     async function myBadges() {
@@ -872,16 +879,21 @@
         const badges = (profile.badges || []).map((b) => {
             const id = String(b.id || "");
             let text = b.description || id;
-            // Fill in what a short description leaves out.
-            if (/account.?age|legacy/i.test(id + " " + text) && created && !/\d{4}/.test(text)) text = `${text}: account created ${created.date} (${created.span} ago)`;
-            else if (/premium(?!_guild)|nitro|subscriber/i.test(id) && nitro && !/\d{4}/.test(text)) text = `${text}: subscriber since ${nitro.date} (${nitro.span})`;
-            else if (/guild_booster|boost/i.test(id) && boost && !/\d{4}/.test(text)) text = `${text}: boosting since ${boost.date} (${boost.span})`;
-            return { id, description: text, icon: b.icon ? `https://cdn.discordapp.com/badge-icons/${b.icon}.png` : null, link: b.link || null };
+            if (/account.?age/i.test(id + " " + text) && created) {
+                const rank = AGE_RANKS[Math.min(AGE_RANKS.length, Math.max(1, created.years)) - 1];
+                text = `${created.years >= 1 ? rank + ": " : ""}Account Created on ${created.date} (${created.short} ago)`;
+            } else if (/premium(?!_guild)|nitro|subscriber/i.test(id) && nitro) {
+                const mo = Number((id.match(/(\d+)_month/) || [])[1]);
+                text = `${NITRO_TIERS[mo] || "Nitro"}: Subscribing since ${nitro.date} (${nitro.short})`;
+            } else if (/guild_booster|boost/i.test(id) && boost) {
+                text = `Server Boosting since ${boost.date} (${boost.short})`;
+            }
+            return { id, description: tidy(text), icon: b.icon ? `https://cdn.discordapp.com/badge-icons/${b.icon}.png` : null, link: b.link || null };
         });
         const facts = [];
-        if (created) facts.push(`On Discord since ${created.date} (${created.span})`);
-        if (nitro) facts.push(`Nitro since ${nitro.date} (${nitro.span})`);
-        if (boost) facts.push(`Boosting since ${boost.date} (${boost.span})`);
+        if (created) facts.push(`On Discord since ${created.date} (${created.short})`);
+        if (nitro) facts.push(`Nitro since ${nitro.date} (${nitro.short})`);
+        if (boost) facts.push(`Boosting since ${boost.date} (${boost.short})`);
         const value = { badges, facts };
         badgeCache = { id: u.id, at: Date.now(), value };
         log("badges: " + badges.map((b) => `${b.id}="${b.description}"`).join(", "));
