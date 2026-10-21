@@ -1007,9 +1007,11 @@ class Plugin:
     # -- status
 
     @classmethod
-    async def set_status(cls, status=None, custom=None):
-        """Online / idle / dnd / invisible, and / or a custom status text ("" clears it)."""
-        return await cls._req("setStatus", {"status": status, "custom": custom}, timeout=15)
+    async def set_status(cls, status=None, custom=None, emoji=None, clear_after=None):
+        """Online / idle / dnd / invisible, and / or a custom status: text ("" clears it),
+        emoji ({id, name} / {name} / "none"), clear after (minutes, "today", or 0 = never)."""
+        return await cls._req("setStatus", {"status": status, "custom": custom, "emoji": emoji,
+                                            "clearAfter": clear_after}, timeout=15)
 
     # -- Discord page resource use
 

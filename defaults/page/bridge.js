@@ -242,7 +242,10 @@
         return null;
     }
 
-    async function setStatus(status, custom) {
+    // emoji: undefined/null keeps the current one, "none" removes it,
+    // { id, name } is a custom emoji, { name } a unicode one.
+    // clearAfter: minutes until it clears, "today" (midnight), or 0 / null = never.
+    async function setStatus(status, custom, emoji, clearAfter) {
         const out = {};
         if (status !== undefined && status !== null) {
             if (!STATUSES.includes(status)) throw new Error("Unknown status " + status);
@@ -252,19 +255,27 @@
         }
         if (custom !== undefined && custom !== null) {
             const text = String(custom).trim().slice(0, 128);
+            let expires = 0;
+            if (clearAfter === "today") { const d = new Date(); d.setHours(24, 0, 0, 0); expires = d.getTime(); }
+            else if (Number(clearAfter) > 0) expires = Date.now() + Number(clearAfter) * 60000;
             const set = discordSetting("status", "customStatus");
+            let prev = null;
+            try { prev = set && set.getSetting && set.getSetting(); } catch (_) { }
+            let emojiId = null, emojiName = null;
+            if (emoji === "none") { /* removed */ }
+            else if (emoji && (emoji.id || emoji.name)) { emojiId = emoji.id ? String(emoji.id) : null; emojiName = emoji.name || null; }
+            else if (prev) { emojiId = prev.emojiId && prev.emojiId !== "0" ? String(prev.emojiId) : null; emojiName = prev.emojiName || null; }
+            const empty = !text && !emojiId && !emojiName;
             if (set && set.updateSetting) {
-                // Keep the emoji you already had with the new text.
-                let prev = null;
-                try { prev = set.getSetting && set.getSetting(); } catch (_) { }
-                const keep = prev && (prev.emojiId || prev.emojiName) ? { emojiId: prev.emojiId, emojiName: prev.emojiName } : {};
-                await set.updateSetting(text ? { ...keep, text, expiresAtMs: "0" } : undefined);
+                await set.updateSetting(empty ? undefined : {
+                    text, expiresAtMs: String(expires || 0),
+                    ...(emojiId ? { emojiId } : {}), ...(emojiName ? { emojiName } : {}),
+                });
                 out.custom = "setting";
             } else {
-                const st = myStatus();
-                const e = st && st.emoji;
-                const keep = e ? (e.url ? { emoji_id: (e.url.match(/emojis\/(\d+)/) || [])[1], emoji_name: e.name } : { emoji_name: e.text }) : {};
-                await C().RestAPI.patch({ url: "/users/@me/settings", body: { custom_status: text ? { ...keep, text } : null } });
+                await C().RestAPI.patch({ url: "/users/@me/settings", body: { custom_status: empty ? null : {
+                    text, emoji_id: emojiId, emoji_name: emojiName, expires_at: expires ? new Date(expires).toISOString() : null,
+                } } });
                 out.custom = "rest";
             }
         }
@@ -1415,7 +1426,7 @@
     m("pipStop", () => pipStop());
     m("hidePlayer", () => { hidePlayer(); return { ok: true }; });
     m("getStatus", () => myStatus());
-    m("setStatus", ({ status, custom }) => setStatus(status, custom));
+    m("setStatus", ({ status, custom, emoji, clearAfter }) => setStatus(status, custom, emoji, clearAfter));
     m("setLocalMute", ({ userId, muted }) => setLocalMute(userId, muted));
     m("setUserVolume", ({ userId, volume }) => setUserVolume(userId, volume));
     m("moderate", ({ userId, action, value }) => moderate(userId, action, value));

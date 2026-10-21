@@ -1,6 +1,22 @@
 import { call, toaster } from "@decky/api";
-import { ButtonItem, PanelSectionRow, TextField } from "@decky/ui";
+import { ButtonItem, DialogButton, Focusable, PanelSectionRow, TextField } from "@decky/ui";
 import { useEffect, useState } from "react";
+import { Emoji, EmojiPicker } from "./EmojiPicker";
+import { ChoiceSlider } from "./ChoiceSlider";
+
+type StatusEmoji = { url?: string; text?: string; name?: string } | null;
+
+// When the custom status clears, like Discord's choices.
+const CLEAR_AFTER: { value: number | string; short: string; label: string }[] = [
+  { value: 0, short: "Never", label: "Don't clear" },
+  { value: 30, short: "30m", label: "30 minutes" },
+  { value: 60, short: "1h", label: "1 hour" },
+  { value: 240, short: "4h", label: "4 hours" },
+  { value: "today", short: "Today", label: "Today (at midnight)" },
+  { value: 1440, short: "1d", label: "24 hours" },
+  { value: 4320, short: "3d", label: "3 days" },
+  { value: 10080, short: "1w", label: "1 week" },
+];
 
 export const STATUSES = [
   { value: "online", label: "Online", color: "#23a55a", hint: "" },
@@ -14,8 +30,12 @@ const Dot = ({ color }: { color: string }) => (
 );
 
 // Your status and custom status, under your name. Select it to change.
-export function StatusPanel({ status }: { status?: { status: string; custom: string | null } | null }) {
+export function StatusPanel({ status }: { status?: { status: string; custom: string | null; emoji?: StatusEmoji } | null }) {
   const [open, setOpen] = useState(false);
+  // undefined: keep the current emoji; "none": remove it; or a new one.
+  const [emoji, setEmoji] = useState<Emoji | "none" | undefined>(undefined);
+  const [picking, setPicking] = useState(false);
+  const [clearAfter, setClearAfter] = useState<number | string>(0);
   const [custom, setCustom] = useState(status?.custom ?? "");
   const [busy, setBusy] = useState(false);
   useEffect(() => {
@@ -23,10 +43,18 @@ export function StatusPanel({ status }: { status?: { status: string; custom: str
   }, [status?.custom, open]);
 
   const current = STATUSES.find((s) => s.value === status?.status) ?? STATUSES[0];
+  // What the emoji will be after saving.
+  const shown: StatusEmoji =
+    emoji === "none" ? null : emoji ? (emoji.url ? { url: emoji.url } : { text: emoji.emoji ?? emoji.name }) : status?.emoji ?? null;
   const set = async (st: string | null, text: string | null, done: string) => {
     setBusy(true);
     try {
-      const res: any = await call("set_status", st, text);
+      const em = text === null ? null : emoji === undefined ? null : emoji === "none" ? "none" : { id: emoji.id, name: emoji.id ? emoji.name : emoji.emoji ?? emoji.name };
+      const res: any = await call("set_status", st, text, em, text === null ? null : clearAfter);
+      if (!res?.error && text !== null) {
+        setEmoji(undefined);
+        setPicking(false);
+      }
       toaster.toast({ title: "Discordio", body: res?.error ? `Couldn't change status: ${res.error}` : done });
     } finally {
       setBusy(false);
@@ -68,9 +96,45 @@ export function StatusPanel({ status }: { status?: { status: string; custom: str
           <PanelSectionRow>
             <TextField label="Custom status" value={custom} onChange={(e) => setCustom(e.target.value)} />
           </PanelSectionRow>
+          {/* The emoji in front of it: your current one, or a newly picked one. */}
           <PanelSectionRow>
-            <ButtonItem layout="below" disabled={busy} onClick={() => set(null, custom, custom.trim() ? "Custom status set" : "Custom status cleared")}>
-              {custom.trim() ? "Set Custom Status" : "Clear Custom Status"}
+            <div style={{ padding: "4px 0" }}>
+              <Focusable style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <span style={{ width: 32, height: 32, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, flex: "none" }}>
+                  {shown?.url ? <img src={shown.url} style={{ width: 26, height: 26 }} /> : shown?.text ?? <span style={{ opacity: 0.4, fontSize: 12 }}>none</span>}
+                </span>
+                <DialogButton style={{ flex: 2, minWidth: 0, height: "auto", minHeight: 40 }} onClick={() => setPicking(!picking)}>
+                  {picking ? "Close Emojis" : "Choose Emoji"}
+                </DialogButton>
+                {shown && (
+                  <DialogButton style={{ flex: 1, minWidth: 0, height: "auto", minHeight: 40 }} onClick={() => { setEmoji("none"); setPicking(false); }}>
+                    Remove
+                  </DialogButton>
+                )}
+              </Focusable>
+            </div>
+          </PanelSectionRow>
+          {picking && (
+            <EmojiPicker
+              channelId=""
+              existing={[]}
+              onPick={(e) => {
+                setEmoji(e);
+                setPicking(false);
+              }}
+              onClose={() => setPicking(false)}
+            />
+          )}
+          <PanelSectionRow>
+            <ChoiceSlider label="Clear After" choices={CLEAR_AFTER} value={clearAfter} onChange={setClearAfter} />
+          </PanelSectionRow>
+          <PanelSectionRow>
+            <ButtonItem
+              layout="below"
+              disabled={busy}
+              onClick={() => set(null, custom, custom.trim() || shown ? "Custom status set" : "Custom status cleared")}
+            >
+              {custom.trim() || shown ? "Set Custom Status" : "Clear Custom Status"}
             </ButtonItem>
           </PanelSectionRow>
         </>
