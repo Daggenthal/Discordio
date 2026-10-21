@@ -10,6 +10,8 @@ import { watchInOverlay, watchStream } from "../lib/watch";
 import { Favorite, isFavorite, toggleFavorite, useFavorites } from "../lib/favorites";
 import { FaEye, FaSignInAlt, FaStar } from "react-icons/fa";
 import { FriendRequests } from "./FriendRequests";
+import { serverAlias } from "../lib/privacyNames";
+import { useUiSettings } from "../lib/settings";
 import { openProfile, useProfileTarget } from "../lib/profile";
 import { ProfilePanel } from "./ProfileView";
 import { FaUser } from "react-icons/fa";
@@ -515,6 +517,7 @@ function FriendRow({ f, open, onToggle }: { f: Friend; open: boolean; onToggle: 
 // Favorite voice channels, at the top for one-press joining. Add or
 // remove one with the Options button on a voice channel in Servers.
 export function FavoritesPanel() {
+  const ui = useUiSettings();
   const favs = useFavorites();
   if (!favs.length) return null;
   return (
@@ -531,7 +534,7 @@ export function FavoritesPanel() {
                 <span style={{ display: "inline-flex", alignItems: "center", gap: 6, minWidth: 0 }}>
                   <FaStar color="#f0b232" />
                   <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {f.name} <span style={{ opacity: 0.6, fontSize: 11 }}>· {f.guild}</span>
+                    {f.name} <span style={{ opacity: 0.6, fontSize: 11 }}>· {ui.hideUsernames ? serverAlias(f.guild ?? "") : f.guild}</span>
                   </span>
                 </span>
               }

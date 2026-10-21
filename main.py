@@ -14,6 +14,7 @@ Methods on Plugin are what the QAM calls.
 
 import asyncio
 import base64
+import copy
 import json
 import os
 import platform
@@ -26,7 +27,7 @@ from aiohttp.web import AppRunner, Application, Response, TCPSite, get, json_res
 
 sys.path.append(decky.DECKY_PLUGIN_DIR)
 
-from discordio import diag, system, updates  # noqa: E402
+from discordio import diag, privacy, system, updates  # noqa: E402
 from discordio.bridge import Bridge, BridgeError  # noqa: E402
 from discordio.capture_mgr import CaptureManager  # noqa: E402
 from discordio.overlay_mgr import OverlayManager  # noqa: E402
@@ -97,6 +98,16 @@ def _collect_private(obj, depth=0):
 PIP_FPS = (10, 30, 40, 60)
 
 
+def _anon(fn, value):
+    """Made-up names (Hide Usernames on) on a copy, never on the stored data."""
+    if not privacy.enabled() or value is None:
+        return value
+    try:
+        return fn(copy.deepcopy(value))
+    except Exception:
+        return value
+
+
 class Plugin:
     settings = None
     bridge = None
@@ -123,6 +134,7 @@ class Plugin:
         for d in (SETTINGS_DIR, RUNTIME_DIR):
             d.mkdir(parents=True, exist_ok=True)
         cls.settings = Settings(SETTINGS_DIR)
+        privacy.set_enabled(cls.settings.load().get("hide_names", False))
         cls.messages = Messages(cls.settings)
         # One-time reset to 720p: the resolution slider was stuck at 480p,
         # its lowest position; starting mid-range shows whether it moves.
@@ -340,7 +352,7 @@ class Plugin:
         s = cls.settings.load()
         overlay = bool(cls.overlay and cls.overlay.enabled(s) and (cls.overlay.active_engine(s) or s.get("overlay_hide_perf", True)))
         try:
-            await decky.emit("call", {"ringing": True, "overlay": overlay, **cls.incoming})
+            await decky.emit("call", {"ringing": True, "overlay": overlay, **_anon(privacy.call, cls.incoming)})
         except Exception:
             pass
         # Make sure the ringtone can be heard (sound needs unlocking in the page).
@@ -404,7 +416,7 @@ class Plugin:
 
     @classmethod
     async def get_incoming_call(cls):
-        return cls.incoming
+        return _anon(privacy.call, cls.incoming)
 
     @classmethod
     async def answer_call(cls, channel_id=None):
@@ -502,7 +514,15 @@ class Plugin:
                     break
             else:
                 stage = "Waiting for Discord to load"
-        return frontend_state(cls.state, cls.ready, stage)
+        st = frontend_state(cls.state, cls.ready, stage)
+        if privacy.enabled() and st.get("vc"):
+            st = copy.deepcopy(st)
+            st["vc"]["guild_name"] = privacy.server(st["vc"].get("guild_name"))
+            me_id = (st.get("me") or {}).get("id")
+            for u in st["vc"].get("users") or []:
+                if isinstance(u, dict) and u.get("name") and u.get("id") != me_id:
+                    u["name"] = privacy.person(u["name"])
+        return st
 
     @classmethod
     async def _on_message(cls, m):
@@ -516,7 +536,13 @@ class Plugin:
         # Steam toast only when the overlay won't show the popup.
         toast = not quiet and not (s.get("message_popups", True) and cls.overlay.active_engine(s))
         try:
-            await decky.emit("message", {**(m or {}), "toast": toast, "unread": cls.messages.unread()})
+            shown = m or {}
+            if privacy.enabled():
+                shown = copy.deepcopy(shown)
+                if isinstance(shown.get("author"), dict):
+                    shown["author"]["name"] = privacy.person(shown["author"].get("name"))
+                shown["channel_label"] = privacy.channel_label(shown.get("channel_label"), shown.get("is_dm"))
+            await decky.emit("message", {**shown, "toast": toast, "unread": cls.messages.unread()})
         except Exception:
             pass
 
@@ -607,8 +633,8 @@ class Plugin:
         me_id = ((cls.state or {}).get("user") or {}).get("id")
         mine = next((m for m in (voice or {}).get("members", []) if m["id"] == me_id), None)
         return json_response({
-            "messages": cls._call_popup() + cls.messages.active_popups(),
-            "voice": voice,
+            "messages": _anon(privacy.popups, cls._call_popup() + cls.messages.active_popups()),
+            "voice": _anon(privacy.voice, voice),
             "me": {"live": bool(media.get("live")), "muted": bool(mine and mine["muted"]),
                    "deafened": bool(mine and mine["deafened"])},
             "settings": {"overlay_enabled": cls.overlay.enabled(s),
@@ -723,7 +749,20 @@ class Plugin:
         }.get(what, (None, None))
         if not method:
             return {"error": f"unknown query {what}"}
-        return await cls._req(method, params)
+        res = await cls._req(method, params)
+        if isinstance(res, dict) and res.get("error"):
+            return res
+        fn = {"friends": privacy.friends, "guilds": privacy.guilds, "voice": privacy.voice,
+              "voice_channels": privacy.voice_channels}.get(what)
+        return _anon(fn, res) if fn else res
+
+    @classmethod
+    async def set_hide_names(cls, on):
+        """Hide Usernames: made-up names for friends and servers everywhere."""
+        cls.settings.update(hide_names=bool(on))
+        privacy.set_enabled(on)
+        await cls._emit_state()
+        return bool(on)
 
     @classmethod
     async def join_voice(cls, channel_id):
@@ -789,11 +828,11 @@ class Plugin:
         for c in convs:
             c["popups_muted"] = c["channel_id"] in mutes
         total = sum(c.get("unread", 0) for c in convs if not c.get("muted"))
-        return {"conversations": convs, "unread": total}
+        return _anon(privacy.conversations, {"conversations": convs, "unread": total})
 
     @classmethod
     async def get_profile(cls, user_id=None):
-        return await cls._req("profile", {"userId": user_id}, timeout=15)
+        return _anon(privacy.profile, await cls._req("profile", {"userId": user_id}, timeout=15))
 
     @classmethod
     async def get_badges(cls):
@@ -813,7 +852,7 @@ class Plugin:
 
     @classmethod
     async def get_friend_requests(cls):
-        return await cls._req("friendRequests", {})
+        return _anon(privacy.requests, await cls._req("friendRequests", {}))
 
     @classmethod
     async def friend_request(cls, action, user_id=None, username=None):
@@ -889,7 +928,7 @@ class Plugin:
     @classmethod
     async def get_history(cls, channel_id):
         cls.messages.mark_read(channel_id)
-        return await cls._req("history", {"channelId": channel_id, "limit": 30}, timeout=15)
+        return _anon(privacy.history, await cls._req("history", {"channelId": channel_id, "limit": 30}, timeout=15))
 
     # -- people in your call
 

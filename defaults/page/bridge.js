@@ -1011,7 +1011,7 @@
         if (!userId) throw new Error("not logged in");
         const p = await fetchProfile(userId);
         const base = C().UserStore.getUser(userId) || (meU && meU.id === userId ? meU : null) || {};
-        const u = { username: base.username, global_name: base.globalName || base.global_name, avatar: base.avatar,
+        const u = { id: userId, username: base.username, global_name: base.globalName || base.global_name, avatar: base.avatar,
             banner: base.banner, accent_color: base.accentColor, avatar_decoration_data: base.avatarDecorationData,
             primary_guild: base.primaryGuild, ...(p.user || {}) };
         const up = p.user_profile || p.userProfile || {};
@@ -1582,8 +1582,8 @@
     function channelLabel(ch) {
         if (!ch) return "";
         if (!ch.guild_id) {
-            const names = (ch.recipients || []).map((r) => userName(C().UserStore.getUser(r)));
-            return ch.name || (names.length > 1 ? names.join(", ") : "Direct message");
+            const names = (ch.recipients || []).map((r) => { const u = C().UserStore.getUser(r); return friendName(u) || userName(u); });
+            return ch.name || (names.length ? names.join(", ") : "Direct message");
         }
         const g = C().GuildStore.getGuild(ch.guild_id);
         return `#${ch.name}${g ? " in " + g.name : ""}`;

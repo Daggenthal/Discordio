@@ -25,7 +25,7 @@ import { UpdatePanel } from "./components/UpdatePanel";
 import { OverlayPanel } from "./components/OverlayPanel";
 import { MessagesPanel, MessageSettingsPanel } from "./components/MessagesPanel";
 import { SafeSection } from "./components/SafeSection";
-import { useUiSettings, setUiSetting } from "./lib/settings";
+import { getUiSettings, setUiSetting, useUiSettings } from "./lib/settings";
 import { startMicBridge } from "./lib/mic";
 import { AudioDevicesPanel } from "./components/AudioDevicesPanel";
 import { WelcomeBanner } from "./components/WelcomeBanner";
@@ -266,9 +266,12 @@ const SettingsPanel = () => {
       <PanelSectionRow>
         <ToggleField
           label="Hide Usernames"
-          description="Hides Discord usernames on profiles and in Account, for screenshots that don't show how to add you"
+          description="For screenshots: hides usernames, and swaps friends' and servers' names for made-up ones"
           checked={ui.hideUsernames}
-          onChange={(v) => setUiSetting("hideUsernames", v)}
+          onChange={(v) => {
+            setUiSetting("hideUsernames", v);
+            call("set_hide_names", v).catch(() => {});
+          }}
         />
       </PanelSectionRow>
       <PanelSectionRow>
@@ -439,6 +442,10 @@ export default definePlugin(() => {
   const stopCaptchaNotifications = safe("Human check notifications", () => startCaptchaNotifications());
   const stopLoginHandoff = safe("Login hand-off", () => startLoginHandoff());
   const stopWatchNotices = safe("Stream notices", () => startWatchNotices());
+  // Hide Usernames lives on this Steam install; tell the backend at load.
+  safe("Sync Hide Usernames", () => {
+    call("set_hide_names", getUiSettings().hideUsernames).catch(() => {});
+  });
   safe("Reopen after update", () =>
     call<[], any>("get_update_info").then((i) => reopenAfterUpdate(i?.current_build ? `build ${i.current_build}` : "")).catch(() => reopenAfterUpdate(""))
   );
