@@ -3,6 +3,7 @@ import { ButtonItem, DialogButton, Focusable, PanelSectionRow, TextField, Toggle
 import { useEffect, useRef, useState } from "react";
 import { FaPhone } from "react-icons/fa";
 import { fire, on } from "../lib/events";
+import { Shot, ShotGrid } from "./UploadScreenshot";
 import { ColorButton } from "./ColorButton";
 import { Avatar } from "./VoiceChatViews";
 import { ChoiceSlider } from "./ChoiceSlider";
@@ -16,8 +17,17 @@ type Conversation = {
   last?: { author: string; text: string; time: number };
 };
 type Media = { kind: "image" | "gif" | "gifv" | "video" | "sticker" | "file"; url?: string; poster?: string; name?: string; title?: string; width?: number; height?: number };
-type Message = { id: string; author: { id: string; name: string; avatar: string | null }; text: string; time: number; mine: boolean; media?: Media[] };
-type History = { channel_id: string; label: string; messages: Message[]; error?: string };
+type Reaction = { emoji: string | null; name: string; id: string | null; url: string | null; count: number; me: boolean };
+type Message = {
+  id: string;
+  author: { id: string; name: string; avatar: string | null };
+  text: string;
+  time: number;
+  mine: boolean;
+  media?: Media[];
+  reactions?: Reaction[];
+};
+type History = { channel_id: string; label: string; messages: Message[]; error?: string; typing?: string[] };
 
 const small = { fontSize: "12px", lineHeight: "16px", wordBreak: "break-word" as const };
 const ago = (t: number) => {
@@ -126,6 +136,8 @@ function ConversationView({ conv, onBack }: { conv: Conversation; onBack: () => 
   const [history, setHistory] = useState<History | null>(null);
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
+  const [picking, setPicking] = useState<string | null>(null);
+  const [shots, setShots] = useState(false);
   const top = useRef<HTMLDivElement>(null);
 
   // Opening a conversation brings it into view.
@@ -196,18 +208,25 @@ function ConversationView({ conv, onBack }: { conv: Conversation; onBack: () => 
       {!history && <Hint>Loading messages...</Hint>}
       {history?.error && <Hint error>{history.error}</Hint>}
       {history?.messages.slice(-20).map((m) => (
-        <PanelSectionRow key={m.id}>
-          <div style={{ display: "flex", gap: 8, alignItems: "flex-start", ...small }}>
-            <Avatar src={m.author.avatar} size={22} />
-            <div style={{ minWidth: 0 }}>
-              <b style={{ color: m.mine ? "#949cf7" : undefined }}>{m.author.name}</b>{" "}
-              <span style={{ opacity: 0.5, fontSize: 10 }}>{ago(m.time / 1000)}</span>
-              {m.text ? <div>{m.text}</div> : !m.media?.length && <i style={{ opacity: 0.6 }}>(no text)</i>}
-              {m.media?.map((x, i) => <MediaView key={i} m={x} />)}
-            </div>
+        <MessageRow
+          key={m.id}
+          m={m}
+          channelId={conv.channel_id}
+          picking={picking === m.id}
+          onPick={() => setPicking(picking === m.id ? null : m.id)}
+          onReacted={() => {
+            setPicking(null);
+            load();
+          }}
+        />
+      ))}
+      {!!history?.typing?.length && (
+        <PanelSectionRow>
+          <div style={{ ...small, opacity: 0.7, fontStyle: "italic" }}>
+            {history.typing.join(", ")} {history.typing.length > 1 ? "are" : "is"} typing...
           </div>
         </PanelSectionRow>
-      ))}
+      )}
       <PanelSectionRow>
         {/* Selecting the field with A opens Steam's on-screen keyboard. */}
         <TextField
@@ -223,6 +242,22 @@ function ConversationView({ conv, onBack }: { conv: Conversation; onBack: () => 
           {sending ? "Sending..." : "Send"}
         </ButtonItem>
       </PanelSectionRow>
+      <PanelSectionRow>
+        <ButtonItem layout="below" onClick={() => setShots(!shots)}>
+          {shots ? "Cancel Screenshot" : "📷 Send a Screenshot"}
+        </ButtonItem>
+      </PanelSectionRow>
+      {shots && (
+        <ShotGrid
+          selected={null}
+          onPick={async (sh: Shot) => {
+            setShots(false);
+            const res: any = await call("post_screenshot_file", sh.id, conv.channel_id, null);
+            toaster.toast({ title: "Discordio", body: res?.error ? `Not sent: ${res.error}` : "Screenshot sent" });
+            if (!res?.error) load();
+          }}
+        />
+      )}
     </>
   );
 }
@@ -320,5 +355,74 @@ function MediaView({ m }: { m: Media }) {
         </div>
       )}
     </Focusable>
+  );
+}
+
+const QUICK = ["👍", "❤️", "😂", "😮", "😢", "🔥"];
+
+// One message. Select it (A) to react; existing reactions show underneath.
+function MessageRow({
+  m,
+  channelId,
+  picking,
+  onPick,
+  onReacted,
+}: {
+  m: Message;
+  channelId: string;
+  picking: boolean;
+  onPick: () => void;
+  onReacted: () => void;
+}) {
+  const react = async (emoji: string) => {
+    const mine = m.reactions?.some((r) => r.emoji === emoji && r.me);
+    const res: any = await call("react", channelId, m.id, emoji, !!mine);
+    if (res?.error) toaster.toast({ title: "Discordio", body: `Couldn't react: ${res.error}` });
+    onReacted();
+  };
+  return (
+    <>
+      <PanelSectionRow>
+        <Focusable onActivate={onPick} onOKActionDescription={picking ? "Close" : "React"}>
+          <div style={{ display: "flex", gap: 8, alignItems: "flex-start", ...small }}>
+            <Avatar src={m.author.avatar} size={22} />
+            <div style={{ minWidth: 0 }}>
+              <b style={{ color: m.mine ? "#949cf7" : undefined }}>{m.author.name}</b>{" "}
+              <span style={{ opacity: 0.5, fontSize: 10 }}>{ago(m.time / 1000)}</span>
+              {m.text ? <div>{m.text}</div> : !m.media?.length && <i style={{ opacity: 0.6 }}>(no text)</i>}
+              {m.media?.map((x, i) => <MediaView key={i} m={x} />)}
+              {!!m.reactions?.length && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
+                  {m.reactions.map((r, i) => (
+                    <span
+                      key={i}
+                      style={{
+                        display: "inline-flex", alignItems: "center", gap: 3, padding: "1px 6px", borderRadius: 8, fontSize: 11,
+                        background: r.me ? "rgba(88,101,242,0.35)" : "rgba(255,255,255,0.08)",
+                        border: r.me ? "1px solid #5865f2" : "1px solid transparent",
+                      }}
+                    >
+                      {r.url ? <img src={r.url} style={{ width: 14, height: 14 }} /> : r.emoji}
+                      {r.count}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </Focusable>
+      </PanelSectionRow>
+      {picking && (
+        <PanelSectionRow>
+          <Focusable style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+            {QUICK.map((e) => (
+              <DialogButton key={e} style={{ minWidth: 0, width: 40, height: 36, padding: 0, fontSize: 18 }} onClick={() => react(e)}>
+                {e}
+              </DialogButton>
+            ))}
+          </Focusable>
+        </PanelSectionRow>
+      )}
+    </>
   );
 }

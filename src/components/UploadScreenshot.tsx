@@ -36,7 +36,7 @@ function useList<T>(what: string, arg?: string) {
   return { items, error };
 }
 
-type Shot = { id: string; appid: number; time: number; thumb: string | null };
+export type Shot = { id: string; appid: number; time: number; thumb: string | null };
 
 const gameName = (appid: number) => {
   try {
@@ -47,7 +47,7 @@ const gameName = (appid: number) => {
 };
 
 // Grid of recent screenshots from Steam's screenshot folders.
-function ShotGrid({ selected, onPick }: { selected: string | null; onPick: (s: Shot) => void }) {
+export function ShotGrid({ selected, onPick }: { selected: string | null; onPick: (s: Shot) => void }) {
   const [shots, setShots] = useState<Shot[] | null>(null);
   const [total, setTotal] = useState(0);
   const more = (offset: number) =>

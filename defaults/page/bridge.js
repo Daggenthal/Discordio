@@ -923,6 +923,7 @@
     });
     m("callFriend", ({ userId }) => callFriend(userId));
     m("incomingCall", () => incoming);
+    m("react", ({ channelId, messageId, emoji, remove }) => react(channelId, messageId, emoji, !!remove));
     m("watchStream", ({ userId }) => watchStream(userId));
     m("getStatus", () => myStatus());
     m("setStatus", ({ status, custom }) => setStatus(status, custom));
@@ -1066,10 +1067,19 @@
         // A message that is just a GIF / image link shows the picture instead.
         if (media.length && media.some((m) => m.link && text.trim() === m.link)) text = "";
         if (media.length && /^\[(attachment|\d+ attachments|embed|sticker)\]$/.test(text)) text = "";
+        const reactions = (msg.reactions || []).slice(0, 8).map((r) => {
+            const e = r.emoji || {};
+            return {
+                emoji: e.id ? null : e.name, name: e.name, id: e.id || null,
+                url: e.id ? `https://cdn.discordapp.com/emojis/${e.id}.${e.animated ? "gif" : "png"}?size=32` : null,
+                count: r.count || (r.count_details ? (r.count_details.normal || 0) + (r.count_details.burst || 0) : 1),
+                me: !!r.me,
+            };
+        });
         return {
             id: msg.id, channel_id: msg.channel_id,
             author: { id: a.id, name: friendName(u) || userName(u), avatar: avatarUrl(u) },
-            text, media,
+            text, media, reactions,
             time: msgTime(msg.timestamp),
             mine: !!(me() && a.id === me().id),
         };
@@ -1100,6 +1110,32 @@
         } catch (err) { warn("message event", err); }
     }
 
+    // Who's typing in a channel right now (not you).
+    function typingIn(channelId) {
+        try {
+            const T = store("TypingStore");
+            const ids = Object.keys((T && T.getTypingUsers && T.getTypingUsers(channelId)) || {});
+            const u = me();
+            return ids.filter((id) => !u || id !== u.id)
+                .map((id) => friendName(C().UserStore.getUser(id)) || "Someone").slice(0, 3);
+        } catch (_) { return []; }
+    }
+
+    // Add / remove a reaction: Discord's action, or the same request it sends.
+    async function react(channelId, messageId, emoji, remove) {
+        const a = props("addReaction", "removeReaction");
+        const e = { id: null, name: emoji, animated: false };
+        try {
+            if (a && (remove ? a.removeReaction : a.addReaction)) {
+                await (remove ? a.removeReaction(channelId, messageId, e) : a.addReaction(channelId, messageId, e));
+                return { ok: true, method: "action" };
+            }
+        } catch (err) { warn("reaction action", err); }
+        const url = `/channels/${channelId}/messages/${messageId}/reactions/${encodeURIComponent(emoji)}/@me`;
+        if (remove) await C().RestAPI.del({ url }); else await C().RestAPI.put({ url });
+        return { ok: true, method: "rest" };
+    }
+
     // Read from Discord's own message store, which updates the instant a
     // message arrives or is sent; fall back to the REST API (and ask Discord
     // to load the channel) the first time a channel is opened.
@@ -1112,7 +1148,7 @@
         const arr = local && typeof local.toArray === "function" ? local.toArray() : [];
         if (arr.length) {
             return { channel_id: channelId, label: channelLabel(ch), source: "live",
-                     messages: arr.slice(-limit).map(simplifyMessage) };
+                     messages: arr.slice(-limit).map(simplifyMessage), typing: typingIn(channelId) };
         }
         try {
             const actions = props("fetchMessages", "sendMessage");

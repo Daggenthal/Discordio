@@ -711,6 +711,11 @@ class Plugin:
         return await cls._req("logout", timeout=15)
 
     @classmethod
+    async def react(cls, channel_id, message_id, emoji, remove=False):
+        return await cls._req("react", {"channelId": channel_id, "messageId": message_id, "emoji": emoji,
+                                        "remove": bool(remove)}, timeout=10)
+
+    @classmethod
     async def watch_stream(cls, user_id):
         """Watch someone's Go Live (Discord shows it; joins their voice channel if needed)."""
         return await cls._req("watchStream", {"userId": user_id}, timeout=15)
