@@ -3,6 +3,7 @@ import { Focusable, Navigation, Router } from "@decky/ui";
 import { useEffect, useLayoutEffect, useRef } from "react";
 import { showDiscord } from "../lib/view";
 import { note } from "../lib/diag";
+import { setDiscordShowing } from "../lib/loginHandoff";
 
 // Numeric values of @decky/ui's GamepadButton enum (it's a declared enum, so
 // it may not exist at runtime).
@@ -54,6 +55,10 @@ const close = () => {
 //   View / Select   show or hide the on-screen controls legend
 export const DiscordTab = () => {
   const shown = useRef(false);
+  useEffect(() => {
+    setDiscordShowing(true);
+    return () => setDiscordShowing(false);
+  }, []);
 
   useLayoutEffect(() => {
     // Show right away, then re-assert for a moment: Steam's route transition

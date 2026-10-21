@@ -5,6 +5,15 @@ import { note } from "./diag";
 // After you log in (QR code or password) Discord stays on screen. As soon as
 // the login goes through, go back to the library and open Discordio in the
 // Quick Access Menu, where everything is used from.
+// Whether the Discord page is on screen. The hand-off is only for someone
+// looking at Discord's login page: after an update (or Discord reloading)
+// the account briefly reads as logged out, and that used to pull you out of
+// your game to the library.
+let discordShowing = false;
+export const setDiscordShowing = (v: boolean) => {
+  discordShowing = v;
+};
+
 export function startLoginHandoff() {
   let loggedIn: boolean | null = null;
   call<[], any>("get_state")
@@ -19,6 +28,7 @@ export function startLoginHandoff() {
     const was = loggedIn;
     loggedIn = now;
     if (was !== false || !now) return; // only on a fresh login
+    if (!discordShowing) return; // not logging in on screen: stay where you are
     const name = s?.me?.username;
     try {
       Router.Navigate("/library/home");

@@ -41,9 +41,16 @@ export function reopenAfterUpdate(currentBuild: string) {
   if (!pending) return;
   clearUpdating();
   if (Date.now() - (pending.at || 0) > 5 * 60 * 1000) return; // stale
+  // Close the Quick Access Menu and open it again, so the new build shows
+  // up fresh, without leaving the game you're in.
+  setTimeout(() => {
+    try {
+      Navigation.CloseSideMenus();
+    } catch (_) {}
+  }, 1000);
   setTimeout(() => {
     openDiscordio();
     toaster.toast({ title: "Discordio", body: `Updated${currentBuild ? ` to ${currentBuild}` : ""}` });
     note("Reopen after update", true, currentBuild);
-  }, 1500);
+  }, 1800);
 }
