@@ -118,3 +118,48 @@ def install_log_handler(logger):
 def log_external(prefix, line):
     """Lines from child processes (capture helper, overlay)."""
     _append(time.time(), f"{prefix} {line}")
+
+
+# ------------------------------------------------------------------ privacy
+# Diagnostics and reports get shared when asking for help, so by default
+# they hide who you are and who you talk to: names seen while running
+# (you, friends, callers, message authors, servers, channels) and every
+# Discord ID (and the avatar / attachment links that contain them).
+import json as _json
+import re as _re
+
+import builtins as _builtins
+_private = _builtins.set()
+_SNOWFLAKE = _re.compile(r"(?<![\d.])\d{17,20}(?![\d.])")
+
+
+def remember_private(*names):
+    for n in names:
+        if isinstance(n, str):
+            n = n.strip()
+            if len(n) >= 2 and not n.isdigit() and n.lower() not in _NOT_PRIVATE:
+                _private.add(n)
+
+
+# Words that also appear as names but are part of Discordio's own text.
+_NOT_PRIVATE = {"voice", "general", "direct message", "direct call", "message", "someone", "unknown"}
+
+
+def redact_text(text):
+    if not isinstance(text, str) or not text:
+        return text
+    for name in sorted(_private, key=len, reverse=True):
+        if name in text:
+            # Whole words only, so a short name doesn't eat parts of words.
+            text = _re.sub(r"(?<!\w)" + _re.escape(name) + r"(?!\w)", "<name>", text)
+    return _SNOWFLAKE.sub("<id>", text)
+
+
+def redact(value):
+    """Redact a str / dict / list (anything JSON-like), returning a copy."""
+    if isinstance(value, str):
+        return redact_text(value)
+    try:
+        return _json.loads(redact_text(_json.dumps(value, default=str)))
+    except Exception:
+        return value

@@ -1,8 +1,8 @@
-import { ButtonItem, PanelSection, PanelSectionRow } from "@decky/ui";
+import { ButtonItem, PanelSection, PanelSectionRow, ToggleField } from "@decky/ui";
 import { addEventListener, call, removeEventListener, toaster } from "@decky/api";
 import { useEffect, useState } from "react";
 import { ChoiceSlider } from "./ChoiceSlider";
-import { getSliderLog, getDiag, subscribeDiag, DiagEntry } from "../lib/diag";
+import { getSliderLog, sliderLogEnabled, setSliderLogEnabled, getDiag, subscribeDiag, DiagEntry } from "../lib/diag";
 import { BoundsMode, getBoundsMode, setBoundsMode } from "../lib/view";
 import { micStatus } from "../lib/mic";
 
@@ -13,6 +13,7 @@ type Diagnostics = {
   errors: { time: number; component: string; message: string }[];
   bridge: any;
   capture: { running: boolean; port: number; status: any; last_exit: number | null };
+  show_private?: boolean;
 };
 type TestResult = { name: string; ok: boolean; detail: string; ms: number };
 
@@ -119,6 +120,25 @@ export function DiagnosticsPanel() {
 
       {open && (
         <>
+          <PanelSectionRow>
+            <ToggleField
+              label="Show names in diagnostics"
+              description="Off: your username, friends, servers and Discord IDs are hidden here and in reports, so they're safe to share"
+              checked={!!d?.show_private}
+              onChange={async (v) => {
+                await call("set_diag_privacy", v);
+                load();
+              }}
+            />
+          </PanelSectionRow>
+          <PanelSectionRow>
+            <ToggleField
+              label="Slider log"
+              description="Records slider presses, for when a slider won't move"
+              checked={sliderLogEnabled()}
+              onChange={(v) => setSliderLogEnabled(v)}
+            />
+          </PanelSectionRow>
           {d?.components.map((c) => (
             <PanelSectionRow key={c.key}>
               <div style={{ display: "flex", gap: 8, alignItems: "flex-start", ...small }}>

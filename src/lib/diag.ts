@@ -64,7 +64,28 @@ export const subscribeDiag = (fn: () => void) => {
 // press, what the slider reported, what was saved, and what came back.
 export type SliderEvent = { t: number; slider: string; what: string };
 const sliderLog: SliderEvent[] = [];
+// Off by default; Diagnostics can turn it on when a slider misbehaves.
+const SLIDER_KEY = "DISCORDIO_SLIDER_LOG";
+export const sliderLogEnabled = () => {
+  try {
+    return localStorage.getItem(SLIDER_KEY) === "1";
+  } catch (_) {
+    return false;
+  }
+};
+export const setSliderLogEnabled = (on: boolean) => {
+  try {
+    localStorage.setItem(SLIDER_KEY, on ? "1" : "0");
+  } catch (_) {}
+  if (!on) sliderLog.length = 0;
+  listeners.forEach((l) => {
+    try {
+      l();
+    } catch (_) {}
+  });
+};
 export const logSlider = (slider: string, what: string) => {
+  if (!sliderLogEnabled()) return;
   sliderLog.push({ t: Date.now(), slider, what });
   if (sliderLog.length > 40) sliderLog.shift();
   listeners.forEach((l) => {

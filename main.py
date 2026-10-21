@@ -72,6 +72,25 @@ def frontend_state(state, bridge_ready, stage):
     }
 
 
+_PRIVATE_KEYS = {"name", "username", "global_name", "channel_name", "guild_name", "label",
+                 "channel_label", "group", "title", "author", "plan", "reason"}
+
+
+def _collect_private(obj, depth=0):
+    """Remember names in Discord data so diagnostics can hide them (see diag.redact)."""
+    if depth > 6:
+        return
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            if k in _PRIVATE_KEYS and isinstance(v, str) and k not in ("plan", "reason"):
+                diag.remember_private(v)
+            elif isinstance(v, (dict, list)):
+                _collect_private(v, depth + 1)
+    elif isinstance(obj, list):
+        for v in obj[:500]:
+            _collect_private(v, depth + 1)
+
+
 class Plugin:
     settings = None
     bridge = None
@@ -297,6 +316,7 @@ class Plugin:
 
     @classmethod
     async def _on_call_incoming(cls, data):
+        _collect_private(data)
         cls.incoming = {**(data or {}), "received": time.time()}
         caller = (data or {}).get("caller") or {}
         log.info(f"Incoming call from {caller.get('name')}")
@@ -418,6 +438,7 @@ class Plugin:
 
     @classmethod
     async def _on_state(cls, state):
+        _collect_private(state)
         cls.state = state
         user = (state or {}).get("user")
         if state and state.get("loggedIn"):
@@ -461,6 +482,7 @@ class Plugin:
     @classmethod
     async def _on_message(cls, m):
         """A DM or mention: popup in the overlay, and the QAM's Messages list."""
+        _collect_private(m)
         cls.messages.add(m or {})
         s = cls.settings.load()
         # Steam toast only when the overlay won't show the popup.
@@ -515,7 +537,9 @@ class Plugin:
     async def _req(cls, method, params=None, timeout=10, default=None):
         """Bridge request; returns {"error": ...} instead of raising, for the QAM."""
         try:
-            return await cls.bridge.request(method, params, timeout)
+            res = await cls.bridge.request(method, params, timeout)
+            _collect_private(res)
+            return res
         except BridgeError as e:
             if default is not None:
                 return default
@@ -827,7 +851,10 @@ class Plugin:
 
     @classmethod
     async def get_capture_log(cls):
-        return {"running": cls.capture.running, "lines": cls.capture.lines[-12:]}
+        lines = cls.capture.lines[-12:]
+        if not cls.settings.load().get("diag_show_private"):
+            lines = [diag.redact_text(l) for l in lines]
+        return {"running": cls.capture.running, "lines": lines}
 
     @classmethod
     async def restart_capture(cls):
@@ -920,8 +947,15 @@ class Plugin:
                         "events": cls.capture_events[-5:]},
             "overlay": cls.overlay.info(),
             "mic_events": cls.mic_events[-5:],
+            "show_private": bool(cls.settings.load().get("diag_show_private")),
         })
-        return snap
+        return snap if snap["show_private"] else diag.redact(snap)
+
+    @classmethod
+    async def set_diag_privacy(cls, show_private):
+        """Show real names / IDs in Diagnostics and reports (off by default)."""
+        cls.settings.update(diag_show_private=bool(show_private))
+        return bool(show_private)
 
     @classmethod
     async def run_self_test(cls):
@@ -1050,7 +1084,11 @@ class Plugin:
             lines += ["", "== QAM side", "  " + json.dumps(frontend, default=str)]
         lines += ["", "== Settings", "  " + json.dumps(cls.settings.load())]
         lines += ["", "== Log (newest last)"] + ["  " + l for l in diag.log_lines(300)]
-        path.write_text("\n".join(lines) + "\n")
+        text = "\n".join(lines) + "\n"
+        if not d.get("show_private"):
+            text = ("Names and Discord IDs are hidden (<name>, <id>). Turn on \"Show names in diagnostics\"\n"
+                    "in Discordio's Diagnostics to include them.\n\n" + diag.redact_text(text))
+        path.write_text(text)
         try:
             uid = system.session_user(decky)[1]
             os.chown(path, uid, uid)
