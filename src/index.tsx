@@ -248,6 +248,9 @@ const SettingsPanel = () => {
   return (
     <Collapsible title="Settings" defaultOpen={false}>
       <PanelSectionRow>
+        <OpenDiscordButton />
+      </PanelSectionRow>
+      <PanelSectionRow>
         <ToggleField
           label="Auto-open Servers"
           description="Show the server list expanded when you open Discordio"
@@ -338,19 +341,16 @@ const Content = () => {
       {ready && <SafeSection name="Incoming call"><IncomingCallBanner /></SafeSection>}
       {ready && <SafeSection name="Human check"><CaptchaBanner /></SafeSection>}
       <PanelSection>
-        <PanelSectionRow>
-          <OpenDiscordButton />
-        </PanelSectionRow>
+        {/* Logged in, Open Discord lives in Settings; mute / deafen in
+            Audio Settings and the Call section. */}
+        {!ready && (
+          <PanelSectionRow>
+            <OpenDiscordButton />
+          </PanelSectionRow>
+        )}
         <Status state={state} />
         {ready && (
           <>
-            <PanelSectionRow>
-              <Focusable style={{ display: "flex", justifyContent: "center", gap: "4px", marginTop: "10px" }}>
-                <MuteButton />
-                <DeafenButton />
-                {state?.vc && Object.keys(state.vc).length > 0 && <DisconnectButton />}
-              </Focusable>
-            </PanelSectionRow>
             <PanelSectionRow>
               <SafeSection name="Friends count"><FriendsCount /></SafeSection>
             </PanelSectionRow>
@@ -366,11 +366,24 @@ const Content = () => {
         <>
           {state?.vc && Object.keys(state.vc).length > 0 && (
             <PanelSection title="Call">
+              <PanelSectionRow>
+                <Focusable style={{ display: "flex", justifyContent: "center", gap: "4px", margin: "2px 0 6px" }}>
+                  <MuteButton />
+                  <DeafenButton />
+                  <DisconnectButton />
+                </Focusable>
+              </PanelSectionRow>
               <SafeSection name="Voice"><VoiceChannelView /></SafeSection>
             </PanelSection>
           )}
           <SafeSection name="Favorites"><FavoritesPanel /></SafeSection>
           <Collapsible title="Audio Settings" defaultOpen={false}>
+            <PanelSectionRow>
+              <Focusable style={{ display: "flex", justifyContent: "center", gap: "4px", margin: "2px 0 6px" }}>
+                <MuteButton />
+                <DeafenButton />
+              </Focusable>
+            </PanelSectionRow>
             <SafeSection name="Audio devices"><AudioDevicesPanel /></SafeSection>
             <SafeSection name="Voice processing"><MicProcessingPanel /></SafeSection>
             <SafeSection name="Audio check"><AudioCheckPanel /></SafeSection>
