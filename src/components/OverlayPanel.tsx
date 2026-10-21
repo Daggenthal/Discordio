@@ -3,7 +3,15 @@ import { PanelSectionRow, ToggleField } from "@decky/ui";
 import { ChoiceSlider } from "./ChoiceSlider";
 import { useEffect, useState } from "react";
 
-type OverlaySettings = { enabled: boolean; position: string; engine: string; active: string | null; status: string; perf_overlay?: string; calls?: boolean };
+type OverlaySettings = { enabled: boolean; position: string; engine: string; active: string | null; status: string; perf_overlay?: string; calls?: boolean;
+  size?: string; opacity?: number; speakers_only?: boolean };
+
+const SIZES = [
+  { value: "small", short: "Small", label: "Small" },
+  { value: "normal", short: "Normal", label: "Normal" },
+  { value: "large", short: "Large", label: "Large" },
+];
+const OPACITIES = [40, 50, 60, 70, 80, 90, 100].map((v) => ({ value: v, short: v === 40 || v === 70 || v === 100 ? `${v}%` : "", label: `${v}%` }));
 
 const ENGINES = [
   { value: "auto", short: "Auto", label: "Auto" },
@@ -41,6 +49,16 @@ export function OverlayPanel() {
       position ?? null,
       engine ?? null,
       calls ?? null
+    );
+    setS(res);
+  };
+
+  const look = async (size?: string, opacity?: number, speakersOnly?: boolean) => {
+    const res = await call<[string | null, number | null, boolean | null], OverlaySettings>(
+      "set_overlay_look",
+      size ?? null,
+      opacity ?? null,
+      speakersOnly ?? null
     );
     setS(res);
   };
@@ -87,6 +105,29 @@ export function OverlayPanel() {
             onChange={(v) => update(undefined, undefined, v)}
           />
         </PanelSectionRow>
+      )}
+      {(s.enabled || s.calls !== false) && (
+        <>
+          <PanelSectionRow>
+            <ChoiceSlider label="Size" choices={SIZES} value={s.size ?? "normal"} onChange={(v) => look(v)} />
+          </PanelSectionRow>
+          <PanelSectionRow>
+            <ChoiceSlider
+              label="Opacity"
+              choices={OPACITIES}
+              value={Math.round((s.opacity ?? 100) / 10) * 10}
+              onChange={(v) => look(undefined, v)}
+            />
+          </PanelSectionRow>
+          <PanelSectionRow>
+            <ToggleField
+              label="Only show who's talking"
+              description="The voice panel lists only people speaking, and hides when nobody is"
+              checked={!!s.speakers_only}
+              onChange={(v) => look(undefined, undefined, v)}
+            />
+          </PanelSectionRow>
+        </>
       )}
       {s.enabled && s.engine === "auto" && (
         <PanelSectionRow>

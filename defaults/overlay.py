@@ -44,6 +44,7 @@ FRAME_MS = 16
 # Look (sizes are for 1080p and scale with the screen).
 PAD = 10
 ROW_H = 36
+SIZES = {"small": 0.8, "normal": 1.0, "large": 1.25}
 AVATAR = 28
 WIDTH = 270
 MARGIN = 24
@@ -195,6 +196,7 @@ class Overlay:
         g = monitor.get_geometry()
         self.screen_w, self.screen_h = g.width, g.height
         self.scale = max(0.75, g.height / 1080.0)
+        self.base_scale = self.scale
         win.move(g.x, g.y)
         win.resize(g.width, g.height)
         win.connect("draw", self.draw)
@@ -288,8 +290,18 @@ class Overlay:
         settings = state.get("settings") or {}
         if not settings.get("overlay_enabled", True) or settings.get("overlay_engine_active", "gamescope") != "gamescope":
             return
+        # Overlay options: size and opacity (whole overlay), and showing only
+        # who's talking (the panel disappears when nobody is).
+        self.scale = getattr(self, "base_scale", self.scale) * SIZES.get(settings.get("overlay_size"), 1.0)
+        opacity = max(0.3, min(1.0, float(settings.get("overlay_opacity", 100)) / 100.0))
+        if voice and settings.get("overlay_speakers_only"):
+            talking = [m for m in voice.get("members", []) if m.get("speaking")]
+            voice = {**voice, "members": talking} if talking else None
+        cr.push_group()
         panel_h = self.draw_voice(cr, state, voice, settings) if voice else 0
         self.draw_messages(cr, state.get("messages") or [], settings, panel_h)
+        cr.pop_group_to_source()
+        cr.paint_with_alpha(opacity)
 
     def draw_voice(self, cr, state, voice, settings):
         """The voice panel. Returns its height (to stack message cards below it)."""

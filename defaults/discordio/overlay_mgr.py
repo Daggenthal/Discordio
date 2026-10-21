@@ -184,4 +184,6 @@ class OverlayManager:
         s = self.settings.load()
         return {"enabled": s.get("overlay_enabled", True), "position": s.get("overlay_position", "top-left"),
                 "engine": s.get("overlay_engine", "auto"), "active": self.active_engine(s), "status": self.status,
-                "perf_overlay": self.perf[1], "calls": s.get("overlay_calls", True)}
+                "perf_overlay": self.perf[1], "calls": s.get("overlay_calls", True),
+                "size": s.get("overlay_size", "normal"), "opacity": s.get("overlay_opacity", 100),
+                "speakers_only": bool(s.get("overlay_speakers_only", False))}

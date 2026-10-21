@@ -120,9 +120,26 @@
         renderMessages(state);
     };
 
+    // Overlay options: size / opacity for everything, and "only show who's
+    // talking" (the panel disappears when nobody is).
+    const SIZES = { small: 0.8, normal: 1, large: 1.25 };
+    const applyLook = (settings) => {
+        const scale = SIZES[settings.overlay_size] || 1;
+        const opacity = Math.max(0.3, Math.min(1, (Number(settings.overlay_opacity) || 100) / 100));
+        for (const el of [root, msgRoot]) {
+            el.style.opacity = String(opacity);
+            el.style.zoom = String(scale);
+        }
+    };
+
     const renderVoice = (state) => {
         const settings = (state && state.settings) || {};
-        const voice = state && state.voice;
+        applyLook(settings);
+        let voice = state && state.voice;
+        if (voice && settings.overlay_speakers_only) {
+            const talking = (voice.members || []).filter((m) => m.speaking);
+            voice = talking.length ? { ...voice, members: talking } : null;
+        }
         if (!voice || settings.overlay_enabled === false || settings.overlay_engine_active !== "steam") {
             root.hidden = true;
             return;

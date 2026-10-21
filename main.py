@@ -529,6 +529,9 @@ class Plugin:
             "settings": {"overlay_enabled": cls.overlay.enabled(s),
                          "overlay_position": s.get("overlay_position", "top-left"),
                          "overlay_engine_active": cls.overlay.active_engine(s),
+                         "overlay_size": s.get("overlay_size", "normal"),
+                         "overlay_opacity": s.get("overlay_opacity", 100),
+                         "overlay_speakers_only": bool(s.get("overlay_speakers_only", False)),
                          "message_position": s.get("message_position", "top-left"),
                          "message_duration": s.get("message_duration", 8)},
         }, headers={"Access-Control-Allow-Origin": "*", "Cache-Control": "no-store"})
@@ -888,6 +891,23 @@ class Plugin:
 
     @classmethod
     async def get_overlay_settings(cls):
+        return cls.overlay.info()
+
+    @classmethod
+    async def set_overlay_look(cls, size=None, opacity=None, speakers_only=None):
+        """Overlay size (small / normal / large), opacity (30-100 %), only show who's talking."""
+        changes = {}
+        if size in ("small", "normal", "large"):
+            changes["overlay_size"] = size
+        if opacity is not None:
+            try:
+                changes["overlay_opacity"] = max(30, min(100, int(opacity)))
+            except (TypeError, ValueError):
+                pass
+        if speakers_only is not None:
+            changes["overlay_speakers_only"] = bool(speakers_only)
+        if changes:
+            cls.settings.update(**changes)
         return cls.overlay.info()
 
     @classmethod
