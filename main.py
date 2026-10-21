@@ -532,9 +532,17 @@ class Plugin:
         s = cls.settings.load()
         # Do Not Disturb or muted: keep it in Recent Messages, no popup / toast.
         quiet = cls._dnd() or cls._muted_popup(m, s)
-        cls.messages.add(m, popup=not quiet)
-        # Steam toast only when the overlay won't show the popup.
-        toast = not quiet and not (s.get("message_popups", True) and cls.overlay.active_engine(s))
+        # Make room for the popup in your corner even when the overlay is
+        # otherwise off (or only on for calls), with the FPS overlay stepping
+        # aside like it does for calls. A Steam toast only when that can't be done.
+        room = False
+        if not quiet and s.get("message_popups", True) and cls.overlay:
+            try:
+                room = await cls.overlay.show_notice(int(s.get("message_duration", 8)) + 1)
+            except Exception as e:
+                log.warning(f"message popup: {e}")
+        cls.messages.add(m, popup=not quiet and room)
+        toast = not quiet and not room
         try:
             shown = m or {}
             if privacy.enabled():
