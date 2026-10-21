@@ -98,16 +98,16 @@ export function StatusPanel({ status }: { status?: { status: string; custom: str
           </PanelSectionRow>
           {/* The emoji in front of it: your current one, or a newly picked one. */}
           <PanelSectionRow>
-            <div style={{ padding: "4px 0" }}>
-              <Focusable style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <div style={{ padding: "4px 2px" }}>
+              <Focusable style={{ display: "flex", gap: 6, alignItems: "center" }}>
                 <span style={{ width: 32, height: 32, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, flex: "none" }}>
                   {shown?.url ? <img src={shown.url} style={{ width: 26, height: 26 }} /> : shown?.text ?? <span style={{ opacity: 0.4, fontSize: 12 }}>none</span>}
                 </span>
-                <DialogButton style={{ flex: 2, minWidth: 0, height: "auto", minHeight: 40 }} onClick={() => setPicking(!picking)}>
+                <DialogButton style={{ flex: 1, minWidth: 0, height: 40, minHeight: 40, padding: "0 6px", fontSize: 14, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} onClick={() => setPicking(!picking)}>
                   {picking ? "Close Emojis" : "Choose Emoji"}
                 </DialogButton>
                 {shown && (
-                  <DialogButton style={{ flex: 1, minWidth: 0, height: "auto", minHeight: 40 }} onClick={() => { setEmoji("none"); setPicking(false); }}>
+                  <DialogButton style={{ flex: 1, minWidth: 0, height: 40, minHeight: 40, padding: "0 6px", fontSize: 14, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} onClick={() => { setEmoji("none"); setPicking(false); }}>
                     Remove
                   </DialogButton>
                 )}
