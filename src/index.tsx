@@ -29,6 +29,7 @@ import { useUiSettings, setUiSetting } from "./lib/settings";
 import { startMicBridge } from "./lib/mic";
 import { AudioDevicesPanel } from "./components/AudioDevicesPanel";
 import { WelcomeBanner } from "./components/WelcomeBanner";
+import { STATUSES } from "./components/StatusPanel";
 import { MicProcessingPanel } from "./components/MicProcessingPanel";
 import { AudioCheckPanel } from "./components/AudioCheckPanel";
 import { StreamQualityPanel } from "./components/GoLivePanel";
@@ -40,8 +41,8 @@ import { startLoginHandoff } from "./lib/loginHandoff";
 import { reopenAfterUpdate } from "./lib/reopen";
 import { IncomingCallBanner, startCallNotifications } from "./components/IncomingCall";
 import { CaptchaBanner, startCaptchaNotifications } from "./components/CaptchaBanner";
-import { useEffect, useState } from "react";
-import { on } from "./lib/events";
+import { useEffect, useRef, useState } from "react";
+import { fire, on } from "./lib/events";
 import { UploadScreenshot } from "./components/UploadScreenshot";
 import { OpenDiscordButton } from "./components/buttons/OpenCloseDiscordButton";
 import { DiagnosticsPanel } from "./components/DiagnosticsPanel";
@@ -121,6 +122,52 @@ const Collapsible = ({
   );
 };
 
+// Your picture with a status dot, your name, and your status underneath.
+const ProfileLine = ({ state }: { state: any }) => {
+  const st = STATUSES.find((s) => s.value === state?.status?.status);
+  const custom = state?.status?.custom;
+  const ellipsis = { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } as const;
+  return (
+    <span style={{ display: "flex", alignItems: "center", gap: "10px", minWidth: 0 }}>
+      <span style={{ position: "relative", flex: "none", width: 36, height: 36 }}>
+        {state?.me?.avatar ? (
+          <img
+            src={`https://cdn.discordapp.com/avatars/${state?.me?.id}/${state?.me?.avatar}.webp`}
+            width={36}
+            height={36}
+            style={{ display: "block", borderRadius: "50%" }}
+          />
+        ) : (
+          <span style={{ display: "block", width: 36, height: 36, borderRadius: "50%", background: "#5865f2" }} />
+        )}
+        {st && (
+          <span
+            style={{
+              position: "absolute", right: -2, bottom: -2, width: 12, height: 12, borderRadius: "50%",
+              background: st.color, border: "3px solid #1e2024",
+            }}
+          />
+        )}
+      </span>
+      <span style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
+        <span style={{ ...ellipsis, fontWeight: 600 }}>{state?.me?.username}</span>
+        {(custom || st) && (
+          <span style={{ ...ellipsis, fontSize: 12, opacity: 0.75, marginTop: 4 }}>{custom || st?.label}</span>
+        )}
+      </span>
+    </span>
+  );
+};
+
+const BackToTop = ({ gap = 0 }: { gap?: number }) => (
+  <PanelSectionRow>
+    {gap > 0 && <div style={{ height: gap }} />}
+    <ButtonItem layout="below" onClick={() => fire("jump:top")}>
+      ↑ Back to Top
+    </ButtonItem>
+  </PanelSectionRow>
+);
+
 const SettingsPanel = () => {
   const ui = useUiSettings();
   const [showUpdates, setShowUpdates] = useState(false);
@@ -151,7 +198,6 @@ const SettingsPanel = () => {
         <div style={{ fontWeight: 700, fontSize: "13px", marginTop: "6px" }}>Stream quality</div>
       </PanelSectionRow>
       <SafeSection name="Stream quality"><StreamQualityPanel /></SafeSection>
-      <SafeSection name="Account"><AccountPanel /></SafeSection>
       <PanelSectionRow>
         <div style={{ fontWeight: 700, fontSize: "13px", marginTop: "6px" }}>Updates</div>
       </PanelSectionRow>
@@ -161,6 +207,12 @@ const SettingsPanel = () => {
         </ButtonItem>
       </PanelSectionRow>
       {showUpdates && <SafeSection name="Updates"><UpdatePanel /></SafeSection>}
+      <PanelSectionRow>
+        <div style={{ fontWeight: 700, fontSize: "13px", marginTop: "14px" }}>Account</div>
+      </PanelSectionRow>
+      <SafeSection name="Account"><AccountPanel /></SafeSection>
+      {/* Spaced away from Logout so it isn't pressed by accident. */}
+      <BackToTop gap={18} />
     </Collapsible>
   );
 };
@@ -169,9 +221,24 @@ const Content = () => {
   const state = useDeckcordState();
   const ui = useUiSettings();
   const ready = state?.loaded && state?.logged_in;
+  const topRef = useRef<HTMLDivElement>(null);
+  // "Back to Top" buttons: move the view and the controller's focus to the
+  // first thing in Discordio, so the next press continues from there.
+  useEffect(
+    () =>
+      on("jump:top", () => {
+        try {
+          const a = topRef.current;
+          a?.scrollIntoView({ behavior: "smooth", block: "start" });
+          a?.parentElement?.querySelector<HTMLElement>("button, .DialogButton, input")?.focus();
+        } catch (_) {}
+      }),
+    [],
+  );
 
   return (
     <>
+      <div ref={topRef} />
       <SafeSection name="Update banner"><UpdateBanner /></SafeSection>
       <SafeSection name="Welcome"><WelcomeBanner /></SafeSection>
       {ready && <SafeSection name="Incoming call"><IncomingCallBanner /></SafeSection>}
@@ -194,19 +261,7 @@ const Content = () => {
               <SafeSection name="Friends count"><FriendsCount /></SafeSection>
             </PanelSectionRow>
             <PanelSectionRow>
-              <span style={{ display: "inline-flex", alignItems: "center", gap: "8px", minWidth: 0 }}>
-                {state?.me?.avatar && (
-                  <img
-                    src={`https://cdn.discordapp.com/avatars/${state?.me?.id}/${state?.me?.avatar}.webp`}
-                    width={32}
-                    height={32}
-                    style={{ display: "block", borderRadius: "50%" }}
-                  />
-                )}
-                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {state?.me?.username}
-                </span>
-              </span>
+              <ProfileLine state={state} />
             </PanelSectionRow>
             <SafeSection name="Status"><StatusPanel status={state?.status} /></SafeSection>
           </>
@@ -243,6 +298,9 @@ const Content = () => {
       )}
       <SafeSection name="Settings"><SettingsPanel /></SafeSection>
       <SafeSection name="Diagnostics"><DiagnosticsPanel /></SafeSection>
+      <PanelSection>
+        <BackToTop />
+      </PanelSection>
     </>
   );
 };

@@ -923,6 +923,7 @@
     });
     m("callFriend", ({ userId }) => callFriend(userId));
     m("incomingCall", () => incoming);
+    m("emojis", ({ channelId }) => emojis(channelId));
     m("react", ({ channelId, messageId, emoji, remove }) => react(channelId, messageId, emoji, !!remove));
     m("watchStream", ({ userId }) => watchStream(userId));
     m("getStatus", () => myStatus());
@@ -1134,17 +1135,86 @@
         } catch (_) { return []; }
     }
 
+    // ----------------------------------------------------------- emojis
+    const emojiUrl = (id, animated) => `https://cdn.discordapp.com/emojis/${id}.${animated ? "gif" : "webp"}?size=48&quality=lossless`;
+    function emojiOut(e) {
+        if (!e) return null;
+        if (e.id) {
+            if (e.available === false) return null;
+            return { id: String(e.id), name: e.name, animated: !!e.animated, guild: e.guildId ? String(e.guildId) : null, url: emojiUrl(e.id, e.animated) };
+        }
+        const s = e.surrogates || e.optionallyDiverseSequence;
+        return s ? { id: null, name: s, emoji: s } : null;
+    }
+    // Which emojis the user can react with, the way Discord's picker does:
+    // recent and favorites first, then every server's own emojis. Without
+    // Nitro, custom emojis only work in their own server and can't be animated.
+    function emojis(channelId) {
+        const E = store("EmojiStore");
+        if (!E) throw new Error("Discord's emoji list wasn't found");
+        const u = me();
+        const nitro = !!(u && (u.premiumType ?? 0) > 0);
+        let here = null;
+        try { here = channelId ? (C().ChannelStore.getChannel(channelId) || {}).guild_id || null : null; } catch (_) { }
+        const usable = (e) => e && (!e.id || nitro || (e.guild && e.guild === here && !e.animated));
+        const uniq = (list) => {
+            const seen = new Set();
+            return list.filter((e) => { const k = e.id || e.name; if (!e || seen.has(k)) return false; seen.add(k); return true; });
+        };
+
+        let recent = [];
+        try {
+            const f = E.emojiFrecencyWithoutFetchingLatest;
+            recent = ((f && (f.frequently || (f.getFrequentlyWithoutFetchingLatest && f.getFrequentlyWithoutFetchingLatest()))) || []).map(emojiOut);
+        } catch (_) { }
+
+        let favorites = [];
+        try {
+            const P = store("UserSettingsProtoStore");
+            const names = (P && P.frecencyWithoutFetchingLatest && P.frecencyWithoutFetchingLatest.favoriteEmojis &&
+                P.frecencyWithoutFetchingLatest.favoriteEmojis.emojis) || [];
+            const U = props("getByName", "convertNameToSurrogate") || props("getByName");
+            favorites = names.map((n) => {
+                if (/^\d+$/.test(n)) {
+                    try { return emojiOut(E.getCustomEmojiById(n)); } catch (_) { return null; }
+                }
+                try { return emojiOut(U && U.getByName(n)); } catch (_) { return null; }
+            });
+        } catch (_) { }
+
+        const servers = [];
+        for (const g of (() => { try { return guilds(); } catch (_) { return []; } })()) {
+            let list = [];
+            try { list = E.getGuildEmoji(g.id) || []; } catch (_) { }
+            const out = list.map((e) => emojiOut({ ...e, id: e.id, name: e.name, animated: e.animated, available: e.available, guildId: g.id }))
+                .filter(usable);
+            if (out.length) servers.push({ id: g.id, name: g.name, icon: g.icon, emojis: out });
+        }
+        // The current server's emojis first.
+        servers.sort((a, b) => (b.id === here) - (a.id === here));
+        return {
+            nitro,
+            recent: uniq(recent.filter(usable)).slice(0, 24),
+            favorites: uniq(favorites.filter(usable)),
+            servers,
+        };
+    }
+
     // Add / remove a reaction: Discord's action, or the same request it sends.
+    // emoji is a unicode emoji, or { id, name, animated } for a custom one.
     async function react(channelId, messageId, emoji, remove) {
         const a = props("addReaction", "removeReaction");
-        const e = { id: null, name: emoji, animated: false };
+        const e = typeof emoji === "object" && emoji && emoji.id
+            ? { id: String(emoji.id), name: emoji.name, animated: !!emoji.animated }
+            : { id: null, name: typeof emoji === "object" && emoji ? emoji.name : emoji, animated: false };
         try {
             if (a && (remove ? a.removeReaction : a.addReaction)) {
                 await (remove ? a.removeReaction(channelId, messageId, e) : a.addReaction(channelId, messageId, e));
                 return { ok: true, method: "action" };
             }
         } catch (err) { warn("reaction action", err); }
-        const url = `/channels/${channelId}/messages/${messageId}/reactions/${encodeURIComponent(emoji)}/@me`;
+        const key = e.id ? `${e.name}:${e.id}` : e.name;
+        const url = `/channels/${channelId}/messages/${messageId}/reactions/${encodeURIComponent(key)}/@me`;
         if (remove) await C().RestAPI.del({ url }); else await C().RestAPI.put({ url });
         return { ok: true, method: "rest" };
     }

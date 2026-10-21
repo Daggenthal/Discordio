@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { FaPhone } from "react-icons/fa";
 import { fire, on } from "../lib/events";
 import { Shot, ShotGrid } from "./UploadScreenshot";
+import { Emoji, EmojiPicker } from "./EmojiPicker";
 import { ColorButton } from "./ColorButton";
 import { Avatar } from "./VoiceChatViews";
 import { ChoiceSlider } from "./ChoiceSlider";
@@ -387,7 +388,6 @@ function MediaView({ m }: { m: Media }) {
   );
 }
 
-const QUICK = ["👍", "❤️", "😂", "😮", "😢", "🔥"];
 
 // One message. Select it (A) to react; existing reactions show underneath.
 function MessageRow({
@@ -403,9 +403,9 @@ function MessageRow({
   onPick: () => void;
   onReacted: () => void;
 }) {
-  const react = async (emoji: string) => {
-    const mine = m.reactions?.some((r) => r.emoji === emoji && r.me);
-    const res: any = await call("react", channelId, m.id, emoji, !!mine);
+  const react = async (e: Emoji, remove: boolean) => {
+    const emoji = e.id ? { id: e.id, name: e.name, animated: !!e.animated } : e.emoji ?? e.name;
+    const res: any = await call("react", channelId, m.id, emoji, remove);
     if (res?.error) toaster.toast({ title: "Discordio", body: `Couldn't react: ${res.error}` });
     onReacted();
   };
@@ -465,15 +465,12 @@ function MessageRow({
         </Focusable>
       </PanelSectionRow>
       {picking && (
-        <PanelSectionRow>
-          <Focusable style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-            {QUICK.map((e) => (
-              <DialogButton key={e} style={{ minWidth: 0, width: 40, height: 36, padding: 0, fontSize: 18 }} onClick={() => react(e)}>
-                {e}
-              </DialogButton>
-            ))}
-          </Focusable>
-        </PanelSectionRow>
+        <EmojiPicker
+          channelId={channelId}
+          existing={(m.reactions || []).map((r) => ({ id: r.id, name: r.name, emoji: r.emoji, url: r.url, me: r.me }))}
+          onPick={react}
+          onClose={onPick}
+        />
       )}
     </>
   );

@@ -2,7 +2,7 @@ import { call, toaster } from "@decky/api";
 import { ButtonItem, PanelSectionRow, TextField } from "@decky/ui";
 import { useEffect, useState } from "react";
 
-const STATUSES = [
+export const STATUSES = [
   { value: "online", label: "Online", color: "#23a55a", hint: "" },
   { value: "idle", label: "Idle", color: "#f0b232", hint: "" },
   { value: "dnd", label: "Do Not Disturb", color: "#f23f43", hint: "Mutes Discordio's message popups" },

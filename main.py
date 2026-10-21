@@ -539,11 +539,12 @@ class Plugin:
     # ------------------------------------------------------------ helpers
 
     @classmethod
-    async def _req(cls, method, params=None, timeout=10, default=None):
+    async def _req(cls, method, params=None, timeout=10, default=None, private=True):
         """Bridge request; returns {"error": ...} instead of raising, for the QAM."""
         try:
             res = await cls.bridge.request(method, params, timeout)
-            _collect_private(res)
+            if private:
+                _collect_private(res)
             return res
         except BridgeError as e:
             if default is not None:
@@ -717,6 +718,17 @@ class Plugin:
     async def logout(cls):
         log.info("Logging out of Discord")
         return await cls._req("logout", timeout=15)
+
+    @classmethod
+    async def get_emojis(cls, channel_id=None):
+        # Emoji names aren't private, and there can be thousands: keep them
+        # out of the diagnostics name list (only server names are collected).
+        res = await cls._req("emojis", {"channelId": channel_id}, timeout=15, private=False)
+        if isinstance(res, dict):
+            for s in res.get("servers") or []:
+                if isinstance(s, dict) and isinstance(s.get("name"), str):
+                    diag.remember_private(s["name"])
+        return res
 
     @classmethod
     async def react(cls, channel_id, message_id, emoji, remove=False):
