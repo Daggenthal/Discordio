@@ -248,9 +248,6 @@ const SettingsPanel = () => {
   return (
     <Collapsible title="Settings" defaultOpen={false}>
       <PanelSectionRow>
-        <OpenDiscordButton />
-      </PanelSectionRow>
-      <PanelSectionRow>
         <ToggleField
           label="Auto-open Servers"
           description="Show the server list expanded when you open Discordio"

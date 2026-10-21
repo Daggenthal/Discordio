@@ -1,6 +1,7 @@
 import { ButtonItem, PanelSection, PanelSectionRow, ToggleField } from "@decky/ui";
 import { PageUsage } from "./PageUsage";
 import { SectionHeader } from "./SectionHeader";
+import { OpenDiscordButton } from "./buttons/OpenCloseDiscordButton";
 import { on } from "../lib/events";
 import { SystemInfo, steamSystemInfo } from "./SystemInfo";
 import { addEventListener, call, removeEventListener, toaster } from "@decky/api";
@@ -225,6 +226,9 @@ export function DiagnosticsPanel() {
             <ButtonItem layout="below" onClick={exportReport} description="Writes discordio-report.txt to your home folder, to share when asking for help">
               Export report
             </ButtonItem>
+          </PanelSectionRow>
+          <PanelSectionRow>
+            <OpenDiscordButton />
           </PanelSectionRow>
           <PanelSectionRow>
             <ButtonItem layout="below" onClick={() => call("restart_discord")}>
