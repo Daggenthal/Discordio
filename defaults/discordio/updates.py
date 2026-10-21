@@ -16,7 +16,12 @@ from aiohttp import ClientSession, ClientTimeout  # type: ignore
 from . import diag
 from .vencord import ssl_context
 
-RELEASES_API = "https://api.github.com/repos/Daggenthal/Discordio/releases?per_page=20"
+# GitHub lists releases with the "latest" one first, then by tag name as
+# text, so build-100 sorts below build-99 and fell outside a short list.
+# Ask for a full page, pick the highest build number, then look a few build
+# numbers further directly (one small request each, normally just one).
+RELEASES_API = "https://api.github.com/repos/Daggenthal/Discordio/releases?per_page=100"
+TAG_API = "https://api.github.com/repos/Daggenthal/Discordio/releases/tags/build-{n}"
 
 
 def build_number(version):
@@ -37,6 +42,16 @@ async def check(current, channel="stable"):
                     diag.set("updates", diag.WARN, info["error"])
                     return info
                 releases = await r.json()
+            # Newer builds than the highest one listed, if any.
+            listed = max((build_number(x.get("tag_name", "")) for x in releases), default=0)
+            n = listed
+            for _ in range(10):
+                n += 1
+                async with s.get(TAG_API.format(n=n), ssl=ssl_context(),
+                                 headers={"Accept": "application/vnd.github+json", "User-Agent": "Discordio"}) as t:
+                    if t.status != 200:
+                        break
+                    releases.append(await t.json())
     except Exception as e:
         info["error"] = f"{type(e).__name__}: {e}"
         diag.set("updates", diag.WARN, f"couldn't check: {info['error']}")
