@@ -49,12 +49,22 @@ export function ProfilePanel({ userId }: { userId: string | null }) {
   useEffect(() => {
     setP(null);
     call<[string | null], Profile>("get_profile", userId)
-      .then(setP)
+      .then((r) => {
+        setP(r);
+        setTimeout(() => {
+          try {
+            backRef.current?.parentElement?.querySelector<HTMLElement>("[tabindex], button, .DialogButton")?.focus();
+            backRef.current?.scrollIntoView({ block: "start" });
+          } catch (_) {}
+        }, 120);
+      })
       .catch((e) => setP({ error: String(e) } as any));
     setTimeout(() => {
       try {
+        // Start at the top of the card, on its first selectable part.
+        const root = backRef.current?.parentElement;
+        root?.querySelector<HTMLElement>("[tabindex], button, .DialogButton")?.focus();
         backRef.current?.scrollIntoView({ block: "start" });
-        backRef.current?.querySelector<HTMLElement>("button, .DialogButton")?.focus();
       } catch (_) {}
     }, 120);
   }, [userId]);
@@ -79,7 +89,7 @@ export function ProfilePanel({ userId }: { userId: string | null }) {
       onCancelActionDescription="Back"
     >
     <PanelSection title={p?.me ? "Your Profile" : "Profile"}>
-      <div ref={backRef}>{back}</div>
+      <div ref={backRef} style={{ height: 8 }} />
       {!p && <PanelSectionRow><div style={{ fontSize: 12, opacity: 0.7 }}>Loading profile...</div></PanelSectionRow>}
       {p?.error && <PanelSectionRow><div style={{ fontSize: 12, color: "#ff6b6b" }}>Couldn't load the profile: {p.error}</div></PanelSectionRow>}
       {p && !p.error && (
