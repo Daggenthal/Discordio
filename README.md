@@ -12,7 +12,7 @@
 
 <!-- Screenshot or GIF of the Quick Access Menu goes here -->
 
-[Install](#-install) · [Features](#-features) · [Before you start](#-before-you-start) · [Troubleshooting](#-when-something-doesnt-work) · [Credits](#credits)
+[Install](#-install) · [Features](#-features) · [Why I Made It](#-why-i-made-discordio) · [Before you start](#-before-you-start) · [Troubleshooting](#-when-something-doesnt-work) · [Credits](#credits)
 
 </div>
 
@@ -39,47 +39,43 @@ After that, Discordio keeps itself up to date from Game Mode. Pick **Stable** fo
 
 ## ✨ Features
 
-### 🎧 Voice and calls
-- **Your call at a glance:** who's in it, who's talking, muted, deafened or live. Mute, deafen and disconnect right under the call.
-- **Per person:** Local Mute and Voice Volume, plus Server Mute, Server Deafen and Server Disconnect when you have the permission. View anyone's profile from the call.
-- **Incoming calls:** Discord's ringtone, a call card where your popups appear, and Answer / Decline in the menu or on your controller.
-- **Controller keybinds:** set your own buttons for answering, declining and your mic (toggle mute or push to talk). They read the physical buttons, so they work with any controller and any game's layout.
-- **Audio Settings:** microphone and speaker choice, noise suppression, echo cancellation, automatic gain, mic sensitivity with its value shown, a microphone test with "hear yourself", and a test sound.
+**🔑 Easy Discord Login:** When launching Discordio for the first time, you can quickly scan the QR code from your mobile app. Discord then keeps running in the background with low resource usage.
 
-### 📺 Go Live and watching streams
-- **Go Live** without Discord ever appearing on screen: 480p to 4K and 5 to 60 fps, with Nitro-only settings marked and Nitro detected automatically.
-- **Watch full screen:** just the stream, nothing else. Press B and you're back in your game.
-- **Watch in the overlay:** a friend's stream as a picture-in-picture while you keep playing. Pick its corner, size (10% to 300%), frame rate (10 to 60 fps) and volume. It waits through pauses, like a phone being locked.
+**🎧 Easy Call Controls:** Join a VC, leave it, mute yourself, and mute individuals or control their volume. If you're a moderator or have the right permissions, you can Server Mute, Server Deafen, or disconnect them from the VC.
 
-### 💬 Messages
-- **Recent conversations** with unread counts, including DMs that came in while Discordio was off.
-- **Read and reply** with images, GIFs, videos and stickers shown inline. Open any picture or video full screen.
-- **Reply** to a message, **edit** or **delete** your own, and see who's **typing**.
-- **React** with your recent and favorite emojis or any of your servers' emojis, animated ones included.
-- **GIFs:** your favorites and Tenor search. **Screenshots:** send a Steam screenshot straight into a conversation.
+**📺 Simple Game Streaming:** Discordio pipes through Vencord and captures your whole display, pushing through full video and audio. Before going live, you get the options you're used to on Discord: Quality (480p to Source) and Frame Rate. Some settings are Nitro only, and your account is checked automatically, since Discord is already running in the background.
 
-### 👥 Friends, servers and profiles
-- **Friends:** a searchable list with online counts, call, message, join their call or watch their stream. Accept, decline or send friend requests.
-- **Servers:** voice and text channels, unread markers, Mark as Read, and favorite voice channels pinned to the top.
-- **Profiles,** the way Discord shows them: banner, avatar decoration, theme colours, server tag, badges with their details, bio, connections and mutual friends. Your own badges sit under your name.
-- **Status:** Online, Idle, Do Not Disturb or Invisible, plus a custom status with an emoji (animated with Nitro) and a "clear after" timer.
+**👀 Watch Your Friends Stream:** Select them in the VC and watch their stream full screen (with audio, of course), or as an overlay you control. Move it to any corner (top-left, bottom-right, etc.) and resize it with a slider that goes up to 300%, so it fits your screen.
 
-### 🎮 The in-game overlay
-- Your voice channel on top of your game with a speaking highlight, plus message popups, call cards and notices.
-- Steam's performance overlay steps aside during calls and comes back exactly as you had it.
-- Turn it on only for calls, and set its size, opacity and "only show who's talking".
+**🎙️ Audio Settings:** Before going live, you can test your mic, tweak settings like Noise Suppression, and change your input and output devices, so everything "Just Works", as Todd Howard has always intended.
 
-### 🔔 Notifications
-- Popups for DMs and mentions, following Discord's own mutes. Mute a server, channel or conversation just for popups.
-- Do Not Disturb silences them all.
+**📞 Answering Calls:** Answering calls is a breeze. Set your own controller keybinds to accept or decline, and you'll hear the call come in, with a notification showing who's calling.
 
-### 🛠️ Everything else
-- **Accounts:** switch between saved accounts, add another, or log out. Your username is in Settings, ready to share.
-- **Updates from Game Mode:** a banner when a new build is out; it installs through Decky and reopens itself without leaving your game.
-- **Diagnostics:** the health of every part, your SteamOS and Steam versions and channels, how much CPU and memory the Discord page uses, a self-test, fix-it buttons and a shareable report with names and IDs hidden.
-- **A tidy menu:** every section collapses from its title or its bottom, and Back to Top closes everything on the way up.
+**👥 Friends:** See your friends list and view anyone's profile in its entirety (banner, bio, badges and all). Send them a message, react to their messages with one of your recent emojis (or pick a specific one), and reply directly to their messages. Discordio also pulls in your GIFs, showing your Favorites first, and lets you search.
+
+**➕ Adding Friends:** Search someone's Discord username and send them a friend request, all without touching your phone.
+
+**🗂️ Servers:** View all the servers you're in, see their VCs, join them, and get the same call controls there too.
+
+**🪪 Your Profile:** At the top of Discordio, select your profile to see your banner, badges, and the rest.
+
+**💬 Status:** Change your status, set a custom status emoji (fully animated, like normal), and choose when your status disappears, or keep it forever.
+
+**🎮 MangoHud and Calls:** If you have Steam's performance overlay (MangoHud) open to see your FPS and someone calls you, Discordio swaps it off (remembering the setting it was at) and shows you who's calling. When you accept, you'll see the usual Discord overlay showing who's talking, who's live, and who's muted or deafened. Once you leave the call, Discordio puts your MangoHud setting back so everything goes back to normal.
+
+**🔔 Messages:** When someone messages you, a notification pops up in whatever corner you set. It shows their name and message, and you can open Discordio to pick the conversation right back up.
 
 <!-- More screenshots / GIFs: calls, the overlay, a profile, messages -->
+
+---
+
+## 💭 Why I Made Discordio
+
+What I focused on most with Discordio was making it as seamless as possible. It gives us the same control we have in the app, while keeping it simple and easy to read and use. I wanted something that let me keep Discord open while playing with the homies, and the other options at the time just didn't cut it or had issues. So I started working on this myself, then used Claude Code (Pro) to work on the rest. I combed over the code myself as well, and heavily tested each feature.
+
+If something isn't working, there's a Diagnostics section at the bottom where you can get your logs. They're anonymized, and you can read them yourself if you'd like. Feel free to send them to me so I can take a look.
+
+Discordio is MIT, as I believe in fully open source. I've daily-driven Linux since 2008 and run FreeBSD on some of my servers too. If you build on this, all you have to do is follow the MIT license and put me (Daggenthal) in your credits.
 
 ---
 
