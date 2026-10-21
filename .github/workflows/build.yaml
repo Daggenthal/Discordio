@@ -45,6 +45,9 @@ jobs:
         run: |
           python3 -m py_compile main.py defaults/*.py defaults/discordio/*.py
           for f in defaults/page/*.js defaults/overlay_web.js; do node --check "$f"; done
+          # Load the page scripts with stand-in browser parts: a mistake that
+          # stops them at startup would leave Discordio stuck on "Starting Discord".
+          node scripts/check-page-scripts.cjs defaults/page/bridge.js defaults/page/media.js
 
       - name: Download Decky Plugin CLI
         run: |

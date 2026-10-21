@@ -1517,7 +1517,6 @@
             }, "message sound");
         } catch (_) { }
     }
-    m("warmSounds", () => ({ ok: warmSounds() }));
 
     function ringStart(again) {
         if (ringtone) return;
@@ -1662,6 +1661,7 @@
     m("answerCall", ({ channelId }) => { ringStop(); return answerCall(channelId); });
     m("declineCall", ({ channelId }) => { ringStop(); return declineCall(channelId); });
     // After the backend unlocks sound (if the first try was blocked).
+    m("warmSounds", () => ({ ok: warmSounds() }));
     m("ringAgain", () => { if (incoming) { ringStop(); ringStart(); } return { ok: true, ringing: !!ringtone }; });
     m("guilds", () => guilds());
     m("badges", () => myBadges());

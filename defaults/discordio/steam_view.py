@@ -304,7 +304,9 @@ class DiscordView:
         if method == "Runtime.exceptionThrown":
             d = params.get("exceptionDetails", {})
             text = (d.get("exception") or {}).get("description") or d.get("text") or ""
-            if "discordio" in text.lower() or "deckcord" in text.lower():
+            # Ours: mentions Discordio, or comes from the injected scripts
+            # (they have no URL of their own).
+            if "discordio" in text.lower() or "deckcord" in text.lower() or not d.get("url"):
                 diag.log_external("[page]", "exception: " + text.splitlines()[0][:300])
         elif method == "Runtime.consoleAPICalled":
             args = params.get("args", [])
