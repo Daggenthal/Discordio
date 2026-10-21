@@ -140,6 +140,7 @@ const Collapsible = ({
 const ProfileLine = ({ state }: { state: any }) => {
   const st = STATUSES.find((s) => s.value === state?.status?.status);
   const custom = state?.status?.custom;
+  const emoji = state?.status?.emoji as { url?: string; text?: string } | null | undefined;
   const ellipsis = { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } as const;
   return (
     <span style={{ display: "flex", alignItems: "center", gap: "10px", minWidth: 0 }}>
@@ -165,9 +166,11 @@ const ProfileLine = ({ state }: { state: any }) => {
       </span>
       <span style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
         <span style={{ ...ellipsis, fontWeight: 600 }}>{state?.me?.username}</span>
-        {(custom || st) && (
+        {(custom || emoji || st) && (
           <span style={{ fontSize: 12, opacity: 0.75, marginTop: 4, whiteSpace: "normal", overflowWrap: "anywhere", lineHeight: 1.35 }}>
-            {custom || st?.label}
+            {emoji?.url && <img src={emoji.url} style={{ width: 16, height: 16, verticalAlign: "-3px", marginRight: 4 }} />}
+            {emoji?.text && <span style={{ marginRight: 4 }}>{emoji.text}</span>}
+            {custom || (emoji ? "" : st?.label)}
           </span>
         )}
       </span>

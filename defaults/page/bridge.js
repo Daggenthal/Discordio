@@ -199,10 +199,16 @@
 
     // ------------------------------------------------------------- status
     const STATUSES = ["online", "idle", "dnd", "invisible"];
+    // A custom status emoji: a picture (animated when it is) or a unicode character.
+    function statusEmoji(e) {
+        if (!e) return null;
+        if (e.id) return { url: `https://cdn.discordapp.com/emojis/${e.id}.webp?size=48&animated=true`, name: e.name || "" };
+        return e.name ? { text: e.name } : null;
+    }
     function myStatus() {
         const u = me();
         if (!u) return null;
-        let status = "online", custom = null;
+        let status = "online", custom = null, emoji = null;
         try {
             const set = discordSetting("status", "status");
             const v = set && set.getSetting && set.getSetting();
@@ -211,16 +217,19 @@
         try {
             const set = discordSetting("status", "customStatus");
             const v = set && set.getSetting && set.getSetting();
-            if (v && v.text) custom = v.text;
+            if (v && (v.text || v.emojiId || v.emojiName)) {
+                custom = v.text || "";
+                emoji = statusEmoji({ id: v.emojiId && v.emojiId !== "0" ? String(v.emojiId) : null, name: v.emojiName });
+            }
         } catch (_) { }
         if (custom === null) {
             try {
                 const acts = store("PresenceStore").getActivities(u.id) || [];
                 const c = acts.find((a) => a.type === 4);
-                if (c && c.state) custom = c.state;
+                if (c && (c.state || c.emoji)) { custom = c.state || ""; emoji = statusEmoji(c.emoji); }
             } catch (_) { }
         }
-        return { status, custom };
+        return { status, custom, emoji };
     }
 
     // Discord's synced user settings (through Vencord's settings API when
@@ -245,10 +254,17 @@
             const text = String(custom).trim().slice(0, 128);
             const set = discordSetting("status", "customStatus");
             if (set && set.updateSetting) {
-                await set.updateSetting(text ? { text, expiresAtMs: "0" } : undefined);
+                // Keep the emoji you already had with the new text.
+                let prev = null;
+                try { prev = set.getSetting && set.getSetting(); } catch (_) { }
+                const keep = prev && (prev.emojiId || prev.emojiName) ? { emojiId: prev.emojiId, emojiName: prev.emojiName } : {};
+                await set.updateSetting(text ? { ...keep, text, expiresAtMs: "0" } : undefined);
                 out.custom = "setting";
             } else {
-                await C().RestAPI.patch({ url: "/users/@me/settings", body: { custom_status: text ? { text } : null } });
+                const st = myStatus();
+                const e = st && st.emoji;
+                const keep = e ? (e.url ? { emoji_id: (e.url.match(/emojis\/(\d+)/) || [])[1], emoji_name: e.name } : { emoji_name: e.text }) : {};
+                await C().RestAPI.patch({ url: "/users/@me/settings", body: { custom_status: text ? { ...keep, text } : null } });
                 out.custom = "rest";
             }
         }
@@ -974,10 +990,12 @@
         try {
             const acts = (store("PresenceStore") && store("PresenceStore").getActivities(userId)) || [];
             const c = acts.find((a) => a.type === 4);
-            if (c) custom = { text: c.state || "", emoji: c.emoji ? (c.emoji.id ? `https://cdn.discordapp.com/emojis/${c.emoji.id}.png?size=32` : c.emoji.name) : null };
+            if (c) { const e = statusEmoji(c.emoji); custom = { text: c.state || "", emoji: e ? (e.url || e.text) : null }; }
             var playing = acts.filter((a) => a.type !== 4).map((a) => ({ type: a.type, name: a.name, details: a.details || null, state: a.state || null }));
         } catch (_) { }
-        if (userId === (meU && meU.id) && !custom) { try { const st = myStatus(); if (st && st.custom) custom = { text: st.custom, emoji: null }; } catch (_) { } }
+        if (userId === (meU && meU.id) && (!custom || !custom.emoji)) {
+            try { const st = myStatus(); if (st && (st.custom || st.emoji)) custom = { text: st.custom || "", emoji: st.emoji ? (st.emoji.url || st.emoji.text) : null }; } catch (_) { }
+        }
         const { badges, created } = badgesOf(p, userId);
         const avatar = u.avatar ? `https://cdn.discordapp.com/avatars/${userId}/${u.avatar}.${String(u.avatar).startsWith("a_") ? "gif" : "png"}?size=256` : avatarUrl(u);
         return {

@@ -68,6 +68,16 @@ export function ProfilePanel({ userId }: { userId: string | null }) {
   );
 
   return (
+    <Focusable
+      // B closes the profile (back to the menu), it doesn't leave Discordio.
+      onCancelButton={(e: any) => {
+        try {
+          e?.stopPropagation?.();
+        } catch (_) {}
+        closeProfile();
+      }}
+      onCancelActionDescription="Back"
+    >
     <PanelSection title={p?.me ? "Your Profile" : "Profile"}>
       <div ref={backRef}>{back}</div>
       {!p && <PanelSectionRow><div style={{ fontSize: 12, opacity: 0.7 }}>Loading profile...</div></PanelSectionRow>}
@@ -116,7 +126,7 @@ export function ProfilePanel({ userId }: { userId: string | null }) {
                   <Focusable
                     key={b.id}
                     onActivate={() => setBadge(badge === i ? null : i)}
-                    {...({ onGamepadFocus: () => setBadge(i) } as any)}
+                    {...({ onGamepadFocus: () => setBadge(i), onGamepadBlur: () => setBadge((b) => (b === i ? null : b)) } as any)}
                     style={{
                       width: 30, height: 30, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center",
                       border: badge === i ? "2px solid #fff" : "2px solid transparent", boxSizing: "border-box",
@@ -180,5 +190,6 @@ export function ProfilePanel({ userId }: { userId: string | null }) {
         </>
       )}
     </PanelSection>
+    </Focusable>
   );
 }
