@@ -39,13 +39,14 @@ class OverlayManager:
         self.perf = (None, "not checked yet")
         self.call_active = lambda: False  # set by the plugin: ringing or in a call
         self.started_at = 0.0
-        self.hold = False  # performance overlay held off for a call
+        self.notice_until = 0.0  # a Discordio notice is on screen until then
+        self.hold = False  # performance overlay held off for a call (or a notice)
         self.hold_since = 0.0
 
     def enabled(self, s=None):
         """On, or off but turned on for the call that's ringing / in progress."""
         s = s or self.settings.load()
-        if s.get("overlay_enabled", True):
+        if s.get("overlay_enabled", True) or time.time() < self.notice_until:
             return True
         try:
             return bool(s.get("overlay_calls", True) and self.call_active())
@@ -58,7 +59,7 @@ class OverlayManager:
         if not s.get("overlay_hide_perf", True):
             return False
         try:
-            return bool(self.enabled(s) and self.call_active())
+            return bool(self.enabled(s) and (self.call_active() or time.time() < self.notice_until))
         except Exception:
             return False
 
@@ -127,6 +128,18 @@ class OverlayManager:
             pass
         return result
 
+    async def show_notice(self, seconds):
+        """Make room for a notice: overlay on and the performance overlay
+        off for that long, then back as it was. False if it can't be shown."""
+        s = self.settings.load()
+        if not s.get("overlay_hide_perf", True):
+            visible, _ = self.perf
+            if visible:
+                return False  # the performance overlay has the screen, and we may not hide it
+        self.notice_until = time.time() + seconds
+        await self._update_hold(s)
+        return True
+
     async def _update_hold(self, s=None):
         hold = self.wants_hold(s)
         if hold == self.hold:
@@ -135,11 +148,11 @@ class OverlayManager:
         self.hold_since = time.monotonic()
         try:
             result = self._hide_perf() if hold else self._restore_perf()
-            diag.set("perf_hold", diag.OK, f"call {'started' if hold else 'ended'}: performance overlay {result}")
+            diag.set("perf_hold", diag.OK, f"call or notice {'started' if hold else 'ended'}: performance overlay {result}")
         except Exception as e:
             diag.set("perf_hold", diag.WARN, f"couldn't change the performance overlay: {e}")
         self.perf = system.perf_overlay_state()
-        self.log.info("call %s: %s Steam's performance overlay", "started" if hold else "ended",
+        self.log.info("call or notice %s: %s Steam's performance overlay", "started" if hold else "ended",
                       "hiding" if hold else "restoring")
         try:
             await self.decky.emit("perf_hold", {"hold": hold})

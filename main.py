@@ -815,8 +815,13 @@ class Plugin:
         """A popup where message popups appear. False if the overlay can't show
         it right now (the QAM shows a Steam toast instead)."""
         s = cls.settings.load()
-        if not (s.get("message_popups", True) and cls.overlay and cls.overlay.active_engine(s)):
+        if not (s.get("message_popups", True) and cls.overlay):
             return False
+        seconds = int(s.get("message_duration", 8)) + 1
+        # Like during calls: the FPS overlay steps aside while it shows.
+        if not await cls.overlay.show_notice(seconds):
+            return False
+        await asyncio.sleep(0.6)  # the gamescope overlay takes a moment to come up
         cls.messages.notice(title, text, hint="Discordio")
         return True
 
