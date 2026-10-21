@@ -30,6 +30,7 @@ import { startMicBridge } from "./lib/mic";
 import { AudioDevicesPanel } from "./components/AudioDevicesPanel";
 import { WelcomeBanner } from "./components/WelcomeBanner";
 import { Badges } from "./components/Badges";
+import { MediaViewer } from "./components/MediaViewer";
 import { startWatchNotices } from "./lib/watch";
 import { STATUSES } from "./components/StatusPanel";
 import { MicProcessingPanel } from "./components/MicProcessingPanel";
@@ -44,7 +45,7 @@ import { reopenAfterUpdate } from "./lib/reopen";
 import { IncomingCallBanner, startCallNotifications } from "./components/IncomingCall";
 import { CaptchaBanner, startCaptchaNotifications } from "./components/CaptchaBanner";
 import { useEffect, useRef, useState } from "react";
-import { fire, on } from "./lib/events";
+import { fire, on, takeExpand } from "./lib/events";
 import { UploadScreenshot } from "./components/UploadScreenshot";
 import { OpenDiscordButton } from "./components/buttons/OpenCloseDiscordButton";
 import { DiagnosticsPanel } from "./components/DiagnosticsPanel";
@@ -107,7 +108,7 @@ const Collapsible = ({
   children: any;
   defaultOpen: boolean;
 }) => {
-  const [open, setOpen] = useState(defaultOpen);
+  const [open, setOpen] = useState(() => takeExpand(title) || defaultOpen);
   // e.g. joining a voice channel collapses Servers, so Call / Go Live is in view.
   useEffect(() => on(`collapse:${title}`, () => setOpen(false)), [title]);
   // e.g. a friend's Message button opens Messages.
@@ -383,6 +384,9 @@ export default definePlugin(() => {
   safe("Register /discord route", () =>
     routerHook.addRoute("/discord", () => <DiscordTab />)
   );
+  safe("Register the media viewer route", () =>
+    routerHook.addRoute("/discordio-view", () => <MediaViewer />)
+  );
 
   let settingsChangeUnregister: any;
   let lastDisplayIsExternal: boolean | undefined;
@@ -420,6 +424,9 @@ export default definePlugin(() => {
       }
       try {
         routerHook.removeRoute("/discord");
+        try {
+          routerHook.removeRoute("/discordio-view");
+        } catch (_) {}
       } catch (_) {}
     },
     alwaysRender: true,

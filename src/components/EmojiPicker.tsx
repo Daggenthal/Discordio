@@ -83,7 +83,9 @@ export function EmojiPicker({
   onReply,
   onEdit,
   onDelete,
+  onView,
 }: {
+  onView?: () => void;
   onReply?: () => void;
   onEdit?: () => void;
   onDelete?: () => void;
@@ -115,6 +117,13 @@ export function EmojiPicker({
 
   return (
     <>
+      {onView && (
+        <PanelSectionRow>
+          <div style={{ padding: "4px 0 0" }}>
+            <DialogButton style={{ height: "auto", minHeight: 40 }} onClick={onView}>🔍 View Full Screen</DialogButton>
+          </div>
+        </PanelSectionRow>
+      )}
       {onReply && (
         <PanelSectionRow>
           <div style={{ padding: "4px 0" }}>

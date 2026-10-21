@@ -6,6 +6,7 @@ import { fire, on } from "../lib/events";
 import { Shot, ShotGrid } from "./UploadScreenshot";
 import { Emoji, EmojiPicker } from "./EmojiPicker";
 import { GifPicker } from "./GifPicker";
+import { openViewer, takeRestore } from "../lib/viewer";
 import { ActionRow, MutedIcon, UnreadBadge, markRead, setPopupMute } from "./Unread";
 import { ColorButton } from "./ColorButton";
 import { Avatar } from "./VoiceChatViews";
@@ -68,7 +69,10 @@ export function openChannelConversation(ch: { id: string; name: string; guild?: 
 // DMs and mentions that came in: open one to read and reply.
 export function MessagesPanel() {
   const [convs, setConvs] = useState<Conversation[] | null>(null);
+  // Back from the full-screen viewer: the same conversation, same message.
+  const [restored] = useState(() => takeRestore());
   const [open, setOpen] = useState<Conversation | null>(() => {
+    if (restored) return restored.conv;
     const p = pendingOpen;
     pendingOpen = null;
     return p;
@@ -101,7 +105,7 @@ export function MessagesPanel() {
     };
   }, []);
 
-  if (open) return <ConversationView conv={open} onBack={() => { setOpen(null); load(); }} />;
+  if (open) return <ConversationView conv={open} focusMessage={restored?.conv === open ? restored.messageId : undefined} onBack={() => { setOpen(null); load(); }} />;
 
   if (!convs) return <Hint>Loading...</Hint>;
   if (convs.length === 0) return <Hint>No new messages. DMs and mentions show up here and as popups over your game.</Hint>;
@@ -174,7 +178,7 @@ export function MessagesPanel() {
   );
 }
 
-function ConversationView({ conv, onBack }: { conv: Conversation; onBack: () => void }) {
+function ConversationView({ conv, onBack, focusMessage }: { conv: Conversation; onBack: () => void; focusMessage?: string }) {
   const [history, setHistory] = useState<History | null>(null);
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
@@ -197,8 +201,22 @@ function ConversationView({ conv, onBack }: { conv: Conversation; onBack: () => 
   const jumpToReply = () => focusIn(reply.current);
   const jumpToTop = () => focusIn(top.current);
 
-  // Opening a conversation brings it into view.
+  // Opening a conversation brings it into view (or, back from the viewer,
+  // the message you were on).
+  const focused = useRef(false);
   useEffect(() => {
+    if (!focusMessage || focused.current || !history) return;
+    focused.current = true;
+    setTimeout(() => {
+      try {
+        const el = document.getElementById(`dio-msg-${focusMessage}`);
+        el?.scrollIntoView({ block: "center" });
+        (el?.closest("[tabindex]") as HTMLElement | null)?.focus();
+      } catch (_) {}
+    }, 200);
+  }, [history]);
+  useEffect(() => {
+    if (focusMessage) return;
     const t = setTimeout(() => {
       try {
         top.current?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -296,6 +314,7 @@ function ConversationView({ conv, onBack }: { conv: Conversation; onBack: () => 
       {history?.messages.slice(-20).map((m) => (
         <MessageRow
           key={m.id}
+          conv={conv}
           m={m}
           channelId={conv.channel_id}
           picking={picking === m.id}
@@ -562,7 +581,9 @@ function MessageRow({
   onReply,
   onEdit,
   onDelete,
+  conv,
 }: {
+  conv: Conversation;
   onReply: () => void;
   onEdit: () => void;
   onDelete: () => void;
@@ -598,6 +619,7 @@ function MessageRow({
         >
           <div
             ref={ref}
+            id={`dio-msg-${m.id}`}
             style={{
               display: "flex", gap: 8, alignItems: "flex-start", ...small,
               padding: "4px 6px", margin: "0 -6px", borderRadius: 6,
@@ -645,6 +667,7 @@ function MessageRow({
           onPick={react}
           onClose={onPick}
           onReply={onReply}
+          onView={m.media?.some((x) => x.url && x.kind !== "file") ? () => openViewer(m.media as any, 0, conv, m.id) : undefined}
           onEdit={m.mine && m.text ? onEdit : undefined}
           onDelete={m.mine ? onDelete : undefined}
         />

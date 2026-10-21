@@ -11,3 +11,9 @@ export const on = (name: string, fn: Fn) => {
 };
 
 export const fire = (name: string, data?: any) => listeners.get(name)?.forEach((fn) => fn(data));
+
+// Sections to open the next time they mount (the QAM was closed, e.g.
+// while viewing an image full screen).
+const expandOnMount = new Set<string>();
+export const expandLater = (title: string) => expandOnMount.add(title);
+export const takeExpand = (title: string) => expandOnMount.delete(title);
