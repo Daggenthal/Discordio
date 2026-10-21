@@ -135,7 +135,7 @@ gh release edit build-N --prerelease=false --latest
 
 ## About Me
 
-I'm Daggenthal. I have a background in IT, I like tinkering with Linux gaming hardware, and I build tools I wish already existed. Discordio started because the existing Discord plugin for Decky stopped working on current SteamOS builds.
+Yoyo! I go by Daggenthal for development work (You can go look at Peacebringer / Warshade, which are essentially the same thing, and judge them for their horrors haha), but I've been tinkering and building computers since roughly 2001 / 2002. Started focusing mostly on Linux / UNIX back in 2008 as a daily driver, and to this day I still daily drive it. I used to work with Disaster Recovery, but I enjoy tinkering with Containers and Server Administration, but I have since focused away from all of that and focus mostly on console (or handheld) repairs / microsoldering work nowadays. My current PC is a Steam Machine, and I study languages as well as a strong passion of mine! I actually type all of this (README) out, just the silly Emojis was the work of Claude, honestly. Personally, I don't find the point in them and I prefer the information to be direct, but the world is changing and people like the emojis, so here we go.
 
 ## Credits
 
