@@ -5,7 +5,7 @@ import { on } from "../lib/events";
 import { stopWatching } from "../lib/watch";
 import { ChoiceSlider } from "./ChoiceSlider";
 
-type Pip = { on: boolean; name?: string | null; frames?: number; live?: boolean };
+type Pip = { on: boolean; name?: string | null; frames?: number; live?: boolean; volume?: number };
 
 const POSITIONS = [
   { value: "top-left", short: "TL", label: "Top left" },
@@ -18,6 +18,12 @@ export const PIP_FPS = [10, 30, 40, 60].map((v) => ({ value: v, short: `${v}`, l
 // While a stream is showing in the overlay: where, how big, and stop.
 export function PipControls() {
   const [pip, setPip] = useState<Pip>({ on: false });
+  // What you just set, until the next poll confirms it.
+  const [volOverride, setVolOverride] = useState<number | null>(null);
+  const setVol = (v: number) => {
+    setVolOverride(v);
+    setTimeout(() => setVolOverride(null), 3000);
+  };
   const [look, setLook] = useState<{ position: string; size: number | string; fps: number } | null>(null);
   useEffect(() => {
     const load = () => call<[], Pip>("get_pip").then(setPip).catch(() => {});
@@ -34,6 +40,7 @@ export function PipControls() {
     };
   }, []);
   if (!pip.on) return null;
+  const vol = volOverride ?? pip.volume ?? 100;
   const set = async (position?: string, size?: string, fps?: number) =>
     setLook(await call<any[], any>("set_pip_look", position ?? null, size ?? null, fps ?? null));
   return (
@@ -65,6 +72,22 @@ export function PipControls() {
           </PanelSectionRow>
         </>
       )}
+      <PanelSectionRow>
+        {/* 0-200 % in 10 % steps; 1-based (Steam's slider ignores input at 0). */}
+        <SliderField
+          label={`Stream Volume: ${vol}%`}
+          description="Only for you, like Discord's stream volume"
+          min={1}
+          max={21}
+          step={1}
+          value={Math.round(vol / 10) + 1}
+          onChange={(p) => {
+            const v = (p - 1) * 10;
+            setVol(v);
+            call("set_stream_volume", v).catch(() => {});
+          }}
+        />
+      </PanelSectionRow>
       <PanelSectionRow>
         <ButtonItem layout="below" onClick={stopWatching}>
           Stop Watching

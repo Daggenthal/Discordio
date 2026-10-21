@@ -986,6 +986,14 @@ class Plugin:
             log.warning(f"stream view visibility ({on}): {e}")
 
     @classmethod
+    async def set_stream_volume(cls, volume):
+        """Volume of the stream you're watching, for you only (0-200 %)."""
+        uid = (cls.pip or {}).get("user_id")
+        if not uid:
+            return {"error": "not watching a stream"}
+        return await cls._req("setUserVolume", {"userId": uid, "volume": int(volume), "context": "stream"})
+
+    @classmethod
     async def stop_watching(cls):
         cls.pip = None
         cls.pip_paused = False
@@ -1016,8 +1024,12 @@ class Plugin:
         p = cls.pip
         if not p:
             return {"on": False}
+        vol = 100
+        if p.get("user_id"):
+            r = await cls._req("getUserVolume", {"userId": p["user_id"], "context": "stream"}, timeout=5, default={})
+            vol = (r or {}).get("volume", 100) if isinstance(r, dict) else 100
         return {"on": True, "name": p.get("name"), "user_id": p.get("user_id"), "frames": p.get("seq", 0),
-                "live": cls._pip_fresh()}
+                "live": cls._pip_fresh(), "volume": vol}
 
     @classmethod
     async def set_pip_look(cls, position=None, size=None, fps=None):

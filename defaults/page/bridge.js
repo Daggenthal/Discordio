@@ -1259,12 +1259,20 @@
         return { ok: true };
     }
 
-    function setUserVolume(userId, volume) {
+    // context "default" is their voice, "stream" the sound of their Go Live.
+    function setUserVolume(userId, volume, context) {
+        const ctx = context === "stream" ? "stream" : "default";
         const v = Math.max(0, Math.min(200, Number(volume) || 0));
         const a = props("setLocalVolume");
-        if (a && a.setLocalVolume) a.setLocalVolume(userId, v, "default");
-        else dispatch({ type: "AUDIO_SET_LOCAL_VOLUME", context: "default", userId, volume: v });
+        if (a && a.setLocalVolume) a.setLocalVolume(userId, v, ctx);
+        else dispatch({ type: "AUDIO_SET_LOCAL_VOLUME", context: ctx, userId, volume: v });
         return { ok: true, volume: v };
+    }
+    function getUserVolume(userId, context) {
+        try {
+            const M = store("MediaEngineStore");
+            return { volume: Math.round(M.getLocalVolume(userId, context === "stream" ? "stream" : "default")) };
+        } catch (_) { return { volume: 100 }; }
     }
 
     // Server mute / deafen / disconnect: the same request Discord's own
@@ -1473,7 +1481,8 @@
     m("getStatus", () => myStatus());
     m("setStatus", ({ status, custom, emoji, clearAfter }) => setStatus(status, custom, emoji, clearAfter));
     m("setLocalMute", ({ userId, muted }) => setLocalMute(userId, muted));
-    m("setUserVolume", ({ userId, volume }) => setUserVolume(userId, volume));
+    m("setUserVolume", ({ userId, volume, context }) => setUserVolume(userId, volume, context));
+    m("getUserVolume", ({ userId, context }) => getUserVolume(userId, context));
     m("moderate", ({ userId, action, value }) => moderate(userId, action, value));
     m("accounts", () => accounts());
     m("switchAccount", ({ userId }) => switchAccount(userId));
