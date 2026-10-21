@@ -37,6 +37,7 @@ class Bridge:
         self._next = 0
         self._pending = {}
         self._handlers = {}
+        self._sockets = set()  # every open page socket, active or not
         self.stats = {"requests": 0, "failed": 0, "timeouts": 0, "latency_ms": 0.0, "connects": 0}
         self.recent_failures = []
 
@@ -54,6 +55,7 @@ class Bridge:
         # close the active one just because another connected.
         ws = WebSocketResponse(max_msg_size=0, heartbeat=20)
         await ws.prepare(request)
+        self._sockets.add(ws)
         self.stats["connects"] += 1
         if not self.connected:
             diag.set("bridge", diag.PENDING, "connected, waiting for Discord to load")
@@ -75,6 +77,7 @@ class Bridge:
                 except Exception as e:
                     self.log.warning(f"Bridge message error: {e}")
         finally:
+            self._sockets.discard(ws)
             if self.ws is ws:
                 self.ws = None
                 for fut in self._pending.values():
@@ -83,7 +86,31 @@ class Bridge:
                 self._pending.clear()
                 diag.set("bridge", diag.WARN, "Discord page disconnected (it reconnects by itself)")
                 await self._emit("disconnected", None)
+                # After an update or a view restart, an old Discord page and
+                # the new one can both be connected. If the one in use goes
+                # away, the other is still there but had already said hello,
+                # so it would sit unused ("Starting Discord" forever). Ask it
+                # to say hello again.
+                for other in list(self._sockets):
+                    if not other.closed:
+                        try:
+                            await other.send_json({"t": "hello?"})
+                            self.log.info("Bridge: active page went away, asking the other open page to take over")
+                        except Exception:
+                            pass
         return ws
+
+    async def nudge(self):
+        """Ask every open page to say hello (none is in use right now)."""
+        n = 0
+        for ws in list(self._sockets):
+            if not ws.closed:
+                try:
+                    await ws.send_json({"t": "hello?"})
+                    n += 1
+                except Exception:
+                    pass
+        return n
 
     async def _dispatch(self, data):
         t = data.get("t")

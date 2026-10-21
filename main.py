@@ -246,6 +246,13 @@ class Plugin:
             await asyncio.sleep(5)
             n += 1
             if not (cls.bridge.connected and cls.ready):
+                # A Discord page is connected but never took over: ask again.
+                if n % 2 == 0:
+                    try:
+                        if await cls.bridge.nudge():
+                            log.info("Discord page connected but not in use, asked it to say hello")
+                    except Exception:
+                        pass
                 continue
             if n % 3 == 0:
                 try:

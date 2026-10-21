@@ -56,6 +56,8 @@
                     warn(`${msg.method} failed:`, e);
                     send({ t: "res", id: msg.id, ok: false, error: String((e && e.message) || e) });
                 }
+            } else if (msg.t === "hello?") {
+                if (ready) hello();
             } else if (msg.t === "push") {
                 for (const fn of pushListeners[msg.name] || []) {
                     try { fn(msg.data); } catch (e) { warn("push handler", msg.name, e); }
