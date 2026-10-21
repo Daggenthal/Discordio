@@ -811,6 +811,15 @@ class Plugin:
         return await cls._req("friendRequest", {"action": action, "userId": user_id, "username": username}, timeout=15)
 
     @classmethod
+    async def call_card_shown(cls):
+        """Whether the overlay shows the ringing call card (then no Steam toast)."""
+        try:
+            s = cls.settings.load()
+            return bool(cls.overlay and cls.overlay.enabled(s) and cls.overlay.active_engine(s))
+        except Exception:
+            return False
+
+    @classmethod
     async def show_notice(cls, title, text):
         """A popup where message popups appear. False if the overlay can't show
         it right now (the QAM shows a Steam toast instead)."""
