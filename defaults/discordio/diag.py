@@ -25,6 +25,7 @@ COMPONENTS = [
     ("controller", "Controller shortcuts"),
     ("capture", "Screen capture"),
     ("overlay", "In-game overlay"),
+    ("perf_hold", "Performance overlay during calls"),
     ("updates", "Updates"),
 ]
 

@@ -3,7 +3,7 @@ import { PanelSectionRow, ToggleField } from "@decky/ui";
 import { ChoiceSlider } from "./ChoiceSlider";
 import { useEffect, useState } from "react";
 
-type OverlaySettings = { enabled: boolean; position: string; engine: string; active: string | null; status: string; perf_overlay?: string; calls?: boolean;
+type OverlaySettings = { enabled: boolean; position: string; engine: string; active: string | null; status: string; perf_overlay?: string; calls?: boolean; hold?: boolean; hide_perf?: boolean;
   size?: string; opacity?: number; speakers_only?: boolean };
 
 const SIZES = [
@@ -12,18 +12,6 @@ const SIZES = [
   { value: "large", short: "Large", label: "Large" },
 ];
 const OPACITIES = [40, 50, 60, 70, 80, 90, 100].map((v) => ({ value: v, short: v === 40 || v === 70 || v === 100 ? `${v}%` : "", label: `${v}%` }));
-
-const ENGINES = [
-  { value: "auto", short: "Auto", label: "Auto" },
-  { value: "gamescope", short: "Gamescope", label: "Gamescope overlay" },
-  { value: "steam", short: "Steam", label: "Steam overlay layer" },
-];
-
-const ENGINE_HELP: Record<string, string> = {
-  auto: "Uses the gamescope overlay, and switches to Steam's overlay layer while the performance overlay (FPS) is on, so both show at once",
-  gamescope: "Smoothest. While Steam's performance overlay is on, Steam's overlay layer is used instead (gamescope shows only one)",
-  steam: "Drawn inside Steam's own overlay, works alongside the performance overlay",
-};
 
 const POSITIONS = [
   { value: "top-left", short: "TL", label: "Top left" },
@@ -95,17 +83,6 @@ export function OverlayPanel() {
           />
         </PanelSectionRow>
       )}
-      {s.enabled && (
-        <PanelSectionRow>
-          <ChoiceSlider
-            label="Engine"
-            description={ENGINE_HELP[s.engine] ?? ""}
-            choices={ENGINES}
-            value={s.engine}
-            onChange={(v) => update(undefined, undefined, v)}
-          />
-        </PanelSectionRow>
-      )}
       {(s.enabled || s.calls !== false) && (
         <>
           <PanelSectionRow>
@@ -129,12 +106,14 @@ export function OverlayPanel() {
           </PanelSectionRow>
         </>
       )}
-      {s.enabled && s.engine === "auto" && (
+      {(s.enabled || s.calls !== false) && (
         <PanelSectionRow>
-          <div style={{ fontSize: "11px", opacity: 0.7 }}>
-            Using {s.active === "steam" ? "Steam's overlay layer" : "the gamescope overlay"} (performance overlay:{" "}
-            {s.perf_overlay || "unknown"})
-          </div>
+          <ToggleField
+            label="Hide Performance Overlay in Calls"
+            description="Only one overlay can show at a time, so the FPS overlay turns off during calls and comes back after."
+            checked={s.hide_perf !== false}
+            onChange={async (v) => setS(await call<[boolean], OverlaySettings>("set_overlay_hide_perf", v))}
+          />
         </PanelSectionRow>
       )}
       {s.enabled && s.status && !s.status.startsWith("running") && (

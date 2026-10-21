@@ -923,6 +923,20 @@ class Plugin:
         return cls.overlay.info()
 
     @classmethod
+    async def set_overlay_hide_perf(cls, on):
+        cls.settings.update(overlay_hide_perf=bool(on))
+        return cls.overlay.info()
+
+    @classmethod
+    async def get_perf_hold(cls):
+        """Whether the performance overlay should be off right now (a call)."""
+        return bool(cls.overlay and cls.overlay.hold)
+
+    @classmethod
+    async def perf_hold_log(cls, ok, detail):
+        diag.set("perf_hold", diag.OK if ok else diag.WARN, str(detail)[:200])
+
+    @classmethod
     async def set_overlay_look(cls, size=None, opacity=None, speakers_only=None):
         """Overlay size (small / normal / large), opacity (30-100 %), only show who's talking."""
         changes = {}

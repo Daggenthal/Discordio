@@ -7,8 +7,10 @@ overlay (MangoHud's mangoapp) uses it. So there are two engines:
   gamescope  overlay.py, an external overlay window (smoothest)
   steam      overlay_web.js, drawn inside Steam's own overlay window
 
-"auto" uses the Steam layer while the performance overlay is showing,
-gamescope otherwise.
+During a call the plugin hides the performance overlay (the QAM does
+that through Steam, see src/lib/perfOverlay.ts) and puts the user's level
+back afterwards, so the gamescope overlay always has the slot. Outside
+calls, the Steam layer is used while the performance overlay is showing.
 """
 
 import asyncio
@@ -37,6 +39,8 @@ class OverlayManager:
         self.perf = (None, "not checked yet")
         self.call_active = lambda: False  # set by the plugin: ringing or in a call
         self.started_at = 0.0
+        self.hold = False  # performance overlay held off for a call
+        self.hold_since = 0.0
 
     def enabled(self, s=None):
         """On, or off but turned on for the call that's ringing / in progress."""
@@ -48,21 +52,46 @@ class OverlayManager:
         except Exception:
             return False
 
+    def wants_hold(self, s=None):
+        """A call is ringing or in progress and the overlay is showing for it."""
+        s = s or self.settings.load()
+        if not s.get("overlay_hide_perf", True):
+            return False
+        try:
+            return bool(self.enabled(s) and self.call_active())
+        except Exception:
+            return False
+
     def active_engine(self, s=None):
         s = s or self.settings.load()
         if not self.enabled(s):
             return None
-        engine = s.get("overlay_engine", "auto")
         visible, _ = self.perf
         if visible is None:  # couldn't tell: the old rule, mangoapp running at all
             visible = system.process_running("mangoapp")
-        if engine == "auto":
-            return "steam" if visible else "gamescope"
-        if engine == "gamescope" and visible:
-            # gamescope shows one external overlay, and the performance
-            # overlay has it: the gamescope engine would be invisible now.
-            return "steam"
-        return engine if engine in ("gamescope", "steam") else "gamescope"
+        if self.hold:
+            # The performance overlay is being turned off for the call: stay
+            # on gamescope (no flip-flopping), unless it's still showing a
+            # while later, i.e. Steam didn't take the change.
+            if visible and time.monotonic() - self.hold_since > 8:
+                return "steam"
+            return "gamescope"
+        # gamescope shows one external overlay; while the performance
+        # overlay has it, draw inside Steam's overlay instead.
+        return "steam" if visible else "gamescope"
+
+    async def _update_hold(self, s=None):
+        hold = self.wants_hold(s)
+        if hold == self.hold:
+            return
+        self.hold = hold
+        self.hold_since = time.monotonic()
+        self.log.info("call %s: %s Steam's performance overlay", "started" if hold else "ended",
+                      "hiding" if hold else "restoring")
+        try:
+            await self.decky.emit("perf_hold", {"hold": hold})
+        except Exception as e:
+            self.log.warning(f"perf_hold event failed: {e}")
 
     @property
     def running(self):
@@ -74,6 +103,7 @@ class OverlayManager:
         while True:
             try:
                 self.perf = system.perf_overlay_state()
+                await self._update_hold()
                 active = self.active_engine()
                 if active == "gamescope":
                     if not self.running and time.monotonic() >= self.retry_at:
@@ -186,4 +216,5 @@ class OverlayManager:
                 "engine": s.get("overlay_engine", "auto"), "active": self.active_engine(s), "status": self.status,
                 "perf_overlay": self.perf[1], "calls": s.get("overlay_calls", True),
                 "size": s.get("overlay_size", "normal"), "opacity": s.get("overlay_opacity", 100),
-                "speakers_only": bool(s.get("overlay_speakers_only", False))}
+                "speakers_only": bool(s.get("overlay_speakers_only", False)), "hold": self.hold,
+                "hide_perf": bool(s.get("overlay_hide_perf", True))}
