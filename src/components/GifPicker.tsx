@@ -64,7 +64,7 @@ function GifGrid({ list, onPick }: { list: Gif[]; onPick: (g: Gif) => void }) {
   );
 }
 
-// Discord's GIF picker: favorites, trending and search. Picking one sends it.
+// Discord's GIF picker: your favorites, and search. Picking one sends it.
 export function GifPicker({ onPick, onClose }: { onPick: (g: Gif) => void; onClose: () => void }) {
   const [home, setHome] = useState<Gifs | null>(null);
   const [query, setQuery] = useState("");
@@ -130,14 +130,17 @@ export function GifPicker({ onPick, onClose }: { onPick: (g: Gif) => void; onClo
               <GifGrid list={home.favorites} onPick={onPick} />
             </>
           )}
-          {!!home?.trending?.length && (
-            <>
-              <PanelSectionRow><div style={small}>Trending</div></PanelSectionRow>
-              <GifGrid list={home.trending} onPick={onPick} />
-            </>
+          {home && !home.error && !home.favorites?.length && (
+            <PanelSectionRow>
+              <div style={small}>No favorite GIFs yet. Star GIFs in Discord to see them here, or search above.</div>
+            </PanelSectionRow>
           )}
         </>
       )}
+      {/* Close from the bottom too, without scrolling back up. */}
+      <PanelSectionRow>
+        <DialogButton onClick={onClose}>Close GIFs</DialogButton>
+      </PanelSectionRow>
     </>
   );
 }

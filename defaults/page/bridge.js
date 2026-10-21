@@ -1173,12 +1173,8 @@
             const r = await C().RestAPI.get({ url: "/gifs/search", query: { q: query, provider: "tenor", media_format: "mp4", locale, limit: 40 } });
             return { gifs: (r.body || []).map(gifOut).filter(Boolean) };
         }
-        let trending = [];
-        try {
-            const r = await C().RestAPI.get({ url: "/gifs/trending-gifs", query: { provider: "tenor", media_format: "mp4", locale, limit: 30 } });
-            trending = (r.body || []).map(gifOut).filter(Boolean);
-        } catch (e) { warn("trending gifs", e); }
-        return { favorites: favoriteGifs(), trending };
+        // Favorites only: Discord's trending picks just took up space.
+        return { favorites: favoriteGifs() };
     }
 
     // ----------------------------------------------------------- emojis
