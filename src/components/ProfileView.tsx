@@ -211,7 +211,7 @@ export function ProfilePanel({ userId, inline }: { userId: string | null; inline
               </div>
             </Block>
           ))}
-          {p.note && (
+          {typeof p.note === "string" && p.note && (
             <Block>
               <div style={head}>Note (only visible to you)</div>
               <div style={{ fontSize: 13, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{p.note}</div>

@@ -1152,7 +1152,8 @@
             connections: (p.connected_accounts || []).map((c) => ({ type: c.type, label: CONNECTIONS[c.type] || c.type, name: c.name, verified: !!c.verified })),
             mutual_friends: p.mutual_friends_count ?? (p.mutual_friends || []).length ?? null,
             mutual_servers: (p.mutual_guilds || []).length || null,
-            note: (() => { try { const N = store("NoteStore"); const n = N && N.getNote && N.getNote(userId); return (n && (n.note ?? n)) || null; } catch (_) { return null; } })(),
+            // Discord's note store answers {loading: true} while it fetches.
+            note: (() => { try { const N = store("NoteStore"); const n = N && N.getNote && N.getNote(userId); const t = typeof n === "string" ? n : n && n.note; return typeof t === "string" && t ? t : null; } catch (_) { return null; } })(),
         };
     }
 

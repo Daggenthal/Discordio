@@ -265,8 +265,8 @@ const SettingsPanel = () => {
       </PanelSectionRow>
       <PanelSectionRow>
         <ToggleField
-          label="Hide Usernames"
-          description="For screenshots: hides usernames, and swaps friends' and servers' names for made-up ones"
+          label="Streamer Mode"
+          description="Randomizes your friends' names, server names, and voice channel names as well, to keep information hidden if streaming"
           checked={ui.hideUsernames}
           onChange={(v) => {
             setUiSetting("hideUsernames", v);
@@ -442,8 +442,8 @@ export default definePlugin(() => {
   const stopCaptchaNotifications = safe("Human check notifications", () => startCaptchaNotifications());
   const stopLoginHandoff = safe("Login hand-off", () => startLoginHandoff());
   const stopWatchNotices = safe("Stream notices", () => startWatchNotices());
-  // Hide Usernames lives on this Steam install; tell the backend at load.
-  safe("Sync Hide Usernames", () => {
+  // Streamer Mode lives on this Steam install; tell the backend at load.
+  safe("Sync Streamer Mode", () => {
     call("set_hide_names", getUiSettings().hideUsernames).catch(() => {});
   });
   safe("Reopen after update", () =>

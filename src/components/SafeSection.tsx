@@ -1,4 +1,5 @@
 import { Component, ReactNode } from "react";
+import { ButtonItem, PanelSectionRow } from "@decky/ui";
 import { note } from "../lib/diag";
 
 // Catches render errors in one QAM section so a bug there shows a short
@@ -17,9 +18,16 @@ export class SafeSection extends Component<{ name: string; children?: ReactNode 
   render() {
     if (this.state.error) {
       return (
-        <div style={{ fontSize: "11px", color: "#ff6b6b", padding: "4px 16px", wordBreak: "break-word" }}>
-          {this.props.name} hit an error: {this.state.error}
-        </div>
+        <>
+          <div style={{ fontSize: "11px", color: "#ff6b6b", padding: "4px 16px", wordBreak: "break-word" }}>
+            {this.props.name} hit an error: {this.state.error}
+          </div>
+          <PanelSectionRow>
+            <ButtonItem layout="below" onClick={() => this.setState({ error: null })}>
+              Try Again
+            </ButtonItem>
+          </PanelSectionRow>
+        </>
       );
     }
     return this.props.children ?? null;
